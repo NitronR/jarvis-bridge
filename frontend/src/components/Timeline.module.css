@@ -1,0 +1,51 @@
+.timeline { display: flex; flex-direction: column; gap: 8px; }
+.text { word-wrap: break-word; }
+.thought {
+  font-style: italic;
+  color: var(--color-text-muted);
+  border-left: 2px solid var(--color-border);
+  padding-left: 10px;
+}
+.thought summary { cursor: pointer; user-select: none; font-weight: 600; }
+.tool {
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.tool summary { cursor: pointer; user-select: none; font-weight: 600; }
+.toolArgs {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+}
+.toolResult {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+}
+.toolError { border-color: var(--color-danger); }
+.toolError summary { color: var(--color-danger); }
+.ok { color: var(--color-success); }
+.err { color: var(--color-danger); }
+.usage {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.usage span {
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.errorMsg {
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
