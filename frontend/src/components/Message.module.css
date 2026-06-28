@@ -1,0 +1,28 @@
+.message { display: flex; flex-direction: column; gap: 6px; }
+.user { align-items: flex-end; }
+.role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.bubble {
+  max-width: 80%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  word-wrap: break-word;
+}
+.user .bubble {
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent);
+}
+.error .bubble { border-color: var(--color-danger); color: var(--color-danger); }
+.attachments { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.attachments img {
+  max-width: 120px;
+  max-height: 120px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
