@@ -10,9 +10,8 @@
 //   7. On SIGINT / SIGTERM, shut the backend down cleanly.
 
 import "dotenv/config";
-import path from "node:path";
+import fs from "node:fs/promises";
 import { loadConfig } from "./config";
-import { ensureWorkspaceReady } from "./workspace/bootstrap";
 import { createAgentBackend } from "./agent";
 import { createBackendPool } from "./agent/backendPool";
 import { createServer } from "./server";
@@ -21,16 +20,9 @@ import { createToolRegistry } from "./tools";
 async function main(): Promise<void> {
   const cfg = loadConfig();
 
-  // 1. Workspace bootstrap.
-  const tplDir = path.resolve(process.cwd(), cfg.initialWorkspacePath);
-  const boot = await ensureWorkspaceReady(cfg.workspace, {
-    templateDir: tplDir,
-    initialSkills: cfg.initialSkills,
-  });
-  console.log(
-    `[jarvis-bridge] workspace ${boot.workspace} ` +
-      `(created=${boot.created}, copied=${boot.copied.length} files)`,
-  );
+  // 1. Ensure workspace dir exists (agent cwd + tools realpath root).
+  await fs.mkdir(cfg.workspace, { recursive: true });
+  console.log(`[jarvis-bridge] workspace ${cfg.workspace}`);
 
   // 2. Spawn the ACP agent backend (or stub when AGENT_CMD is empty).
   let chatBackend;
@@ -85,12 +77,10 @@ async function main(): Promise<void> {
     port: cfg.port,
     chatBackend,
     backendPool: pool,
-    initialWorkspacePath: cfg.initialWorkspacePath,
     injectContext: cfg.injectContext,
     injectContextMode: cfg.injectContextMode,
     autoApprove: { default: cfg.agent.autoApprove },
     tools,
-    onboarding: cfg.onboarding,
   });
   const server = app.listen(cfg.port, () => {
     console.log(

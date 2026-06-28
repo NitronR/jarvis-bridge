@@ -41,10 +41,10 @@ flowchart LR
 
 ---
 
-## Phase 1 — Config, workspace bootstrap, context injection
+## Phase 1 — Config, workspace dir, context injection
 
-**Goal:** the gateway can resolve its workspace, lay down first-run files, and build a context
-string to prepend to agent prompts.
+**Goal:** the gateway can resolve its workspace, ensure the dir exists, and build a context string
+to prepend to agent prompts.
 
 **Read:** [06-context-and-workspace.md](06-context-and-workspace.md),
 [09-config-and-setup.md](09-config-and-setup.md).
@@ -52,14 +52,14 @@ string to prepend to agent prompts.
 **Deliverables:**
 - `src/config.ts` — reads env into a typed `config` object (workspace path, port, agent command/args,
   context-injection flags, etc.). Creates the workspace dir if missing.
-- `src/workspace/bootstrap.ts` — `ensureWorkspaceReady`, idempotent template copy, skill install with
-  dependency resolution, onboarding markers.
-- `initial_workspace/` — template context files (`IDENTITY.md`, `SOUL.md`, `USER.md`, `AGENTS.md`,
-  `MEMORY.md`, `TOOLS.md`, `HEARTBEAT.md`) + sample skills.
 - `src/context/index.ts` — `buildContext(workspace, mode, injectMode)`, `wrapMessageWithContext`,
   `CONTEXT_READY_MESSAGE`. Support `paths` and `full` modes.
 
-**Done when:** starting against an empty workspace populates it from the template, and a unit
+> **Bootstrap is intentionally minimal.** No template files, no skill install, no onboarding flow.
+> The workspace is just an empty directory used as the agent's cwd and the tools' path-traversal
+> root. Any context injection reads files the user puts in the workspace themselves.
+
+**Done when:** starting against an empty workspace creates the dir without error, and a unit
 call to `buildContext` returns a sensible context block for both modes.
 
 ---

@@ -1,6 +1,5 @@
 // Env → typed config. Pure parsing — no side effects on the filesystem
-// beyond expanding `~` in workspace paths. Bootstrap is responsible for
-// creating the workspace dir.
+// beyond expanding `~` in workspace paths.
 
 import os from "node:os";
 import path from "node:path";
@@ -16,9 +15,6 @@ export interface AppConfig {
   };
   injectContext: boolean;
   injectContextMode: "paths" | "full";
-  initialWorkspacePath: string;
-  initialSkills: string[];
-  onboarding: boolean;
   shell: boolean;
   slackToken?: string;
   gatewayUrl: string;
@@ -57,12 +53,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     injectContext: boolOpt(env.INJECT_CONTEXT, "false"),
     injectContextMode,
-    initialWorkspacePath: env.INITIAL_WORKSPACE_PATH ?? "./initial_workspace",
-    initialSkills: (env.JARVIS_BRIDGE_INITIAL_SKILLS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0),
-    onboarding: boolOpt(env.JARVIS_BRIDGE_ONBOARDING),
     shell: boolOpt(env.JARVIS_BRIDGE_SHELL, "false"),
     slackToken: env.SLACK_BOT_TOKEN?.trim() || undefined,
     gatewayUrl: env.JARVIS_BRIDGE_GATEWAY_URL ?? "http://localhost:3001",

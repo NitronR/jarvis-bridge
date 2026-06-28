@@ -19,9 +19,6 @@ test("loadConfig applies defaults when no env provided", () => {
   assert.equal(cfg.agent.autoApprove, false);
   assert.equal(cfg.injectContext, true);
   assert.equal(cfg.injectContextMode, "paths");
-  assert.equal(cfg.initialWorkspacePath, "./initial_workspace");
-  assert.deepEqual(cfg.initialSkills, []);
-  assert.equal(cfg.onboarding, false);
   assert.equal(cfg.shell, true);
   assert.equal(cfg.slackToken, undefined);
   assert.equal(cfg.gatewayUrl, "http://localhost:3001");
@@ -61,11 +58,6 @@ test("loadConfig: INJECT_CONTEXT_MODE falls back to 'paths' for unknown values",
   assert.equal(loadConfig(env({ INJECT_CONTEXT_MODE: "full" })).injectContextMode, "full");
   assert.equal(loadConfig(env({ INJECT_CONTEXT_MODE: "bogus" })).injectContextMode, "paths");
   assert.equal(loadConfig(env({ INJECT_CONTEXT_MODE: "" })).injectContextMode, "paths");
-});
-
-test("loadConfig: JARVIS_BRIDGE_INITIAL_SKILLS splits csv", () => {
-  const cfg = loadConfig(env({ JARVIS_BRIDGE_INITIAL_SKILLS: "alpha, beta,gamma" }));
-  assert.deepEqual(cfg.initialSkills, ["alpha", "beta", "gamma"]);
 });
 
 test("loadConfig: SLACK_BOT_TOKEN captured when set", () => {

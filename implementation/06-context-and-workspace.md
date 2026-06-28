@@ -5,18 +5,20 @@ template; before each chat turn it can prepend a **context** block built from th
 
 ## Workspace location & layout
 
-Default `~/.jarvis-bridge` (override with `JARVIS_BRIDGE_WORKSPACE`). A nested `.jarvis-bridge/`
-holds machine state.
+Default `~/.jarvis-bridge` (override with `JARVIS_BRIDGE_WORKSPACE`). The workspace is a plain
+directory created on first run (`fs.mkdir(..., { recursive: true })`) and used as:
+
+1. The default `cwd` passed to the ACP agent when it spawns a session.
+2. The realpath root for the workspace-scoped `read_file` / `write_file` tools (path-traversal
+   guard).
+3. An optional read source for `src/context/index.ts:buildContext` — the user can place any files
+   they want prepended to agent turns. No template is copied on first run.
 
 ```
-<workspace>/
-├── IDENTITY.md, SOUL.md, USER.md, AGENTS.md, MEMORY.md, TOOLS.md, HEARTBEAT.md  # context files
-├── memory/<YYYY-MM-DD>.md         # daily logs (read by context injection in "main" mode)
-├── skills/<name>/...              # installed skills (see skill-UI convention below)
-├── .skills-data/<name>/data.json  # per-skill persisted state (workspace top level)
+<workspace>/                   # plain directory, user-owned
+├── (whatever the user puts here)
 └── .jarvis-bridge/
     ├── chat-session-metadata.json # UI-side per-session metadata (title/pinned/group/cwd)
-    ├── onboarded                  # first-run marker (ISO timestamp)
     └── logs/agent-chat-<isoStamp>.log # agent subprocess stderr
 ```
 
@@ -67,29 +69,16 @@ backend strips when reconstructing replayed user turns (see [02-acp-backend.md](
   scoped to an arbitrary project folder does not get workspace context). Controlled by env
   `INJECT_CONTEXT` (anything but `"false"` enables) and `INJECT_CONTEXT_MODE` (`full` else `paths`).
 
-## First-run bootstrap — `src/workspace/bootstrap.ts`
+## First-run bootstrap
 
-Idempotent; never overwrites existing files.
+There is **no template copy** and **no onboarding flow**. The gateway does only:
 
-- `INITIAL_FILES = ["SOUL.md","IDENTITY.md","USER.md","AGENTS.md","MEMORY.md","TOOLS.md","HEARTBEAT.md"]`.
-- `isOnboarded(workspace)` — existence check on `.jarvis-bridge/onboarded`.
-- `isFilled(content)` — regex for a real `- **Name:** <value>` line (distinguishes a filled file from
-  a template).
-- `getWorkspaceFillStatus` / `hasFilledIdentityAndUser` — whether `IDENTITY.md` & `USER.md` are real.
-- `copyInitialWorkspace(workspace, initialWorkspacePath, initialSkillNames = [])`:
-  - Create `.jarvis-bridge/` and `memory/`.
-  - Copy each `INITIAL_FILES` entry from the template **only if the destination is absent**
-    (skip-on-exist; failures warned, not fatal).
-  - **Skill install:** for each requested skill, resolve dependencies first. A skill dir may contain a
-    `dependencies` file (newline/comma-separated skill names); copy deps before the skill. Guard
-    against cycles (`visiting` set) and double-copy (`copied` set); skip already-present skills and
-    non-directories; copy with `fs.cp(..., { recursive: true })`.
-- `ensureWorkspaceReady` — copy the template **only when not onboarded and identity/user are
-  unfilled** (so it never clobbers an established workspace).
-- `completeOnboarding` — write the current ISO timestamp into the `onboarded` marker.
+- `fs.mkdir(workspace, { recursive: true })` — create the workspace dir if missing.
+- `fs.mkdir(<workspace>/.jarvis-bridge, { recursive: true })` — create the metadata dir the
+  gateway writes to (session metadata + agent stderr logs).
 
-Env: `INITIAL_WORKSPACE_PATH` (template source; default `<projectRoot>/initial_workspace`),
-`JARVIS_BRIDGE_INITIAL_SKILLS` (comma-separated skill names), `JARVIS_BRIDGE_ONBOARDING` (opt-in).
+The user owns the rest of the workspace contents. If they want context injection to find files,
+they put them there.
 
 ## The skill-UI convention
 

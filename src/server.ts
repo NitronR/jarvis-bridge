@@ -15,12 +15,10 @@ export interface CreateServerOptions {
   port: number;
   chatBackend: AgentBackend;
   backendPool: BackendPool;
-  initialWorkspacePath: string;
   injectContext: boolean;
   injectContextMode: "paths" | "full";
   autoApprove: { default: boolean };
   tools: Map<string, ToolHandler>;
-  onboarding: boolean;
 }
 
 // Per-session metadata store (gateway-side; not on the agent).
@@ -360,12 +358,9 @@ export function createServer(opts: CreateServerOptions): Express {
     });
   });
 
-  // ── Workspace (Phase 1 layer not yet implemented; minimal stubs) ──
+  // ── Workspace ──────────────────────────────────────────────────────
   app.get("/workspace/status", (_req, res) => {
     res.json({ onboarded: true, hasIdentity: true, hasUser: true });
-  });
-  app.post("/workspace/complete-onboarding", (_req, res) => {
-    res.json({ ok: true });
   });
   app.get("/workspace/branch", (_req, res) => {
     res.json({ ok: false, branch: null, error: "not a git repo" });

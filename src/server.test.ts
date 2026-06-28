@@ -28,12 +28,10 @@ async function withServer<T>(
       port: 0,
       chatBackend: backend,
       backendPool: pool,
-      initialWorkspacePath: "/nonexistent",
       injectContext: false,
       injectContextMode: "paths",
       autoApprove: { default: false },
       tools,
-      onboarding: false,
     });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.on("listening", () => resolve()));

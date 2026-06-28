@@ -8,9 +8,6 @@ jarvis-bridge/
 ├── tsconfig.json
 ├── .env.example
 ├── start.sh / stop.sh            # optional multi-instance launchers
-├── initial_workspace/            # template copied into a fresh workspace
-│   ├── IDENTITY.md, SOUL.md, USER.md, AGENTS.md, MEMORY.md, TOOLS.md, HEARTBEAT.md
-│   └── skills/<name>/...          # template skills (optional)
 ├── public/                       # static SPA (served as-is)
 │   ├── index.html
 │   ├── css/{app.css, hud.css, skill-ui.css}
@@ -20,6 +17,7 @@ jarvis-bridge/
     ├── index.ts                  # entry point
     ├── config.ts                 # env -> typed config
     ├── server.ts                 # Express app + all routes
+    ├── stubBackend.ts            # minimal AgentBackend when AGENT_CMD is unset
     ├── types.ts                  # tool param/result types
     ├── terminal.ts               # WS + node-pty drawer
     ├── mcp-server.ts             # optional stdio MCP server
@@ -30,8 +28,7 @@ jarvis-bridge/
     │   └── acp/
     │       ├── index.ts, jsonrpc.ts, mapping.ts, prompt-content.ts, image-resize.ts
     ├── context/index.ts
-    ├── tools/{index.ts, readFile.ts, writeFile.ts}
-    ├── workspace/bootstrap.ts
+    ├── tools/{index.ts, readFile.ts, writeFile.ts, pathGuard.ts}
     ├── slack/postMessage.ts      # optional
     └── types/pngjs.d.ts          # local type shim for pngjs
 ```
@@ -123,9 +120,6 @@ All names are arbitrary; rename to taste. Defaults shown.
 | `AGENT_AUTO_APPROVE` | `false` | Backend-wide default for the Auto-approve toggle (opt-in: only literal `"true"` enables). |
 | `INJECT_CONTEXT` | `true` | Enable context injection (anything but `"false"`). |
 | `INJECT_CONTEXT_MODE` | `paths` | `paths` (catalog) or `full` (inline file contents). |
-| `INITIAL_WORKSPACE_PATH` | `./initial_workspace` | Template source dir. |
-| `JARVIS_BRIDGE_INITIAL_SKILLS` | _unset_ | Comma-separated skill names to install on first run. |
-| `JARVIS_BRIDGE_ONBOARDING` | `false` | Opt into the first-run onboarding conversation. |
 | `JARVIS_BRIDGE_SHELL` | `true` | Enable the terminal drawer (set `false` to disable). |
 | `SLACK_BOT_TOKEN` | _unset_ | Optional Slack bot token (`xoxb-...`) for `POST /slack/message`. |
 | `JARVIS_BRIDGE_GATEWAY_URL` | `http://localhost:3001` | Gateway URL for the optional stdio MCP server. |
@@ -148,7 +142,7 @@ npm run build && npm start
 
 ### Startup sequence (`src/index.ts`)
 
-1. `ensureWorkspaceReady(workspace, initialWorkspacePath, initialSkills)`.
+1. `fs.mkdir(workspace, { recursive: true })` — create the workspace dir if missing.
 2. Create the chat backend via `createAgentBackend("chat", cfg, { workspace })`; apply the
    auto-approve default.
 3. Create the per-cwd backend pool (seeded with the default backend; per-cwd backends pin their log
