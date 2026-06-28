@@ -62,6 +62,12 @@ interface UsageTotals {
   cache_write_tokens: number;
   context_limit?: number;
   context_used?: number;
+  // opencode-specific additions (see 10-agent-opencode.md §8):
+  //   - `cost` arrives in `usage_update` notifications; absent on most agents.
+  //   - `thought_tokens` arrives in the final `session/prompt` result.
+  // Drop on the floor if your target agent does not emit them.
+  cost?: { amount: number; currency: string };
+  thought_tokens?: number;
 }
 ```
 
@@ -175,6 +181,9 @@ const WRAPPED_USER_MESSAGE_MARKER = "User message: "; // strip the context wrapp
 3. Send the ACP `initialize` request and negotiate capabilities:
 
 ```ts
+// NOTE: `clientCapabilities` shape is AGENT-DEFINED. The example below is one
+// valid set; calibrate per your target agent (see 10-agent-opencode.md §3 for
+// what opencode expects). Common keys: `fs`, `terminal`, `elicitation`.
 const initRes = await conn.sendRequest("initialize", {
   protocolVersion: ACP_PROTOCOL_VERSION,
   clientCapabilities: { elicitation: { form: {} } },
@@ -235,7 +244,7 @@ interface SessionContext {
 
 | Method | ACP call | Notes |
 |---|---|---|
-| `createSession({cwd,label})` | `session/new { cwd, mcpServers: [] }` | Require a `sessionId` back; cache models; optionally pin a configured model via `session/set_model` for **new** sessions only. |
+| `createSession({cwd,label})` | `session/new { cwd, mcpServers: [] }` | Require a `sessionId` back; **parse `configOptions[]` for models** — opencode (and any standards-compliant agent) returns `configOptions[]` of the form `{ id: "model", currentValue, options: [{value, name}, ...] }`, plus a parallel `mode` option (e.g. `build`/`plan`). A flat `availableModels` / `currentModelId` shape is agent-specific; do not assume it. Cache the parsed list. Optionally pin a configured model via `session/set_model` for **new** sessions only. |
 | `loadSession(id,{cwd})` | `session/load { sessionId, cwd, mcpServers: [] }` | Wrap in replay capture (below). If the agent returns a different id, re-key the context. Caches models but does **not** force a configured model (respects the persisted choice). |
 | `listSessions()` | `session/list {}` | Map entries to `ChatSessionSummary` (require string `sessionId`; carry `title`, `updatedAt`, `cwd`). |
 | `forkSession(id,{cwd})` | `session/fork { sessionId, cwd, mcpServers: [] }` | Gate on `supportsFork`. Returns a brand-new id cloning the source's history. **Full clone only** — any "fork at message" offset is ignored by the agent. |
@@ -453,7 +462,12 @@ When loading an existing session, the agent replays its history as `session/upda
 - `session/update` (notification) — text/thought deltas, tool calls/updates, usage, available
   commands.
 - `session/request_permission` (request) — resolved per the effective auto-approve state.
-- `elicitation/create` (request) — auto-cancelled.
+  **Required** — opencode and most ACP agents will invoke this.
+- `elicitation/create` (request) — auto-cancelled. **Required** if advertised in
+  `clientCapabilities`; otherwise the agent will not call it.
+- `fs/read_text_file` / `fs/write_text_file` (request) — **agent-defined opt-in.** Only implement
+  if your target agent actually invokes them. opencode uses its own internal `read`/`edit` tools
+  regardless of advertised `fs` capability (verified 2026-06-28). See `10-agent-opencode.md` §7.
 
 ---
 
@@ -469,3 +483,5 @@ When loading an existing session, the agent replays its history as `session/upda
 - [ ] Image-only prompts omit the empty text block; oversized images are skipped with a reason.
 - [ ] Healthcheck reconnects; liveness uses a timed `session/list` probe.
 - [ ] `close()` resolves dangling approvals so server handlers do not hang.
+- [ ] When `extensions` is absent from `agentCapabilities` (e.g. opencode), `supportsSteer` is
+      `false` and the frontend must hide the steer control. See `10-agent-opencode.md` §3.
