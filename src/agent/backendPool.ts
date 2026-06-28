@@ -26,6 +26,7 @@ export interface BackendPool {
   listBackends(): AgentBackend[];
   findSession(sessionId: string): Promise<BackendPoolSessionEntry | null>;
   listSessions(): Promise<BackendPoolSessionEntry[]>;
+  getSession(sessionId: string): Promise<AgentSession | null>;
 }
 
 export type BackendFactory = (
@@ -102,6 +103,15 @@ export async function createBackendPool(
     async findSession(sessionId: string): Promise<BackendPoolSessionEntry | null> {
       const all: BackendPoolSessionEntry[] = await listSessionsImpl(resolved);
       return all.find((e: BackendPoolSessionEntry) => e.summary.sessionId === sessionId) ?? null;
+    },
+
+    async getSession(sessionId: string): Promise<AgentSession | null> {
+      for (const [, backend] of resolved) {
+        if (!backend.getSession) continue;
+        const s = backend.getSession(sessionId);
+        if (s) return s;
+      }
+      return null;
     },
   };
 }

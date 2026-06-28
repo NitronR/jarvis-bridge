@@ -77,6 +77,7 @@ export class AcpAgentBackend implements AgentBackend {
   private conn: AcpConnection;
   private cfg: AcpBackendSpawnOptions;
   private sessions = new Map<string, SessionContext>();
+  private sessionObjects = new Map<string, AcpAgentSession>();
   private defaultAutoApprove = false;
   private alive = true;
   private model?: string;
@@ -315,6 +316,8 @@ export class AcpAgentBackend implements AgentBackend {
     ctx.availableModels = models.available;
     ctx.currentModelId = models.current;
     this.sessions.set(sessionId, ctx);
+    const sessionObj = new AcpAgentSession(this, sessionId, ctx);
+    this.sessionObjects.set(sessionId, sessionObj);
     // Optional model pin on NEW sessions.
     if (this.model) {
       try {
@@ -323,7 +326,7 @@ export class AcpAgentBackend implements AgentBackend {
         // ignore — agent may not support it
       }
     }
-    return new AcpAgentSession(this, sessionId, ctx);
+    return sessionObj;
   }
 
   async loadSession(sessionId: string, opts?: CreateSessionOptions): Promise<AgentSession> {
@@ -350,10 +353,12 @@ export class AcpAgentBackend implements AgentBackend {
       ctx.availableModels = models.available;
       ctx.currentModelId = models.current;
       this.sessions.set(id, ctx);
+      const sessionObj = new AcpAgentSession(this, id, ctx);
+      this.sessionObjects.set(id, sessionObj);
       // Wait briefly for replay activity to drain.
       await this.waitForReplayIdle(ctx);
       ctx.captureReplay = false;
-      return new AcpAgentSession(this, id, ctx);
+      return sessionObj;
     }
   }
 
@@ -389,7 +394,13 @@ export class AcpAgentBackend implements AgentBackend {
     if (!res.sessionId) throw new Error("agent did not return a forked sessionId");
     const ctx = this.makeSessionContext();
     this.sessions.set(res.sessionId, ctx);
-    return new AcpAgentSession(this, res.sessionId, ctx);
+    const sessionObj = new AcpAgentSession(this, res.sessionId, ctx);
+    this.sessionObjects.set(res.sessionId, sessionObj);
+    return sessionObj;
+  }
+
+  getSession(sessionId: string): AgentSession | null {
+    return this.sessionObjects.get(sessionId) ?? null;
   }
 
   getSessionModels(sessionId: string): SessionModelsInfo | null {
@@ -441,6 +452,14 @@ export class AcpAgentBackend implements AgentBackend {
       for (const [, p] of ctx.pendingApprovals) p.resolve(null);
       ctx.pendingApprovals.clear();
     }
+    for (const [, s] of this.sessionObjects) {
+      try {
+        await s.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.sessionObjects.clear();
     await this.conn.close();
     this.alive = false;
   }

@@ -1,32 +1,118 @@
-import express from "express";
-import path from "path";
+// Jarvis Bridge — entry point.
+//
+// Startup sequence:
+//   1. Load env config.
+//   2. Ensure the workspace dir is ready (create if missing, copy template).
+//   3. Spawn the ACP agent backend.
+//   4. Build the per-cwd backend pool seeded with the default backend.
+//   5. Healthcheck the agent; on failure print an actionable hint and exit.
+//   6. Start the HTTP gateway; serve the SPA from public/.
+//   7. On SIGINT / SIGTERM, shut the backend down cleanly.
 
-const PORT = Number(process.env.PORT ?? 3001);
-const PUBLIC_DIR = path.resolve(__dirname, "..", "public");
+import "dotenv/config";
+import path from "node:path";
+import { loadConfig } from "./config";
+import { ensureWorkspaceReady } from "./workspace/bootstrap";
+import { createAgentBackend } from "./agent";
+import { createBackendPool } from "./agent/backendPool";
+import { createServer } from "./server";
+import { createToolRegistry } from "./tools";
 
-const app = express();
+async function main(): Promise<void> {
+  const cfg = loadConfig();
 
-app.use(express.static(PUBLIC_DIR));
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
-
-const server = app.listen(PORT, () => {
-  console.log(`[jarvis-bridge] dev server listening on http://localhost:${PORT}`);
-  console.log(`[jarvis-bridge] serving ${PUBLIC_DIR}`);
-});
-
-function shutdown(signal: string): void {
-  console.log(`\n[jarvis-bridge] ${signal} received, shutting down`);
-  server.close((err) => {
-    if (err) {
-      console.error("[jarvis-bridge] error during shutdown", err);
-      process.exit(1);
-    }
-    process.exit(0);
+  // 1. Workspace bootstrap.
+  const tplDir = path.resolve(process.cwd(), cfg.initialWorkspacePath);
+  const boot = await ensureWorkspaceReady(cfg.workspace, {
+    templateDir: tplDir,
+    initialSkills: cfg.initialSkills,
   });
+  console.log(
+    `[jarvis-bridge] workspace ${boot.workspace} ` +
+      `(created=${boot.created}, copied=${boot.copied.length} files)`,
+  );
+
+  // 2. Spawn the ACP agent backend (or stub when AGENT_CMD is empty).
+  let chatBackend;
+  if (cfg.agent.command) {
+    chatBackend = await createAgentBackend(
+      "chat",
+      {
+        command: cfg.agent.command,
+        args: cfg.agent.args,
+        model: cfg.agent.model,
+      },
+      { workspace: cfg.workspace },
+    );
+  } else {
+    console.warn(
+      "[jarvis-bridge] AGENT_CMD not set — using stub backend (no real agent).",
+    );
+    const { StubBackend } = await import("./stubBackend");
+    chatBackend = new StubBackend();
+  }
+  chatBackend.setDefaultAutoApprove?.(cfg.agent.autoApprove);
+
+  // 3. Per-cwd backend pool.
+  const pool = await createBackendPool(chatBackend, cfg.workspace, async () =>
+    createAgentBackend(
+      "chat",
+      { command: cfg.agent.command, args: cfg.agent.args, model: cfg.agent.model },
+      { workspace: cfg.workspace },
+    ),
+  );
+
+  // 4. Healthcheck.
+  try {
+    const hc = await chatBackend.healthcheck({ retries: 1 });
+    if (!hc.ok) throw new Error(hc.detail ?? "agent healthcheck failed");
+  } catch (err) {
+    console.error(
+      "[jarvis-bridge] agent healthcheck failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    console.error(
+      "[jarvis-bridge] hint: if the agent CLI requires login, run it once in a terminal to authenticate, then retry.",
+    );
+    await chatBackend.shutdown().catch(() => {});
+    process.exit(1);
+  }
+
+  // 5. Tools + server.
+  const tools = createToolRegistry(cfg.workspace);
+  const app = createServer({
+    workspace: cfg.workspace,
+    port: cfg.port,
+    chatBackend,
+    backendPool: pool,
+    initialWorkspacePath: cfg.initialWorkspacePath,
+    injectContext: cfg.injectContext,
+    injectContextMode: cfg.injectContextMode,
+    autoApprove: { default: cfg.agent.autoApprove },
+    tools,
+    onboarding: cfg.onboarding,
+  });
+  const server = app.listen(cfg.port, () => {
+    console.log(
+      `[jarvis-bridge] gateway listening on http://localhost:${cfg.port}`,
+    );
+    console.log(`[jarvis-bridge] workspace: ${cfg.workspace}`);
+  });
+
+  const shutdown = async (signal: string): Promise<void> => {
+    console.log(`\n[jarvis-bridge] ${signal} received, shutting down`);
+    server.close();
+    await chatBackend.shutdown().catch(() => {});
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+main().catch((err: unknown) => {
+  console.error(
+    "[jarvis-bridge] fatal:",
+    err instanceof Error ? err.stack ?? err.message : String(err),
+  );
+  process.exit(1);
+});

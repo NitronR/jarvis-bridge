@@ -11,9 +11,11 @@
     "test": "TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test 'src/**/*.test.ts'"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.21.0",
     "jpeg-js": "^0.4.4",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

@@ -73,8 +73,16 @@ export interface AgentBackend {
     sessionId: string,
     opts?: CreateSessionOptions,
   ): Promise<AgentSession>;
+  getSession?(sessionId: string): AgentSession | null;
   getSessionModels?(sessionId: string): SessionModelsInfo | null;
   setSessionModel?(sessionId: string, modelId: string): Promise<void>;
+  getSlashCommands?(): Array<{ name: string; description?: string }>;
+
+  // Auto-approve (backend-wide default + per-session override).
+  getDefaultAutoApprove?(): boolean;
+  setDefaultAutoApprove?(v: boolean): void;
+  getSessionAutoApproveOverride?(sessionId: string): boolean | undefined;
+  setSessionAutoApprove?(sessionId: string, v: boolean | null): void;
 
   shutdown(): Promise<void>;
 }
