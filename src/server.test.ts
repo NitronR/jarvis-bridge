@@ -398,7 +398,7 @@ test("GET /chat/auto-approve default effective=false", async () => {
   }));
 });
 
-test("GET / serves the SPA index.html", async () => {
+test("GET / serves the React-built index.html", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),
     fn: async (url) => {
@@ -406,36 +406,23 @@ test("GET / serves the SPA index.html", async () => {
       assert.equal(res.status, 200);
       assert.match(res.headers.get("content-type") ?? "", /text\/html/);
       const html = await res.text();
-      assert.match(html, /<title>Jarvis Bridge<\/title>/);
-      assert.match(html, /id="chat-panel"/);
-      assert.match(html, /src="\/js\/chat\.js"/);
+      assert.match(html, /<div id="root">/);
+      assert.match(html, /\/assets\//);
     },
   }));
 });
 
-test("GET /css/app.css serves the design-token stylesheet", async () => {
+test("GET /assets/index-*.js serves the React bundle", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),
     fn: async (url) => {
-      const res = await fetch(`${url}/css/app.css`);
+      const html = await (await fetch(`${url}/`)).text();
+      const m = html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/);
+      assert.ok(m, "index.html should reference /assets/index-*.js");
+      const res = await fetch(`${url}/assets/${m[1]}`);
       assert.equal(res.status, 200);
       const text = await res.text();
-      assert.match(text, /--color-bg/);
-      assert.match(text, /--color-accent/);
-    },
-  }));
-});
-
-test("GET /js/<module>.js serves each behavior module", async () => {
-  await withServer(async (ws) => ({
-    backend: new FakeBackend(),
-    fn: async (url) => {
-      for (const m of ["nav", "chat", "skills", "status", "terminal", "settings", "analytics"]) {
-        const res = await fetch(`${url}/js/${m}.js`);
-        assert.equal(res.status, 200, `module ${m} should serve 200`);
-        const text = await res.text();
-        assert.ok(text.length > 100, `module ${m} should have real content`);
-      }
+      assert.ok(text.length > 100, "bundle should have content");
     },
   }));
 });
