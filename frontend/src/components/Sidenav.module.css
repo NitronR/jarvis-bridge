@@ -1,0 +1,50 @@
+.sidenav {
+  width: var(--sidenav-w);
+  flex-shrink: 0;
+  background: var(--color-surface-1);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0;
+}
+.brand {
+  padding: 4px 16px 12px;
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+.dot.ok { background: var(--color-success); }
+.dot.bad { background: var(--color-danger); }
+.groupLabel {
+  padding: 10px 16px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+.tab {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.tab:hover { background: var(--color-surface-2); }
+.tab.active {
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  font-weight: 600;
+}
