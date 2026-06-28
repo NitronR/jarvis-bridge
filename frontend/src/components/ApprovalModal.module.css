@@ -1,0 +1,31 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  min-width: 360px;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+}
+.header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.header h2 { margin: 0; font-size: 14px; }
+.body { padding: 14px; }
+.options {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.options button { text-align: left; }
