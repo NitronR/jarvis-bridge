@@ -1,0 +1,35 @@
+@import "./tokens.css";
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+button { font: inherit; color: inherit; background: transparent;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  padding: 4px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--color-border-strong); background: var(--color-surface-1); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--color-accent); border-color: var(--color-accent-strong); color: #001020; font-weight: 600; }
+button.primary:hover:not(:disabled) { background: var(--color-accent-strong); }
+button.danger { border-color: var(--color-danger); color: var(--color-danger); }
+
+input, textarea, select { font: inherit; color: inherit; background: var(--color-surface-1);
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 6px 8px; }
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--color-accent); }
+
+textarea { resize: vertical; }
+code, pre { font-family: var(--font-mono); font-size: 13px; }
+pre { background: var(--color-surface-1); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 8px 10px; overflow-x: auto; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--radius-sm); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
