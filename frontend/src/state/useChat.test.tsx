@@ -11,7 +11,6 @@ const baseInit: ChatInitResponse = {
   backend: { kind: "fake", role: "chat", model: null },
   sessionId: "sess-1",
   cwd: "/tmp/ws",
-  contextInjectionEnabled: true,
   resumed: false,
   capabilities: {
     multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false,

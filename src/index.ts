@@ -77,8 +77,6 @@ async function main(): Promise<void> {
     port: cfg.port,
     chatBackend,
     backendPool: pool,
-    injectContext: cfg.injectContext,
-    injectContextMode: cfg.injectContextMode,
     autoApprove: { default: cfg.agent.autoApprove },
     tools,
   });

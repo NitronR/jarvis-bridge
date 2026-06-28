@@ -22,63 +22,13 @@ directory created on first run (`fs.mkdir(..., { recursive: true })`) and used a
     └── logs/agent-chat-<isoStamp>.log # agent subprocess stderr
 ```
 
-## Context injection — `src/context/index.ts`
-
-Prepends workspace "system context" to outgoing messages so the agent knows who it is, who the user
-is, and what is in long-term memory — without the user re-stating it each turn.
-
-### Modes
-
-- `ContextMode = "main" | "onboarding" | "minimal"` — *which* files to consider.
-- `InjectContextMode = "full" | "paths"` — *how much* to embed.
-- `CONTEXT_READY_MESSAGE = "Context loaded. Ready for the user's message."` — the sentinel user text
-  for the hidden priming turn (the UI hides this turn and the assistant reply that follows it).
-
-### `buildContext(workspace, mode, injectMode = "full")`
-
-> The function's own default is `"full"`, but the gateway always passes the env-derived mode, which
-> defaults to `"paths"` (`INJECT_CONTEXT_MODE`). So in practice the default behavior is the
-> token-light `paths` catalog.
-
-- `onboarding` mode short-circuits to a fixed onboarding prompt that tells the agent to interview the
-  user and write `IDENTITY.md` / `USER.md` via the `write_file` tool.
-- Otherwise it reads: `IDENTITY.md`, `SOUL.md`, `USER.md`, `AGENTS.md`, `MEMORY.md`, `TOOLS.md`,
-  `HEARTBEAT.md`, plus daily logs `memory/<today>.md` and `memory/<yesterday>.md`.
-- **`paths` mode (default):** emit a compact catalog — for each file that exists, a bullet
-  `- **<name>** — <one-line summary>`. Daily memory files are listed only in `main` mode. Wrap with a
-  `[System context - do not repeat to user]` header and a `---` separator. The agent reads files on
-  demand → token-light.
-- **`full` mode:** inline each file's contents under section headers (`## Identity`, `## Soul`,
-  `## User`, `## Workspace Rules`, `## Long-Term Memory`, `## Tool Notes`, `## Heartbeat Tasks`,
-  `## Recent Context`). `MEMORY.md` is included only in `main` mode. Skip template-only files via an
-  `isFilled()` check (strip comments; require a real value, not an empty `- **Key:**` line).
-- Missing files read as `""` (never throw).
-
-### `wrapMessageWithContext(context, userMessage)`
-
-Returns `` `${context}User message: ${userMessage}` ``. The `"User message: "` marker is what the ACP
-backend strips when reconstructing replayed user turns (see [02-acp-backend.md](02-acp-backend.md)).
-
-### How it is used
-
-- **Priming:** `POST /chat/prime-context` builds context in `main` mode and sends it once as a hidden
-  turn (`CONTEXT_READY_MESSAGE`), draining the response. Normal turns then send the message alone.
-- **Onboarding:** `POST /chat/send` with `onboarding: true` prepends onboarding context to the first
-  real message.
-- Context injection is enabled only when the session's cwd equals the canonical workspace (a chat
-  scoped to an arbitrary project folder does not get workspace context). Controlled by env
-  `INJECT_CONTEXT` (anything but `"false"` enables) and `INJECT_CONTEXT_MODE` (`full` else `paths`).
-
 ## First-run bootstrap
 
-There is **no template copy** and **no onboarding flow**. The gateway does only:
-
-- `fs.mkdir(workspace, { recursive: true })` — create the workspace dir if missing.
-- `fs.mkdir(<workspace>/.jarvis-bridge, { recursive: true })` — create the metadata dir the
-  gateway writes to (session metadata + agent stderr logs).
-
-The user owns the rest of the workspace contents. If they want context injection to find files,
-they put them there.
+The workspace is a plain directory created on first run (`fs.mkdir(workspace, { recursive: true })`)
+and used as the agent's cwd + the tools' path-traversal root. **There is no context injection**:
+the gateway does not prepend any workspace files to agent prompts. The user owns the rest of the
+workspace contents and is free to drop notes, code, or anything else there — the agent will see
+whatever it finds via its normal tool use.
 
 ## The skill-UI convention
 

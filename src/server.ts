@@ -15,8 +15,6 @@ export interface CreateServerOptions {
   port: number;
   chatBackend: AgentBackend;
   backendPool: BackendPool;
-  injectContext: boolean;
-  injectContextMode: "paths" | "full";
   autoApprove: { default: boolean };
   tools: Map<string, ToolHandler>;
 }
@@ -35,7 +33,6 @@ export function createServer(opts: CreateServerOptions): Express {
     workspace,
     chatBackend,
     backendPool,
-    injectContext,
     autoApprove,
     tools,
   } = opts;
@@ -105,7 +102,6 @@ export function createServer(opts: CreateServerOptions): Express {
       },
       sessionId: session.id,
       cwd: requestedCwd ?? workspace,
-      contextInjectionEnabled: injectContext,
       resumed,
       capabilities: chatBackend.capabilities,
       slashCommands,
@@ -131,15 +127,6 @@ export function createServer(opts: CreateServerOptions): Express {
           }
         : { supported: false, available: [], current: null },
     });
-  }));
-
-  app.post("/chat/prime-context", smallJson, asyncRoute(async (req, res) => {
-    if (!injectContext) {
-      res.json({ ok: true, skipped: true });
-      return;
-    }
-    // Phase 1 context layer is not yet implemented; defer.
-    res.json({ ok: true, skipped: true });
   }));
 
   // ── POST /chat/send (SSE) ──────────────────────────────────────────

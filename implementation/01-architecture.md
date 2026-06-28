@@ -224,7 +224,7 @@ sequenceDiagram
   C-->>S: { sessionId, models }
   G-->>B: { sessionId, capabilities, history, model, autoApprove }
 
-  B->>G: POST /chat/prime-context (hidden context turn)
+  B->>G: POST /chat/send (first user turn)
   G->>S: sendMessage(context + CONTEXT_READY_MESSAGE)
   S-->>G: drained (not shown to user)
 

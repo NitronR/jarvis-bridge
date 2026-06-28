@@ -28,8 +28,6 @@ async function withServer<T>(
       port: 0,
       chatBackend: backend,
       backendPool: pool,
-      injectContext: false,
-      injectContextMode: "paths",
       autoApprove: { default: false },
       tools,
     });

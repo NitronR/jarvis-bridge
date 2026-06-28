@@ -118,8 +118,6 @@ All names are arbitrary; rename to taste. Defaults shown.
 | `AGENT_ARGS` | `<run subcommand>` | Whitespace-split args to start the ACP agent over stdio. |
 | `AGENT_MODEL` | _unset_ | Optional model pin via `session/set_model` for new sessions. |
 | `AGENT_AUTO_APPROVE` | `false` | Backend-wide default for the Auto-approve toggle (opt-in: only literal `"true"` enables). |
-| `INJECT_CONTEXT` | `true` | Enable context injection (anything but `"false"`). |
-| `INJECT_CONTEXT_MODE` | `paths` | `paths` (catalog) or `full` (inline file contents). |
 | `JARVIS_BRIDGE_SHELL` | `true` | Enable the terminal drawer (set `false` to disable). |
 | `SLACK_BOT_TOKEN` | _unset_ | Optional Slack bot token (`xoxb-...`) for `POST /slack/message`. |
 | `JARVIS_BRIDGE_GATEWAY_URL` | `http://localhost:3001` | Gateway URL for the optional stdio MCP server. |

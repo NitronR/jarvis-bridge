@@ -35,7 +35,6 @@ export interface ChatInitResponse {
   backend: { kind: string; role: string; model: string | null };
   sessionId: string;
   cwd: string;
-  contextInjectionEnabled: boolean;
   resumed: boolean;
   capabilities: AgentCapabilities;
   slashCommands: SlashCommand[];

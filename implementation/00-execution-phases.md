@@ -102,7 +102,7 @@ patches (text deltas + a tool call + usage). Cancellation and a healthcheck both
 - `src/types.ts`, `src/tools/{index,readFile,writeFile}.ts` — workspace-scoped file tools + registry +
   path-traversal guard.
 - `src/server.ts` — `createServer(...)` wiring all endpoints: `/health`, `/chat/init`,
-  `/chat/prime-context`, `/chat/send` (SSE), `/chat/cancel`, `/chat/sessions` (+ fork + PATCH),
+  `/chat/send` (SSE), `/chat/cancel`, `/chat/sessions` (+ fork + PATCH),
   `/chat/approval`, `/chat/steer`, `/chat/model`, `/chat/auto-approve`, `/workspace/*`, `/skills/*`,
   `/tools/execute`, and the generic event-hooks stub. Serves `public/`.
 - `src/index.ts` — bootstrap workspace, create backend + pool, healthcheck, start server, attach

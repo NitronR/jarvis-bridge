@@ -13,8 +13,6 @@ export interface AppConfig {
     model?: string;
     autoApprove: boolean;
   };
-  injectContext: boolean;
-  injectContextMode: "paths" | "full";
   shell: boolean;
   slackToken?: string;
   gatewayUrl: string;
@@ -40,8 +38,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const agentArgs = (env.AGENT_ARGS ?? "").trim().length
     ? env.AGENT_ARGS!.trim().split(/\s+/)
     : [];
-  const injectContextMode: "paths" | "full" =
-    env.INJECT_CONTEXT_MODE === "full" ? "full" : "paths";
   return {
     port,
     workspace,
@@ -51,8 +47,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       model: env.AGENT_MODEL?.trim() || undefined,
       autoApprove: boolOpt(env.AGENT_AUTO_APPROVE),
     },
-    injectContext: boolOpt(env.INJECT_CONTEXT, "false"),
-    injectContextMode,
     shell: boolOpt(env.JARVIS_BRIDGE_SHELL, "false"),
     slackToken: env.SLACK_BOT_TOKEN?.trim() || undefined,
     gatewayUrl: env.JARVIS_BRIDGE_GATEWAY_URL ?? "http://localhost:3001",

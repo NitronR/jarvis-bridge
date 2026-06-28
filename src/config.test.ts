@@ -17,8 +17,6 @@ test("loadConfig applies defaults when no env provided", () => {
   assert.deepEqual(cfg.agent.args, []);
   assert.equal(cfg.agent.model, undefined);
   assert.equal(cfg.agent.autoApprove, false);
-  assert.equal(cfg.injectContext, true);
-  assert.equal(cfg.injectContextMode, "paths");
   assert.equal(cfg.shell, true);
   assert.equal(cfg.slackToken, undefined);
   assert.equal(cfg.gatewayUrl, "http://localhost:3001");
@@ -45,19 +43,6 @@ test("loadConfig: AGENT_AUTO_APPROVE only enables on literal 'true'", () => {
   assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "True" })).agent.autoApprove, false);
   assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "1" })).agent.autoApprove, false);
   assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "" })).agent.autoApprove, false);
-});
-
-test("loadConfig: INJECT_CONTEXT disables only on literal 'false'", () => {
-  assert.equal(loadConfig(env({ INJECT_CONTEXT: "true" })).injectContext, true);
-  assert.equal(loadConfig(env({ INJECT_CONTEXT: "yes" })).injectContext, true);
-  assert.equal(loadConfig(env({ INJECT_CONTEXT: "" })).injectContext, true);
-  assert.equal(loadConfig(env({ INJECT_CONTEXT: "false" })).injectContext, false);
-});
-
-test("loadConfig: INJECT_CONTEXT_MODE falls back to 'paths' for unknown values", () => {
-  assert.equal(loadConfig(env({ INJECT_CONTEXT_MODE: "full" })).injectContextMode, "full");
-  assert.equal(loadConfig(env({ INJECT_CONTEXT_MODE: "bogus" })).injectContextMode, "paths");
-  assert.equal(loadConfig(env({ INJECT_CONTEXT_MODE: "" })).injectContextMode, "paths");
 });
 
 test("loadConfig: SLACK_BOT_TOKEN captured when set", () => {

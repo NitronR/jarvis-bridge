@@ -44,7 +44,6 @@ Resolves/creates a session (creating a fresh one when no resumable id is given),
   "backend": { "kind": "acp", "role": "chat", "model": "<label|null>" },
   "sessionId": "…",
   "cwd": "/abs/path",
-  "contextInjectionEnabled": true,
   "resumed": false,
   "capabilities": { /* AgentCapabilities */ },
   "slashCommands": [ { "name": "…", "description": "…" } ],
@@ -55,11 +54,6 @@ Resolves/creates a session (creating a fresh one when no resumable id is given),
 ```
 
 Errors: `400` for bad `cwd` (missing / not a dir); `502` if the backend can't be reached.
-
-### `POST /chat/prime-context`
-Send the workspace context as a hidden first turn and drain the response (not shown in the UI).
-Body/query may carry `sessionId`. Skips (returns `{ ok: true, skipped: true }`) when context
-injection is disabled for the session's cwd. See [06-context-and-workspace.md](06-context-and-workspace.md).
 
 ### `POST /chat/send`  — **SSE**
 Run one turn. Body:

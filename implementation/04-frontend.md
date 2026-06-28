@@ -86,7 +86,7 @@ and dispatches lifecycle hooks to the right module (`JarvisSkillsManage.load`, `
 
 ### Endpoints it uses
 
-`GET /chat/init`, `POST /chat/prime-context`, `POST /chat/send` (SSE), `POST /chat/cancel`,
+`GET /chat/init`, `POST /chat/send` (SSE), `POST /chat/cancel`,
 `POST /chat/steer`, `POST /chat/approval`, `POST /chat/model`, `POST /chat/auto-approve`,
 `GET /chat/sessions`, `PATCH /chat/sessions/:id`, `POST /chat/sessions/fork`, `POST /chat/worktree`,
 `POST /chat/pick-folder`, `GET /workspace/branch`, `GET /workspace/status`,
