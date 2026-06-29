@@ -115,21 +115,28 @@ patches (text deltas + a tool call + usage). Cancellation and a healthcheck both
 
 ## Phase 4 — Behavioral frontend (plain theme)
 
-**Goal:** a usable web UI with no HUD styling yet — correctness first.
+**Goal:** a usable React SPA with no HUD styling yet — correctness first.
 
-**Read:** [04-frontend.md](04-frontend.md), [03-http-api.md](03-http-api.md).
+**Read:** [04-frontend.md](04-frontend.md), [03-http-api.md](03-http-api.md), [08-terminal-and-integrations.md](08-terminal-and-integrations.md).
 
 **Deliverables:**
-- `public/index.html` — the full SPA shell with stable structural IDs (sidenav, panels, chat
-  transcript, composer, info panel, approval modal, terminal drawer).
-- `public/js/chat.js` — chat lifecycle, the SSE `ChatPatch` renderer (shared by live stream and
-  restored history), sessions sidebar, fork/steer/model/auto-approve, image paste/drop/attach,
-  onboarding + context priming, notifications/favicon.
-- `public/js/skills.js`, `public/js/status.js`, `public/js/terminal.js`, `public/js/settings.js`,
-  `public/js/analytics.js` (no-op stub), and `public/js/nav.js` (hash tab router + toasts + confirm
-  modal helpers).
-- `public/css/app.css` — a plain dark theme using a `:root` design-token block (token **names** will
-  be reused unchanged in Phase 5).
+- `frontend/` — Vite + React 18 + TypeScript SPA, served from `public/` in production.
+- `frontend/src/main.tsx` + `App.tsx` — root, hash router, layout, `ToastProvider`.
+- `frontend/src/state/ChatContext.tsx` + `useChat.ts` + `hooks/useSSE.ts` — chat lifecycle, SSE
+  pump, fork/steer/model/auto-approve, resolve-approval.
+- `frontend/src/components/ChatPanel.tsx` + `Transcript.tsx` + `Message.tsx` — live stream +
+  history renderer (shared path).
+- `frontend/src/components/Composer.tsx` — message + image attach (paste/drop/picker) + queue +
+  steer.
+- `frontend/src/components/ApprovalModal.tsx` — surfaces ACP `request_permission` patches;
+  resolves via `POST /chat/approval`.
+- `frontend/src/components/PastChatsMenu.tsx` + entry button in `ChatPanel` header — list /
+  switch past sessions via `GET /chat/sessions`.
+- `frontend/src/components/TerminalDrawer.tsx` (xterm.js + ws client) + `src/terminal.ts`
+  (`ws` + `@homebridge/node-pty-prebuilt-multiarch` bridge behind `/terminal` upgrade) — see
+  [08-terminal-and-integrations.md](08-terminal-and-integrations.md) for protocol + drift note.
+- `frontend/src/styles/tokens.css` + `*.module.css` per component — stable `:root` design-token
+  names; Phase 5 retunes values without touching behavior.
 
 **Done when:** you can chat with streaming output, approve a tool call, switch sessions, fork, attach
 an image, and open the terminal drawer — all in a plain theme.

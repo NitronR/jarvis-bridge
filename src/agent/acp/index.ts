@@ -180,8 +180,15 @@ export class AcpAgentBackend implements AgentBackend {
   }
 
   private async handleSessionUpdate(params: unknown): Promise<void> {
-    const update = params as { sessionId?: string } & AcpUpdate;
-    const sid = update.sessionId;
+    const wrapped = params as { sessionId?: string; update?: AcpUpdate } & AcpUpdate;
+    // opencode acp nests the update body under an `update` key:
+    //   { sessionId, update: { sessionUpdate, content, ... } }
+    // Unwrap so mapping sees the update body directly.
+    const update = (wrapped.update && typeof wrapped.update === "object"
+      ? wrapped.update
+      : wrapped) as AcpUpdate;
+    // sessionId sits on the outer envelope, NOT inside update.
+    const sid = wrapped.sessionId;
     if (!sid) return;
     const ctx = this.sessions.get(sid);
     if (!ctx) return;

@@ -113,6 +113,30 @@ describe("AcpAgentSession.sendMessage — streaming", () => {
       await backend.shutdown();
     }
   });
+
+  // Regression for the "empty reply" bug: opencode acp nests the update
+  // body under an `update` key and puts `sessionId` on the outer envelope.
+  // If handleSessionUpdate reads the flat shape, every text-delta is
+  // dropped silently and the client sees usage + done with no body.
+  test("nested-shape session/update delivers text patches to the client", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_NEW_TEXT: JSON.stringify(["Hello", " world"]),
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      const patches = await collectPatches(session.sendMessage("hi"));
+      const textStarts = patches.filter((p) => p.type === "text-start");
+      const textDeltas = patches.filter((p) => p.type === "text-delta");
+      assert.equal(textStarts.length, 1, "expected one text-start patch");
+      assert.ok(textDeltas.length >= 1, "expected at least one text-delta patch");
+      // Concatenated deltas should reconstruct the full agent reply.
+      const fullText = textStarts[0].content +
+        textDeltas.map((p) => (p.type === "text-delta" ? p.delta : "")).join("");
+      assert.equal(fullText, "Hello world");
+    } finally {
+      await backend.shutdown();
+    }
+  });
 });
 
 describe("AcpAgentSession.cancel", () => {

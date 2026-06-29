@@ -42,6 +42,16 @@ function attachTerminalServer(opts: { server: http.Server; workspace: string; en
   the gateway port can run commands as the host user. Intended for **localhost-only** use. Document
   this loudly and let operators disable it.
 
+### Drift note (2026-06-29)
+
+The plan called for `node-pty@^1.0.0`, but v1.1.0's prebuilt `pty.node` is non-NAPI (compiled
+against a specific Node-ABI) and fails with `posix_spawnp failed` on Node 25+ (current dev box
+runs `node v25.6.1`). Drop-in replacement: **`@homebridge/node-pty-prebuilt-multiarch@^0.12`** — same
+API, same `./typings/node-pty.d.ts`, but uses Node-API (`napi_get_version` / N-API V8 ABI) so it
+works across Node versions including 25. Source code uses the homebridge fork's type module path
+(`@homebridge/node-pty-prebuilt-multiarch`); the wrapper module shape (the `spawn` function and
+`IPty` shape) is identical to `node-pty`.
+
 ## Slack helper — `src/slack/postMessage.ts` (optional)
 
 A thin wrapper over the Slack Web API `chat.postMessage`.

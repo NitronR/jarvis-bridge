@@ -63,8 +63,10 @@ async function handlePrompt(id, params, sessionId) {
       method: "session/update",
       params: {
         sessionId,
-        sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: t },
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: t },
+        },
       },
     });
     cumulative += t;
@@ -77,12 +79,14 @@ async function handlePrompt(id, params, sessionId) {
       method: "session/update",
       params: {
         sessionId,
-        sessionUpdate: "tool_call",
-        toolCallId: toolCall.toolCallId,
-        toolCall: {
+        update: {
+          sessionUpdate: "tool_call",
           toolCallId: toolCall.toolCallId,
-          title: toolCall.title,
-          kind: toolCall.kind,
+          toolCall: {
+            toolCallId: toolCall.toolCallId,
+            title: toolCall.title,
+            kind: toolCall.kind,
+          },
         },
       },
     });
@@ -93,9 +97,11 @@ async function handlePrompt(id, params, sessionId) {
       method: "session/update",
       params: {
         sessionId,
-        sessionUpdate: "tool_call_update",
-        toolCallId: toolCall.toolCallId,
-        rawInput: toolCall.rawInput,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: toolCall.toolCallId,
+          rawInput: toolCall.rawInput,
+        },
       },
     });
     await chunkDelay(chunkEvery);
@@ -105,10 +111,12 @@ async function handlePrompt(id, params, sessionId) {
       method: "session/update",
       params: {
         sessionId,
-        sessionUpdate: "tool_call_update",
-        toolCallId: toolCall.toolCallId,
-        status: "completed",
-        rawOutput: toolCall.output,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: toolCall.toolCallId,
+          status: "completed",
+          rawOutput: toolCall.output,
+        },
       },
     });
     await chunkDelay(chunkEvery);
@@ -119,10 +127,12 @@ async function handlePrompt(id, params, sessionId) {
     method: "session/update",
     params: {
       sessionId,
-      sessionUpdate: "usage_update",
-      inputTokens: 11,
-      outputTokens: cumulative.length,
-      cachedReadTokens: 4,
+      update: {
+        sessionUpdate: "usage_update",
+        inputTokens: 11,
+        outputTokens: cumulative.length,
+        cachedReadTokens: 4,
+      },
     },
   });
   // final result

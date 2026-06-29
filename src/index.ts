@@ -16,6 +16,7 @@ import { createAgentBackend } from "./agent";
 import { createBackendPool } from "./agent/backendPool";
 import { createServer } from "./server";
 import { createToolRegistry } from "./tools";
+import { attachTerminalServer } from "./terminal";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -86,6 +87,15 @@ async function main(): Promise<void> {
     );
     console.log(`[jarvis-bridge] workspace: ${cfg.workspace}`);
   });
+
+  attachTerminalServer({
+    server,
+    workspace: cfg.workspace,
+    enabled: cfg.shell,
+  });
+  if (!cfg.shell) {
+    console.log("[jarvis-bridge] terminal /terminal disabled (JARVIS_BRIDGE_SHELL=false)");
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n[jarvis-bridge] ${signal} received, shutting down`);

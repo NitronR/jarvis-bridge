@@ -222,4 +222,10 @@ Re-run this probe after any opencode upgrade before treating this doc as current
 
 - **`fs/*` handlers in spec:** should `02-acp-backend.md` §7 remove `fs/read_text_file` / `fs/write_text_file` from the "must implement" list, or keep them as agent-defined opt-ins? Recommend: keep, but mark explicitly as opt-in per agent.
 - **`cost` / `thoughtTokens` in `UsageTotals`:** add to `UsageTotals` or drop on the floor? Recommend: add, both — they're cheap to carry and the JARVIS HUD will want them.
+
+---
+
+## 12. Drift notes (date → what changed, why)
+
+- **2026-06-29 — Empty-reply bug fix.** The spec at line 143 has always described the envelope correctly: `params.{ sessionId, update: { sessionUpdate, ... } }`. But `src/agent/acp/index.ts:handleSessionUpdate` was reading `params.update.sessionUpdate` as if `params` itself were the body — i.e. it treated `params.sessionUpdate` (always undefined on real opencode) and ignored the actual update envelope. Result: every `agent_message_chunk` was dropped on the floor; the client only ever saw `usage_update` + `done` and rendered an empty bubble. The fake-streaming-agent fixture happened to emit the flat shape too, so unit tests passed in isolation. Fix unwraps `params.update` first; `test/fixtures/fake-streaming-agent.cjs` now emits the nested shape to match opencode, and `src/agent/acp/index.test.ts` has a regression test that asserts two text deltas reconstruct the full reply. Symptom was reproducible against the real opencode process by pointing `.env` at `AGENT_CMD=opencode` and asking any question.
 - **Steer:** `extensions` is absent from opencode's capability set → `supportsSteer = false`. Frontend should hide the steer control when this is false.
