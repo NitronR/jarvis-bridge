@@ -27,6 +27,7 @@ try {
 
 const delayMs = parseInt(process.env.X_FAKE_AGENT_DELAY_MS || "20", 10);
 const advertiseDelete = process.env.X_FAKE_AGENT_SESSION_DELETE === "true";
+const advertisePromptQueueing = process.env.X_FAKE_AGENT_PROMPT_QUEUEING === "true";
 
 let nextId = 1;
 let nextSessionId = 1;
@@ -166,6 +167,7 @@ rl.on("line", async (line) => {
           promptCapabilities: { image: true },
           sessionCapabilities: advertiseDelete ? { fork: {}, delete: {} } : { fork: {} },
           extensions: { "jarvis-bridge/steer": {} },
+          ...(advertisePromptQueueing ? { _meta: { claudeCode: { promptQueueing: true } } } : {}),
         },
         agentInfo: { name: "fake-agent", version: "0.0.1" },
       });

@@ -124,6 +124,7 @@ export class AcpAgentBackend implements AgentBackend {
         extensions?: Record<string, unknown>;
         sessionCapabilities?: Record<string, unknown>;
         promptCapabilities?: { image?: boolean };
+        _meta?: { claudeCode?: { promptQueueing?: boolean } };
       };
     };
 
@@ -134,11 +135,13 @@ export class AcpAgentBackend implements AgentBackend {
     const canFork = hasExtension(caps.sessionCapabilities, "fork");
     const sessionDelete = hasExtension(caps.sessionCapabilities, "delete");
     const images = caps.promptCapabilities?.image === true;
+    const promptQueueing = caps._meta?.claudeCode?.promptQueueing === true;
 
     this.capabilities.steer = steer;
     this.capabilities.canFork = canFork;
     this.capabilities.sessionDelete = sessionDelete;
     this.capabilities.images = images;
+    this.capabilities.promptQueueing = promptQueueing;
 
     // Register server→client handlers.
     this.conn.onRequest("session/request_permission", async (params) => {
@@ -600,6 +603,7 @@ export class AcpAgentSession implements AgentSession {
   private backend: AcpAgentBackend;
   private ctx: SessionContext;
   private closed = false;
+  private turnQueue: Array<() => void> = [];
 
   constructor(backend: AcpAgentBackend, id: string, ctx: SessionContext) {
     this.backend = backend;
@@ -624,8 +628,16 @@ export class AcpAgentSession implements AgentSession {
       return;
     }
     if (this.ctx.busy) {
-      yield { type: "error", message: "session is busy" };
-      return;
+      if (!this.backend.capabilities.promptQueueing) {
+        yield { type: "error", message: "session is busy" };
+        return;
+      }
+      // Queue behind the in-flight turn; wait for our turn.
+      await new Promise<void>((resolve) => this.turnQueue.push(resolve));
+      if (this.closed) {
+        yield { type: "error", message: "session is closed" };
+        return;
+      }
     }
     this.ctx.busy = true;
     this.ctx.cancelRequested = false;
@@ -716,6 +728,8 @@ export class AcpAgentSession implements AgentSession {
     } finally {
       this.ctx.busy = false;
       this.ctx.onPatch = null;
+      const next = this.turnQueue.shift();
+      if (next) next();
     }
   }
 
@@ -753,5 +767,10 @@ export class AcpAgentSession implements AgentSession {
     for (const [, p] of this.ctx.pendingApprovals) p.resolve(null);
     this.ctx.pendingApprovals.clear();
     this.ctx.onPatch = null;
+    const queue = this.turnQueue;
+    this.turnQueue = [];
+    for (const resolve of queue) {
+      resolve();
+    }
   }
 }

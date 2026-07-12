@@ -176,3 +176,76 @@ describe("AcpAgentBackend.deleteSession", () => {
     }
   });
 });
+
+describe("AcpAgentSession - promptQueueing / busy-gate", () => {
+  test("busy gate rejects a second sendMessage when promptQueueing is not advertised", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env, X_FAKE_AGENT_DELAY_MS: "200" },
+    });
+    try {
+      const session = await backend.createSession();
+      const first = session.sendMessage("first");
+      const firstIter = first[Symbol.asyncIterator]();
+      await firstIter.next(); // start draining, session becomes busy
+
+      const secondPatches: unknown[] = [];
+      for await (const p of session.sendMessage("second")) secondPatches.push(p);
+      assert.deepEqual(secondPatches, [{ type: "error", message: "session is busy" }]);
+
+      // Drain the first turn to completion so the process can shut down cleanly.
+      for await (const _p of { [Symbol.asyncIterator]: () => firstIter }) { /* drain */ }
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("promptQueueing capability is true when the agent advertises _meta.claudeCode.promptQueueing", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env, X_FAKE_AGENT_PROMPT_QUEUEING: "true" },
+    });
+    try {
+      assert.equal(backend.capabilities.promptQueueing, true);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("a queued sendMessage drains in FIFO order when promptQueueing is advertised", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        X_FAKE_AGENT_PROMPT_QUEUEING: "true",
+        X_FAKE_AGENT_DELAY_MS: "100",
+      },
+    });
+    try {
+      const session = await backend.createSession();
+      const order: string[] = [];
+      const firstDone = (async () => {
+        for await (const p of session.sendMessage("first")) {
+          if ((p as { type?: string }).type === "done") order.push("first-done");
+        }
+      })();
+      // Give the first call a moment to actually start (become busy) before queuing the second.
+      await new Promise((r) => setTimeout(r, 20));
+      const secondDone = (async () => {
+        for await (const p of session.sendMessage("second")) {
+          if ((p as { type?: string }).type === "done") order.push("second-done");
+        }
+      })();
+      await Promise.all([firstDone, secondDone]);
+      assert.deepEqual(order, ["first-done", "second-done"]);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
