@@ -70,10 +70,11 @@ interface SessionContext {
 
 export interface AcpBackendSpawnOptions extends AcpSpawnOptions {
   model?: string;
+  kind?: string;
 }
 
 export class AcpAgentBackend implements AgentBackend {
-  readonly kind = "acp";
+  readonly kind: string;
   readonly role = "chat" as const;
   readonly capabilities: AgentCapabilities;
   private conn: AcpConnection;
@@ -87,6 +88,7 @@ export class AcpAgentBackend implements AgentBackend {
   private constructor(conn: AcpConnection, cfg: AcpBackendSpawnOptions) {
     this.conn = conn;
     this.cfg = cfg;
+    this.kind = cfg.kind ?? "acp";
     this.model = cfg.model;
     this.capabilities = {
       multipleSessions: true,

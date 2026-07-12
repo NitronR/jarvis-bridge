@@ -137,3 +137,24 @@ test("setDefaultBackendName changes what getDefaultBackend resolves to", async (
     await fs.rm(workspace, { recursive: true, force: true });
   }
 });
+
+test("claude backend profile sets kind to claude-acp and propagates mock and color envs", async () => {
+  const workspace = await mkWorkspace();
+  let registry;
+  try {
+    const settings = await createSettingsStore({
+      path: path.join(workspace, "settings.json"),
+      envDefault: "opencode",
+      validNames: ["opencode", "claude"],
+    });
+    registry = await createBackendRegistry({ profiles: profiles(), settings, workspace, autoApprove: false });
+    const claudeBackend = await registry.getBackend("claude");
+    assert.equal(claudeBackend.kind, "claude-acp");
+    const env = (claudeBackend as any).cfg.env;
+    assert.equal(env.CLAUDE_MOCK_PROMPT_FLOWS, "true");
+    assert.equal(env.FORCE_COLOR, "0");
+  } finally {
+    if (registry) await registry.shutdown();
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});

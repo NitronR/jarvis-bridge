@@ -52,6 +52,7 @@ export async function createBackendRegistry(opts: {
       createAgentBackend(
         role,
         {
+          kind: profile.kind,
           command: profile.command,
           args: profile.args,
           env: profile.env as NodeJS.ProcessEnv | undefined,

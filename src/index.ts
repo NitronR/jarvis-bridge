@@ -53,9 +53,17 @@ async function main(): Promise<void> {
       "[jarvis-bridge] agent healthcheck failed:",
       err instanceof Error ? err.message : String(err),
     );
-    console.error(
-      "[jarvis-bridge] hint: if the agent CLI requires login, run it once in a terminal to authenticate, then retry.",
-    );
+    if (defaultBackend.kind === "claude-acp") {
+      console.error(
+        "[jarvis-bridge] hint: the Claude backend needs a pre-authenticated `claude` CLI login on this machine. " +
+          "Run `npx @anthropic-ai/claude-code login` once in your terminal to authenticate, then retry. " +
+          "(jarvis_bridge does not yet support logging in from within the app — see docs/claude-acp-future-phases.md.)",
+      );
+    } else {
+      console.error(
+        "[jarvis-bridge] hint: if the agent CLI requires login, run it once in a terminal to authenticate, then retry.",
+      );
+    }
     await registry.shutdown().catch(() => {});
     process.exit(1);
   }

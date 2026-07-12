@@ -167,4 +167,5 @@ export interface AgentBackendConfig {
   args: readonly string[];
   env?: NodeJS.ProcessEnv;
   model?: string;
+  kind?: string;
 }
