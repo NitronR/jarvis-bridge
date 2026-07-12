@@ -28,6 +28,7 @@ try {
 const delayMs = parseInt(process.env.X_FAKE_AGENT_DELAY_MS || "20", 10);
 const advertiseDelete = process.env.X_FAKE_AGENT_SESSION_DELETE === "true";
 const advertisePromptQueueing = process.env.X_FAKE_AGENT_PROMPT_QUEUEING === "true";
+const claudeStyleConfig = process.env.X_FAKE_AGENT_CLAUDE_STYLE_CONFIG === "true";
 
 let nextId = 1;
 let nextSessionId = 1;
@@ -173,23 +174,55 @@ rl.on("line", async (line) => {
       });
       break;
     case "session/new":
-      reply(msg.id, {
-        sessionId: makeSessionId(),
-        configOptions: [
-          {
-            id: "model",
-            currentValue: "fake-model",
-            options: [
-              { value: "fake-model", name: "Fake Model" },
-              { value: "another", name: "Another Model" },
+      reply(msg.id, claudeStyleConfig
+        ? {
+            sessionId: makeSessionId(),
+            modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+            configOptions: [
+              { id: "model", currentValue: "claude-fake", options: [{ value: "claude-fake", name: "Claude Fake" }] },
+              { id: "effort", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
             ],
-          },
-        ],
-      });
+          }
+        : {
+            sessionId: makeSessionId(),
+            configOptions: [
+              {
+                id: "model",
+                currentValue: "fake-model",
+                options: [
+                  { value: "fake-model", name: "Fake Model" },
+                  { value: "another", name: "Another Model" },
+                ],
+              },
+            ],
+          });
       break;
-    case "session/load":
-      reply(msg.id, { sessionId: msg.params?.sessionId ?? makeSessionId() });
+    case "session/load": {
+      const sid = msg.params?.sessionId ?? makeSessionId();
+      reply(msg.id, claudeStyleConfig
+        ? {
+            sessionId: sid,
+            modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+            configOptions: [
+              { id: "model", currentValue: "claude-fake", options: [{ value: "claude-fake", name: "Claude Fake" }] },
+              { id: "effort", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
+            ],
+          }
+        : {
+            sessionId: sid,
+            configOptions: [
+              {
+                id: "model",
+                currentValue: "fake-model",
+                options: [
+                  { value: "fake-model", name: "Fake Model" },
+                  { value: "another", name: "Another Model" },
+                ],
+              },
+            ],
+          });
       break;
+    }
     case "session/list":
       reply(msg.id, { sessions: [] });
       break;

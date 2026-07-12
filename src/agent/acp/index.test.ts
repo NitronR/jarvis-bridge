@@ -248,4 +248,27 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
       await backend.shutdown();
     }
   });
+
+  test("createSession captures modes and non-model configOptions without dropping them", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env, X_FAKE_AGENT_CLAUDE_STYLE_CONFIG: "true" },
+    });
+    try {
+      const session = await backend.createSession();
+      // Existing model-parsing contract still works:
+      const models = backend.getSessionModels(session.id);
+      assert.equal(models?.current, "claude-fake");
+      assert.equal(models?.available.length, 1);
+      // New: raw configOptions/modes are captured on the internal context
+      // (exposed here via a package-private accessor added for this test).
+      const raw = backend.getSessionRawConfig(session.id);
+      assert.equal(raw?.modes?.currentModeId, "default");
+      assert.equal(raw?.rawConfigOptions?.find((o) => o.id === "effort")?.currentValue, "medium");
+    } finally {
+      await backend.shutdown();
+    }
+  });
 });

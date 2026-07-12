@@ -60,6 +60,8 @@ interface SessionContext {
   autoApproveOverride?: boolean;
   availableModels?: Array<{ modelId: string; name: string }>;
   currentModelId?: string;
+  rawConfigOptions?: Array<{ id: string; currentValue?: string; options: Array<{ value?: string; name?: string }> }>;
+  modes?: { currentModeId?: string; availableModes?: Array<{ id: string; name?: string }> };
   // Pump plumbing
   wakeWaiter: (() => void) | null;
 }
@@ -315,20 +317,15 @@ export class AcpAgentBackend implements AgentBackend {
     const res = (await this.conn.sendRequest("session/new", {
       cwd,
       mcpServers: [],
-    })) as {
-      sessionId?: string;
-      configOptions?: Array<{
-        id?: string;
-        currentValue?: string;
-        options?: Array<{ value?: string; name?: string }>;
-      }>;
-    };
+    })) as SessionConfigResponse & { sessionId?: string };
     const sessionId = res.sessionId;
     if (!sessionId) throw new Error("agent did not return a sessionId");
     const ctx = this.makeSessionContext();
-    const models = parseModels(res.configOptions);
-    ctx.availableModels = models.available;
-    ctx.currentModelId = models.current;
+    const parsed = parseSessionConfig(res);
+    ctx.availableModels = parsed.models.available;
+    ctx.currentModelId = parsed.models.current;
+    ctx.rawConfigOptions = parsed.rawConfigOptions;
+    ctx.modes = parsed.modes;
     this.sessions.set(sessionId, ctx);
     const sessionObj = new AcpAgentSession(this, sessionId, ctx);
     this.sessionObjects.set(sessionId, sessionObj);
@@ -354,18 +351,13 @@ export class AcpAgentBackend implements AgentBackend {
         sessionId,
         cwd,
         mcpServers: [],
-      })) as {
-        sessionId?: string;
-        configOptions?: Array<{
-          id?: string;
-          currentValue?: string;
-          options?: Array<{ value?: string; name?: string }>;
-        }>;
-      };
+      })) as SessionConfigResponse & { sessionId?: string };
       const id = res.sessionId ?? sessionId;
-      const models = parseModels(res.configOptions);
-      ctx.availableModels = models.available;
-      ctx.currentModelId = models.current;
+      const parsed = parseSessionConfig(res);
+      ctx.availableModels = parsed.models.available;
+      ctx.currentModelId = parsed.models.current;
+      ctx.rawConfigOptions = parsed.rawConfigOptions;
+      ctx.modes = parsed.modes;
       this.sessions.set(id, ctx);
       const sessionObj = new AcpAgentSession(this, id, ctx);
       this.sessionObjects.set(id, sessionObj);
@@ -512,6 +504,12 @@ export class AcpAgentBackend implements AgentBackend {
     return { command: this.cfg.command, args: this.cfg.args };
   }
 
+  getSessionRawConfig(sessionId: string): { rawConfigOptions?: SessionContext["rawConfigOptions"]; modes?: SessionContext["modes"] } | null {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx) return null;
+    return { rawConfigOptions: ctx.rawConfigOptions, modes: ctx.modes };
+  }
+
   resolveApproval(sessionId: string, requestId: string, optionId: string): boolean {
     const ctx = this.sessions.get(sessionId);
     if (!ctx) return false;
@@ -567,17 +565,37 @@ export class AcpAgentBackend implements AgentBackend {
   }
 }
 
-function parseModels(opts: Array<{ id?: string; currentValue?: string; options?: Array<{ value?: string; name?: string }> }> | undefined): {
-  available: Array<{ modelId: string; name: string }>;
-  current: string;
+interface SessionConfigResponse {
+  configOptions?: Array<{
+    id?: string;
+    currentValue?: string;
+    options?: Array<{ value?: string; name?: string }>;
+  }>;
+  modes?: { currentModeId?: string; availableModes?: Array<{ id?: string; name?: string }> };
+}
+
+function parseSessionConfig(res: SessionConfigResponse | undefined): {
+  models: { available: Array<{ modelId: string; name: string }>; current: string };
+  rawConfigOptions: Array<{ id: string; currentValue?: string; options: Array<{ value?: string; name?: string }> }>;
+  modes?: { currentModeId?: string; availableModes?: Array<{ id: string; name?: string }> };
 } {
-  if (!opts) return { available: [], current: "" };
-  const modelOpt = opts.find((o) => o.id === "model");
-  if (!modelOpt) return { available: [], current: "" };
-  const available = (modelOpt.options ?? [])
+  const opts = res?.configOptions;
+  const rawConfigOptions = (opts ?? [])
+    .filter((o): o is { id: string; currentValue?: string; options?: Array<{ value?: string; name?: string }> } => typeof o.id === "string")
+    .map((o) => ({ id: o.id, currentValue: o.currentValue, options: o.options ?? [] }));
+  const modelOpt = rawConfigOptions.find((o) => o.id === "model");
+  const available = (modelOpt?.options ?? [])
     .filter((o): o is { value: string; name?: string } => typeof o.value === "string")
     .map((o) => ({ modelId: o.value, name: o.name ?? o.value }));
-  return { available, current: modelOpt.currentValue ?? available[0]?.modelId ?? "" };
+  const models = { available, current: modelOpt?.currentValue ?? available[0]?.modelId ?? "" };
+  const modesOut = res?.modes
+    ? {
+        currentModeId: res.modes.currentModeId,
+        availableModes: (res.modes.availableModes ?? [])
+          .filter((m): m is { id: string; name?: string } => typeof m.id === "string"),
+      }
+    : undefined;
+  return { models, rawConfigOptions, modes: modesOut };
 }
 
 function extractText(content: unknown): string {
