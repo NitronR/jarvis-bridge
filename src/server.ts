@@ -7,15 +7,13 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
 import type { AgentBackend, AgentSession } from "./agent/types";
-import type { BackendPool } from "./agent/backendPool";
+import type { BackendRegistry } from "./agent/backendRegistry";
 import type { ToolHandler } from "./types";
 
 export interface CreateServerOptions {
   workspace: string;
   port: number;
-  chatBackend: AgentBackend;
-  backendPool: BackendPool;
-  autoApprove: { default: boolean };
+  registry: BackendRegistry;
   tools: Map<string, ToolHandler>;
 }
 
@@ -31,12 +29,9 @@ interface SessionMetadata {
 export function createServer(opts: CreateServerOptions): Express {
   const {
     workspace,
-    chatBackend,
-    backendPool,
-    autoApprove,
+    registry,
     tools,
   } = opts;
-  chatBackend.setDefaultAutoApprove?.(autoApprove.default);
 
   const app = express();
 
@@ -50,7 +45,8 @@ export function createServer(opts: CreateServerOptions): Express {
   });
   app.get("/health/agent", async (_req, res) => {
     try {
-      const hc = await chatBackend.healthcheck();
+      const backend = await registry.getDefaultBackend();
+      const hc = await backend.healthcheck();
       res.json({ agent: hc.ok });
     } catch {
       res.json({ agent: false });
@@ -68,25 +64,26 @@ export function createServer(opts: CreateServerOptions): Express {
         return;
       }
     }
-    const backend = requestedCwd
-      ? await backendPool.getOrCreate(requestedCwd)
-      : chatBackend;
+    const backend = await registry.getDefaultBackend();
     let session: AgentSession;
     let resumed = false;
     if (q.sessionId) {
-      const found = await backendPool.getSession(q.sessionId);
-      if (found) {
+      if (backend.loadSession) {
+        session = await backend.loadSession(q.sessionId, requestedCwd ? { cwd: requestedCwd } : undefined);
+        resumed = true;
+      } else {
+        const found = await registry.getSession(q.sessionId);
+        if (!found) {
+          res.status(404).json({ error: "session not found" });
+          return;
+        }
         session = found;
         resumed = true;
-      } else if (backend.loadSession) {
-        session = await backend.loadSession(q.sessionId);
-      } else {
-        res.status(404).json({ error: "session not found" });
-        return;
       }
     } else {
-      session = await backend.createSession();
+      session = await backend.createSession(requestedCwd ? { cwd: requestedCwd } : undefined);
     }
+    const history = session.consumeReplayHistory?.() ?? [];
     const models = backend.getSessionModels?.(session.id) ?? null;
     const slashCommands = session.getSlashCommands
       ? session.getSlashCommands()
@@ -96,35 +93,31 @@ export function createServer(opts: CreateServerOptions): Express {
     res.json({
       ok: true,
       backend: {
-        kind: chatBackend.kind,
-        role: chatBackend.role,
+        kind: backend.kind,
+        role: backend.role,
         model: models?.current ?? null,
       },
       sessionId: session.id,
       cwd: requestedCwd ?? workspace,
       resumed,
-      capabilities: chatBackend.capabilities,
+      history,
+      capabilities: backend.capabilities,
       slashCommands,
       autoApprove: {
         supported: true,
-        default: chatBackend.getDefaultAutoApprove?.() ?? false,
-        override:
-          chatBackend.getSessionAutoApproveOverride?.(session.id) ?? null,
+        default: backend.getDefaultAutoApprove?.() ?? false,
+        override: backend.getSessionAutoApproveOverride?.(session.id) ?? null,
         effective:
-          chatBackend.getSessionAutoApproveOverride?.(session.id) ??
-          chatBackend.getDefaultAutoApprove?.() ??
+          backend.getSessionAutoApproveOverride?.(session.id) ??
+          backend.getDefaultAutoApprove?.() ??
           false,
         enabled:
-          (chatBackend.getSessionAutoApproveOverride?.(session.id) ??
-            chatBackend.getDefaultAutoApprove?.() ??
-            false),
+          backend.getSessionAutoApproveOverride?.(session.id) ??
+          backend.getDefaultAutoApprove?.() ??
+          false,
       },
       model: models
-        ? {
-            supported: true,
-            available: models.available,
-            current: models.current,
-          }
+        ? { supported: true, available: models.available, current: models.current }
         : { supported: false, available: [], current: null },
     });
   }));
@@ -132,12 +125,12 @@ export function createServer(opts: CreateServerOptions): Express {
   // ── POST /chat/send (SSE) ──────────────────────────────────────────
   app.post("/chat/send", chatJson, asyncRoute(async (req, res) => {
     const body = SendBodySchema.parse(req.body ?? {});
-    const sessionId = body.sessionId ?? (await defaultSessionId(backendPool, chatBackend));
+    const sessionId = body.sessionId ?? (await defaultSessionId(registry));
     if (!sessionId) {
       res.status(404).json({ error: "no session available" });
       return;
     }
-    const session = await backendPool.getSession(sessionId);
+    const session = await registry.getSession(sessionId);
     if (!session) {
       res.status(404).json({ error: "session not found" });
       return;
@@ -176,21 +169,19 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/cancel", smallJson, asyncRoute(async (req, res) => {
     const body = CancelBodySchema.parse(req.body ?? {});
-    const session = await resolveSession(backendPool, body.sessionId);
+    const session = await resolveSession(registry, body.sessionId);
     if (session) await session.cancel();
     res.json({ ok: true });
   }));
 
   app.post("/chat/approval", smallJson, asyncRoute(async (req, res) => {
     const body = ApprovalBodySchema.parse(req.body ?? {});
-    const session = await resolveSession(backendPool, body.sessionId);
+    const session = await resolveSession(registry, body.sessionId);
     if (!session) {
       res.status(404).json({ error: "session not found" });
       return;
     }
-    const ok = session.resolveApproval
-      ? session.resolveApproval(body.requestId, body.optionId)
-      : false;
+    const ok = session.resolveApproval ? session.resolveApproval(body.requestId, body.optionId) : false;
     if (!ok) {
       res.status(409).json({ error: "no pending approval" });
       return;
@@ -200,8 +191,13 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/steer", smallJson, asyncRoute(async (req, res) => {
     const body = SteerBodySchema.parse(req.body ?? {});
-    const session = await resolveSession(backendPool, body.sessionId);
-    if (!session || !session.steer || !chatBackend.capabilities.steer) {
+    const entry = await resolveSessionEntry(registry, body.sessionId);
+    if (!entry?.summary || !entry.backend.capabilities.steer) {
+      res.json({ ok: true, accepted: false, reason: "unsupported" });
+      return;
+    }
+    const session = await registry.getSession(body.sessionId ?? "");
+    if (!session?.steer) {
       res.json({ ok: true, accepted: false, reason: "unsupported" });
       return;
     }
@@ -212,12 +208,12 @@ export function createServer(opts: CreateServerOptions): Express {
   // ── Models ────────────────────────────────────────────────────────
   app.get("/chat/model", smallJson, asyncRoute(async (req, res) => {
     const q = ModelQuerySchema.parse(req.query);
-    const session = await resolveSession(backendPool, q.sessionId);
-    if (!session) {
+    const entry = await resolveSessionEntry(registry, q.sessionId);
+    if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
     }
-    const info = chatBackend.getSessionModels?.(session.id);
+    const info = entry.backend.getSessionModels?.(entry.summary.sessionId);
     if (!info) {
       res.json({ ok: true, supported: false, available: [], current: null });
       return;
@@ -227,17 +223,17 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/model", smallJson, asyncRoute(async (req, res) => {
     const body = ModelPostBodySchema.parse(req.body ?? {});
-    const session = await resolveSession(backendPool, body.sessionId);
-    if (!session) {
+    const entry = await resolveSessionEntry(registry, body.sessionId);
+    if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
     }
-    if (!chatBackend.setSessionModel) {
+    if (!entry.backend.setSessionModel) {
       res.status(501).json({ error: "model switching not supported" });
       return;
     }
     try {
-      await chatBackend.setSessionModel(session.id, body.modelId);
+      await entry.backend.setSessionModel(body.sessionId, body.modelId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -248,60 +244,52 @@ export function createServer(opts: CreateServerOptions): Express {
   // ── Auto-approve ───────────────────────────────────────────────────
   app.get("/chat/auto-approve", smallJson, asyncRoute(async (req, res) => {
     const q = AutoApproveQuerySchema.parse(req.query);
-    const def = chatBackend.getDefaultAutoApprove?.() ?? false;
     if (!q.sessionId) {
-      res.json({
-        ok: true,
-        supported: true,
-        default: def,
-        override: null,
-        effective: def,
-        enabled: def,
-      });
+      const backend = await registry.getDefaultBackend();
+      const def = backend.getDefaultAutoApprove?.() ?? false;
+      res.json({ ok: true, supported: true, default: def, override: null, effective: def, enabled: def });
       return;
     }
-    const ov = chatBackend.getSessionAutoApproveOverride?.(q.sessionId);
-    res.json({
-      ok: true,
-      supported: true,
-      default: def,
-      override: ov ?? null,
-      effective: ov ?? def,
-      enabled: ov ?? def,
-    });
+    const entry = await resolveSessionEntry(registry, q.sessionId);
+    if (!entry) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    const def = entry.backend.getDefaultAutoApprove?.() ?? false;
+    const ov = entry.backend.getSessionAutoApproveOverride?.(q.sessionId);
+    res.json({ ok: true, supported: true, default: def, override: ov ?? null, effective: ov ?? def, enabled: ov ?? def });
   }));
 
   app.post("/chat/auto-approve", smallJson, asyncRoute(async (req, res) => {
     const body = AutoApprovePostBodySchema.parse(req.body ?? {});
     if (!body.sessionId) {
-      // Backend-wide default.
-      chatBackend.setDefaultAutoApprove?.(Boolean(body.enabled));
-    } else {
-      chatBackend.setSessionAutoApprove?.(body.sessionId, body.enabled);
+      const backend = await registry.getDefaultBackend();
+      backend.setDefaultAutoApprove?.(Boolean(body.enabled));
+      const def = backend.getDefaultAutoApprove?.() ?? false;
+      res.json({ ok: true, supported: true, default: def, override: null, effective: def, enabled: def });
+      return;
     }
-    const def = chatBackend.getDefaultAutoApprove?.() ?? false;
-    const ov = body.sessionId
-      ? chatBackend.getSessionAutoApproveOverride?.(body.sessionId)
-      : undefined;
-    res.json({
-      ok: true,
-      supported: true,
-      default: def,
-      override: ov ?? null,
-      effective: ov ?? def,
-      enabled: ov ?? def,
-    });
+    const entry = await resolveSessionEntry(registry, body.sessionId);
+    if (!entry) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    entry.backend.setSessionAutoApprove?.(body.sessionId, body.enabled);
+    const def = entry.backend.getDefaultAutoApprove?.() ?? false;
+    const ov = entry.backend.getSessionAutoApproveOverride?.(body.sessionId);
+    res.json({ ok: true, supported: true, default: def, override: ov ?? null, effective: ov ?? def, enabled: ov ?? def });
   }));
 
   // ── Sessions ──────────────────────────────────────────────────────
   app.get("/chat/sessions", smallJson, asyncRoute(async (_req, res) => {
-    const all = await backendPool.listSessions();
-    const active = await defaultSessionId(backendPool, chatBackend);
+    const all = await registry.listSessions();
+    const active = await defaultSessionId(registry);
     const sessions = all.map((e) => ({
       sessionId: e.summary.sessionId,
       title: e.summary.title,
       updatedAt: e.summary.updatedAt ?? null,
       cwd: e.cwd,
+      backendName: e.backendName,
       customTitle: sessionMeta.get(e.summary.sessionId)?.customTitle,
       pinned: sessionMeta.get(e.summary.sessionId)?.pinned,
       group: sessionMeta.get(e.summary.sessionId)?.group,
@@ -312,16 +300,16 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/sessions/fork", smallJson, asyncRoute(async (req, res) => {
     const body = ForkBodySchema.parse(req.body ?? {});
-    if (!chatBackend.forkSession) {
-      res.status(501).json({ error: "fork not supported" });
-      return;
-    }
-    const src = await resolveSession(backendPool, body.sessionId);
-    if (!src) {
+    const entry = await resolveSessionEntry(registry, body.sessionId);
+    if (!entry) {
       res.status(404).json({ error: "source session not found" });
       return;
     }
-    const forked = await chatBackend.forkSession(body.sessionId);
+    if (!entry.backend.forkSession) {
+      res.status(501).json({ error: "fork not supported" });
+      return;
+    }
+    const forked = await entry.backend.forkSession(body.sessionId);
     res.json({ ok: true, sourceSessionId: body.sessionId, sessionId: forked.id, cwd: workspace });
   }));
 
@@ -434,23 +422,25 @@ export function createServer(opts: CreateServerOptions): Express {
 
 // ── helpers ───────────────────────────────────────────────────────────
 
-async function defaultSessionId(
-  pool: BackendPool,
-  _chat: AgentBackend,
-): Promise<string | null> {
-  // Phase 4 layer maintains a "current session" — for now we lazily
-  // create one on first /chat/init if none exists, so /chat/send has a
-  // session to talk to.
-  const all = await pool.listSessions();
+async function resolveSessionEntry(
+  registry: BackendRegistry,
+  sessionId: string | undefined,
+): Promise<import("./agent/backendRegistry").RegistrySessionEntry | null> {
+  if (!sessionId) return null;
+  return registry.findSession(sessionId);
+}
+
+async function defaultSessionId(registry: BackendRegistry): Promise<string | null> {
+  const all = await registry.listSessions();
   return all[0]?.summary.sessionId ?? null;
 }
 
 async function resolveSession(
-  pool: BackendPool,
+  registry: BackendRegistry,
   sessionId: string | undefined,
 ): Promise<AgentSession | null> {
   if (!sessionId) return null;
-  return pool.getSession(sessionId);
+  return registry.getSession(sessionId);
 }
 
 type AsyncRoute = (

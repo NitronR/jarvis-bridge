@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     port: cfg.port,
     registry,
     tools,
-  } as any); // Cast as any because createServer options don't support registry yet (Task 5 threads it)
+  });
   const server = app.listen(cfg.port, () => {
     console.log(`[jarvis-bridge] gateway listening on http://localhost:${cfg.port}`);
     console.log(`[jarvis-bridge] workspace: ${cfg.workspace}`);

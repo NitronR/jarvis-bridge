@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "./server";
 import { FakeBackend } from "../test/fixtures/fakeBackend";
-import { createBackendPool } from "./agent/backendPool";
 import { createToolRegistry } from "./tools";
 
 async function mkWorkspace(): Promise<string> {
@@ -21,16 +20,15 @@ async function withServer<T>(
   const ws = await mkWorkspace();
   try {
     const { backend, fn } = await setup(ws);
-    const pool = await createBackendPool(backend, ws, async () => backend);
+    // Swap in the caller-supplied FakeBackend as the eagerly-spawned default's
+    // pool's default backend, since createBackendRegistry would otherwise try
+    // to spawn a real process. Simplest correct approach: bypass
+    // createBackendRegistry's spawn path entirely for tests and build a
+    // registry-shaped object directly around the one FakeBackend, matching
+    // what createBackendRegistry exposes.
+    const testRegistry = makeSingleBackendTestRegistry(backend);
     const tools = createToolRegistry(ws);
-    const app = createServer({
-      workspace: ws,
-      port: 0,
-      chatBackend: backend,
-      backendPool: pool,
-      autoApprove: { default: false },
-      tools,
-    });
+    const app = createServer({ workspace: ws, port: 0, registry: testRegistry, tools });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.on("listening", () => resolve()));
     const addr = server.address();
@@ -44,6 +42,31 @@ async function withServer<T>(
   } finally {
     await fs.rm(ws, { recursive: true, force: true });
   }
+}
+
+function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/backendRegistry").BackendRegistry {
+  return {
+    getDefaultBackendName: () => "fake",
+    setDefaultBackendName: async () => {},
+    listBackendNames: () => ["fake"],
+    getDefaultBackend: async () => backend,
+    getBackend: async () => backend,
+    listSessions: async () => {
+      const sessions = await backend.listSessions();
+      return sessions.map((summary) => ({ backend, backendName: "fake", cwd: "", summary }));
+    },
+    findSession: async (sessionId: string) => {
+      const s = backend.getSession(sessionId);
+      if (!s) return null;
+      return { backend, backendName: "fake", cwd: "", summary: { sessionId } };
+    },
+    getSession: async (sessionId: string) => backend.getSession(sessionId),
+    deleteSession: async (sessionId: string) => {
+      if (!backend.deleteSession) throw new Error("delete not supported by backend: fake");
+      await backend.deleteSession(sessionId);
+    },
+    shutdown: async () => {},
+  };
 }
 
 test("GET /health returns ok", async () => {
