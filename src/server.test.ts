@@ -45,10 +45,16 @@ async function withServer<T>(
 }
 
 function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/backendRegistry").BackendRegistry {
+  let defaultBackend = "fake";
   return {
-    getDefaultBackendName: () => "fake",
-    setDefaultBackendName: async () => {},
-    listBackendNames: () => ["fake"],
+    getDefaultBackendName: () => defaultBackend,
+    setDefaultBackendName: async (name: string) => {
+      if (name !== "fake" && name !== "other") {
+        throw new Error(`unknown backend name: ${name}`);
+      }
+      defaultBackend = name;
+    },
+    listBackendNames: () => ["fake", "other"],
     getDefaultBackend: async () => backend,
     getBackend: async () => backend,
     listSessions: async () => {
@@ -62,6 +68,8 @@ function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/ba
     },
     getSession: async (sessionId: string) => backend.getSession(sessionId),
     deleteSession: async (sessionId: string) => {
+      const s = backend.getSession(sessionId);
+      if (!s) throw new Error(`session not found: ${sessionId}`);
       if (!backend.deleteSession) throw new Error("delete not supported by backend: fake");
       await backend.deleteSession(sessionId);
     },
@@ -444,6 +452,94 @@ test("GET /assets/index-*.js serves the React bundle", async () => {
       assert.equal(res.status, 200);
       const text = await res.text();
       assert.ok(text.length > 100, "bundle should have content");
+    },
+  }));
+});
+
+test("DELETE /chat/sessions/:id calls backend.deleteSession and returns ok", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const created = (await fetch(`${url}/chat/init`).then((r) => r.json())) as { sessionId: string };
+      const res = await fetch(`${url}/chat/sessions/${created.sessionId}`, { method: "DELETE" });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean };
+      assert.equal(body.ok, true);
+    },
+  }));
+});
+
+test("DELETE /chat/sessions/:id returns 404 for an unknown session", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/sessions/does-not-exist`, { method: "DELETE" });
+      assert.equal(res.status, 404);
+    },
+  }));
+});
+
+test("DELETE /chat/sessions/:id returns 501 if backend doesn't support session deletion", async () => {
+  await withServer(async () => {
+    const backend = new FakeBackend();
+    backend.deleteSession = undefined as any;
+    return {
+      backend,
+      fn: async (url) => {
+        const created = (await fetch(`${url}/chat/init`).then((r) => r.json())) as { sessionId: string };
+        const res = await fetch(`${url}/chat/sessions/${created.sessionId}`, { method: "DELETE" });
+        assert.equal(res.status, 501);
+      },
+    };
+  });
+});
+
+test("GET /settings/default-backend returns the available names and current default", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/settings/default-backend`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean; available: string[]; default: string };
+      assert.equal(body.ok, true);
+      assert.deepEqual(body.available, ["fake", "other"]);
+      assert.equal(body.default, "fake");
+    },
+  }));
+});
+
+test("PUT /settings/default-backend rejects an unknown name", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/settings/default-backend`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "nonexistent" }),
+      });
+      assert.equal(res.status, 400);
+    },
+  }));
+});
+
+test("PUT /settings/default-backend updates the default backend name", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/settings/default-backend`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "other" }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean; default: string };
+      assert.equal(body.ok, true);
+      assert.equal(body.default, "other");
+
+      const getRes = await fetch(`${url}/settings/default-backend`);
+      assert.equal(getRes.status, 200);
+      const getBody = (await getRes.json()) as { ok: boolean; default: string };
+      assert.equal(getBody.default, "other");
     },
   }));
 });

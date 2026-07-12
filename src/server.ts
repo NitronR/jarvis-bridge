@@ -324,6 +324,24 @@ export function createServer(opts: CreateServerOptions): Express {
     res.json({ ok: true, sessionId: sid, metadata: cur });
   }));
 
+  app.delete("/chat/sessions/:sessionId", smallJson, asyncRoute(async (req, res) => {
+    const sid = req.params.sessionId;
+    try {
+      await registry.deleteSession(sid);
+      sessionMeta.delete(sid);
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/not found/i.test(message)) {
+        res.status(404).json({ error: message });
+      } else if (/not supported/i.test(message)) {
+        res.status(501).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  }));
+
   // ── Status ────────────────────────────────────────────────────────
   app.get("/status/active", (_req, res) => {
     res.json({
@@ -332,6 +350,26 @@ export function createServer(opts: CreateServerOptions): Express {
       chat: { activeCount: 0, streams: [] },
     });
   });
+
+  // ── Settings ──────────────────────────────────────────────────────
+  app.get("/settings/default-backend", smallJson, (_req, res) => {
+    res.json({
+      ok: true,
+      available: registry.listBackendNames(),
+      default: registry.getDefaultBackendName(),
+    });
+  });
+
+  app.put("/settings/default-backend", smallJson, asyncRoute(async (req, res) => {
+    const body = SetDefaultBackendBodySchema.parse(req.body ?? {});
+    try {
+      await registry.setDefaultBackendName(body.name);
+      res.json({ ok: true, default: registry.getDefaultBackendName() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+    }
+  }));
 
   // ── Workspace ──────────────────────────────────────────────────────
   app.get("/workspace/status", (_req, res) => {
@@ -517,3 +555,6 @@ const ToolsBodySchema = z.object({
   tool: z.string().min(1),
   params: z.unknown().optional(),
 });
+
+const SetDefaultBackendBodySchema = z.object({ name: z.string().min(1) });
+
