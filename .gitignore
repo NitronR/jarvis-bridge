@@ -10,6 +10,9 @@ build/
 .env.local
 .env.*.local
 
+# Backend config (machine-specific commands/env) & runtime settings
+agents.json
+
 # Logs
 *.log
 npm-debug.log*

@@ -1,0 +1,6 @@
+{
+  "backends": [
+    { "name": "opencode", "kind": "opencode", "command": "opencode", "args": ["acp"], "env": {} },
+    { "name": "claude", "kind": "claude-acp", "command": "npx", "args": ["-y", "@agentclientprotocol/claude-agent-acp@latest"], "env": {} }
+  ]
+}
