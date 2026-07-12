@@ -7,12 +7,9 @@ import path from "node:path";
 export interface AppConfig {
   port: number;
   workspace: string;
-  agent: {
-    command: string;
-    args: readonly string[];
-    model?: string;
-    autoApprove: boolean;
-  };
+  agentsConfigPath: string;
+  defaultBackendEnv?: string;
+  autoApprove: boolean;
   shell: boolean;
   slackToken?: string;
   gatewayUrl: string;
@@ -34,19 +31,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env.JARVIS_BRIDGE_WORKSPACE ?? "~/.jarvis-bridge",
   );
   const port = Number(env.PORT ?? 3001);
-  const agentCommand = env.AGENT_CMD ?? "";
-  const agentArgs = (env.AGENT_ARGS ?? "").trim().length
-    ? env.AGENT_ARGS!.trim().split(/\s+/)
-    : [];
+  const agentsConfigPath = env.JARVIS_BRIDGE_AGENTS_CONFIG ?? "./agents.json";
   return {
     port,
     workspace,
-    agent: {
-      command: agentCommand,
-      args: agentArgs,
-      model: env.AGENT_MODEL?.trim() || undefined,
-      autoApprove: boolOpt(env.AGENT_AUTO_APPROVE),
-    },
+    agentsConfigPath,
+    defaultBackendEnv: env.JARVIS_BRIDGE_DEFAULT_BACKEND?.trim() || undefined,
+    autoApprove: boolOpt(env.AGENT_AUTO_APPROVE),
     shell: boolOpt(env.JARVIS_BRIDGE_SHELL, "false"),
     slackToken: env.SLACK_BOT_TOKEN?.trim() || undefined,
     gatewayUrl: env.JARVIS_BRIDGE_GATEWAY_URL ?? "http://localhost:3001",

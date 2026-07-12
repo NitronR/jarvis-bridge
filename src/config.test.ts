@@ -13,10 +13,9 @@ test("loadConfig applies defaults when no env provided", () => {
   const cfg = loadConfig(env({}));
   assert.equal(cfg.port, 3001);
   assert.equal(cfg.workspace, path.join(os.homedir(), ".jarvis-bridge"));
-  assert.equal(cfg.agent.command, "");
-  assert.deepEqual(cfg.agent.args, []);
-  assert.equal(cfg.agent.model, undefined);
-  assert.equal(cfg.agent.autoApprove, false);
+  assert.equal(cfg.agentsConfigPath, "./agents.json");
+  assert.equal(cfg.defaultBackendEnv, undefined);
+  assert.equal(cfg.autoApprove, false);
   assert.equal(cfg.shell, true);
   assert.equal(cfg.slackToken, undefined);
   assert.equal(cfg.gatewayUrl, "http://localhost:3001");
@@ -30,19 +29,19 @@ test("loadConfig respects PORT, JARVIS_BRIDGE_WORKSPACE (with ~ expansion)", () 
   assert.equal(cfg.workspace, path.join(os.homedir(), "my-ws"));
 });
 
-test("loadConfig parses AGENT_CMD + AGENT_ARGS (whitespace-split)", () => {
+test("loadConfig parses JARVIS_BRIDGE_AGENTS_CONFIG + JARVIS_BRIDGE_DEFAULT_BACKEND", () => {
   const cfg = loadConfig(
-    env({ AGENT_CMD: "opencode", AGENT_ARGS: "acp --foo bar" }),
+    env({ JARVIS_BRIDGE_AGENTS_CONFIG: "./custom-agents.json", JARVIS_BRIDGE_DEFAULT_BACKEND: "my-default" }),
   );
-  assert.equal(cfg.agent.command, "opencode");
-  assert.deepEqual(cfg.agent.args, ["acp", "--foo", "bar"]);
+  assert.equal(cfg.agentsConfigPath, "./custom-agents.json");
+  assert.equal(cfg.defaultBackendEnv, "my-default");
 });
 
 test("loadConfig: AGENT_AUTO_APPROVE only enables on literal 'true'", () => {
-  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "true" })).agent.autoApprove, true);
-  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "True" })).agent.autoApprove, false);
-  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "1" })).agent.autoApprove, false);
-  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "" })).agent.autoApprove, false);
+  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "true" })).autoApprove, true);
+  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "True" })).autoApprove, false);
+  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "1" })).autoApprove, false);
+  assert.equal(loadConfig(env({ AGENT_AUTO_APPROVE: "" })).autoApprove, false);
 });
 
 test("loadConfig: SLACK_BOT_TOKEN captured when set", () => {

@@ -2,18 +2,20 @@
 //
 // Startup sequence:
 //   1. Load env config.
-//   2. Ensure the workspace dir is ready (create if missing, copy template).
-//   3. Spawn the ACP agent backend.
-//   4. Build the per-cwd backend pool seeded with the default backend.
-//   5. Healthcheck the agent; on failure print an actionable hint and exit.
-//   6. Start the HTTP gateway; serve the SPA from public/.
-//   7. On SIGINT / SIGTERM, shut the backend down cleanly.
+//   2. Ensure the workspace dir is ready (create if missing).
+//   3. Load backend profiles + the runtime default-backend setting.
+//   4. Initialize Backend Registry (spawns default backend).
+//   5. Healthcheck the default backend; on failure print an actionable hint and exit.
+//   6. Start the HTTP gateway.
+//   7. On SIGINT / SIGTERM, shut the registry down cleanly.
 
 import "dotenv/config";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { loadConfig } from "./config";
-import { createAgentBackend } from "./agent";
-import { createBackendPool } from "./agent/backendPool";
+import { loadBackendProfiles } from "./agent/backendConfig";
+import { createSettingsStore } from "./agent/settingsStore";
+import { createBackendRegistry } from "./agent/backendRegistry";
 import { createServer } from "./server";
 import { createToolRegistry } from "./tools";
 import { attachTerminalServer } from "./terminal";
@@ -25,39 +27,26 @@ async function main(): Promise<void> {
   await fs.mkdir(cfg.workspace, { recursive: true });
   console.log(`[jarvis-bridge] workspace ${cfg.workspace}`);
 
-  // 2. Spawn the ACP agent backend (or stub when AGENT_CMD is empty).
-  let chatBackend;
-  if (cfg.agent.command) {
-    chatBackend = await createAgentBackend(
-      "chat",
-      {
-        command: cfg.agent.command,
-        args: cfg.agent.args,
-        model: cfg.agent.model,
-      },
-      { workspace: cfg.workspace },
-    );
-  } else {
-    console.warn(
-      "[jarvis-bridge] AGENT_CMD not set — using stub backend (no real agent).",
-    );
-    const { StubBackend } = await import("./stubBackend");
-    chatBackend = new StubBackend();
-  }
-  chatBackend.setDefaultAutoApprove?.(cfg.agent.autoApprove);
+  // 2. Load backend profiles + the runtime default-backend setting.
+  const profiles = await loadBackendProfiles(cfg.agentsConfigPath);
+  const settings = await createSettingsStore({
+    path: path.join(cfg.workspace, "settings.json"),
+    envDefault: cfg.defaultBackendEnv ?? profiles[0].name,
+    validNames: profiles.map((p) => p.name),
+  });
 
-  // 3. Per-cwd backend pool.
-  const pool = await createBackendPool(chatBackend, cfg.workspace, async () =>
-    createAgentBackend(
-      "chat",
-      { command: cfg.agent.command, args: cfg.agent.args, model: cfg.agent.model },
-      { workspace: cfg.workspace },
-    ),
-  );
+  // 3. Backend registry (eagerly spawns only the current default).
+  const registry = await createBackendRegistry({
+    profiles,
+    settings,
+    workspace: cfg.workspace,
+    autoApprove: cfg.autoApprove,
+  });
 
-  // 4. Healthcheck.
+  // 4. Healthcheck the default backend.
+  const defaultBackend = await registry.getDefaultBackend();
   try {
-    const hc = await chatBackend.healthcheck({ retries: 1 });
+    const hc = await defaultBackend.healthcheck({ retries: 1 });
     if (!hc.ok) throw new Error(hc.detail ?? "agent healthcheck failed");
   } catch (err) {
     console.error(
@@ -67,7 +56,7 @@ async function main(): Promise<void> {
     console.error(
       "[jarvis-bridge] hint: if the agent CLI requires login, run it once in a terminal to authenticate, then retry.",
     );
-    await chatBackend.shutdown().catch(() => {});
+    await registry.shutdown().catch(() => {});
     process.exit(1);
   }
 
@@ -76,23 +65,16 @@ async function main(): Promise<void> {
   const app = createServer({
     workspace: cfg.workspace,
     port: cfg.port,
-    chatBackend,
-    backendPool: pool,
-    autoApprove: { default: cfg.agent.autoApprove },
+    registry,
     tools,
-  });
+  } as any); // Cast as any because createServer options don't support registry yet (Task 5 threads it)
   const server = app.listen(cfg.port, () => {
-    console.log(
-      `[jarvis-bridge] gateway listening on http://localhost:${cfg.port}`,
-    );
+    console.log(`[jarvis-bridge] gateway listening on http://localhost:${cfg.port}`);
     console.log(`[jarvis-bridge] workspace: ${cfg.workspace}`);
+    console.log(`[jarvis-bridge] backends: ${registry.listBackendNames().join(", ")} (default: ${registry.getDefaultBackendName()})`);
   });
 
-  attachTerminalServer({
-    server,
-    workspace: cfg.workspace,
-    enabled: cfg.shell,
-  });
+  attachTerminalServer({ server, workspace: cfg.workspace, enabled: cfg.shell });
   if (!cfg.shell) {
     console.log("[jarvis-bridge] terminal /terminal disabled (JARVIS_BRIDGE_SHELL=false)");
   }
@@ -100,7 +82,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n[jarvis-bridge] ${signal} received, shutting down`);
     server.close();
-    await chatBackend.shutdown().catch(() => {});
+    await registry.shutdown().catch(() => {});
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
@@ -108,9 +90,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error(
-    "[jarvis-bridge] fatal:",
-    err instanceof Error ? err.stack ?? err.message : String(err),
-  );
+  console.error("[jarvis-bridge] fatal:", err instanceof Error ? err.stack ?? err.message : String(err));
   process.exit(1);
 });
