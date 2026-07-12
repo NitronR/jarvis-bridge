@@ -22,6 +22,8 @@ export class StubBackend implements AgentBackend {
     slashCommands: false,
     canFork: false,
     images: false,
+    sessionDelete: false,
+    promptQueueing: false,
   };
   private autoApprove = false;
   private overrides = new Map<string, boolean>();

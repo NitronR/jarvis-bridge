@@ -15,6 +15,7 @@ const baseInit: ChatInitResponse = {
   capabilities: {
     multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false,
     toolApprovals: true, slashCommands: false, canFork: true, images: false,
+    sessionDelete: false, promptQueueing: false,
   },
   slashCommands: [], history: [],
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },

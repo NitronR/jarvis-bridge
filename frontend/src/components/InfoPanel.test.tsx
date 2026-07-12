@@ -9,6 +9,7 @@ const baseState: ChatState = {
   capabilities: {
     multipleSessions: true, customWorkingDirectory: true, cancel: true, steer: true,
     toolApprovals: true, slashCommands: true, canFork: true, images: true,
+    sessionDelete: false, promptQueueing: false,
   },
   slashCommands: [{ name: "review" }],
   models: [{ modelId: "m1", name: "Model One" }],

@@ -96,6 +96,8 @@ export class AcpAgentBackend implements AgentBackend {
       slashCommands: false,
       canFork: false,
       images: false,
+      sessionDelete: false,
+      promptQueueing: false,
     };
   }
 

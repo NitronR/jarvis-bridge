@@ -10,6 +10,8 @@ export interface AgentCapabilities {
   slashCommands: boolean;
   canFork: boolean;
   images: boolean;
+  sessionDelete: boolean;
+  promptQueueing: boolean;
 }
 
 export interface SendMessageOptions {
@@ -77,6 +79,7 @@ export interface AgentBackend {
   getSessionModels?(sessionId: string): SessionModelsInfo | null;
   setSessionModel?(sessionId: string, modelId: string): Promise<void>;
   getSlashCommands?(): Array<{ name: string; description?: string }>;
+  deleteSession?(sessionId: string): Promise<void>;
 
   // Auto-approve (backend-wide default + per-session override).
   getDefaultAutoApprove?(): boolean;

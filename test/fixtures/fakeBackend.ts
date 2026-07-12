@@ -80,6 +80,8 @@ export class FakeBackend implements AgentBackend {
       slashCommands: (opts.slashCommands ?? []).length > 0,
       canFork: true,
       images: false,
+      sessionDelete: opts.capabilities?.sessionDelete ?? false,
+      promptQueueing: opts.capabilities?.promptQueueing ?? false,
       ...opts.capabilities,
     };
     this.listSessionsResult = opts.listSessions ?? null;
@@ -121,6 +123,12 @@ export class FakeBackend implements AgentBackend {
     const s = new FakeSession(newId, []);
     this.sessions.set(newId, s);
     return s;
+  }
+  public deletedSessions: string[] = [];
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.sessions.has(sessionId)) throw new Error(`unknown session: ${sessionId}`);
+    this.sessions.delete(sessionId);
+    this.deletedSessions.push(sessionId);
   }
   getSession(sessionId: string): AgentSession | null {
     return this.sessions.get(sessionId) ?? null;

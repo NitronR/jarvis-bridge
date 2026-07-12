@@ -20,6 +20,8 @@ const baseInit: ChatInitResponse = {
     slashCommands: false,
     canFork: true,
     images: false,
+    sessionDelete: false,
+    promptQueueing: false,
   },
   slashCommands: [],
   history: [],

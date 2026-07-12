@@ -7,6 +7,8 @@ export interface AgentCapabilities {
   slashCommands: boolean;
   canFork: boolean;
   images: boolean;
+  sessionDelete: boolean;
+  promptQueueing: boolean;
 }
 
 export interface SlashCommand { name: string; description?: string; }
