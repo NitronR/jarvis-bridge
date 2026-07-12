@@ -26,6 +26,7 @@ try {
 }
 
 const delayMs = parseInt(process.env.X_FAKE_AGENT_DELAY_MS || "20", 10);
+const advertiseDelete = process.env.X_FAKE_AGENT_SESSION_DELETE === "true";
 
 let nextId = 1;
 let nextSessionId = 1;
@@ -163,7 +164,7 @@ rl.on("line", async (line) => {
         protocolVersion: 1,
         agentCapabilities: {
           promptCapabilities: { image: true },
-          sessionCapabilities: { fork: {} },
+          sessionCapabilities: advertiseDelete ? { fork: {}, delete: {} } : { fork: {} },
           extensions: { "jarvis-bridge/steer": {} },
         },
         agentInfo: { name: "fake-agent", version: "0.0.1" },
@@ -192,6 +193,9 @@ rl.on("line", async (line) => {
       break;
     case "session/fork":
       reply(msg.id, { sessionId: makeSessionId() });
+      break;
+    case "session/delete":
+      reply(msg.id, {});
       break;
     case "session/set_model":
       reply(msg.id, null);

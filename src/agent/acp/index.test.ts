@@ -152,3 +152,27 @@ describe("AcpAgentSession.cancel", () => {
     }
   });
 });
+
+describe("AcpAgentBackend.deleteSession", () => {
+  test("sessionDelete capability is false when the agent does not advertise sessionCapabilities.delete", async () => {
+    const backend = await newBackend();
+    try {
+      assert.equal(backend.capabilities.sessionDelete, false);
+      const session = await backend.createSession();
+      await assert.rejects(() => backend.deleteSession(session.id), /delete not supported/i);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("sessionDelete capability is true and deleteSession calls session/delete when advertised", async () => {
+    const backend = await newBackend({ X_FAKE_AGENT_SESSION_DELETE: "true" });
+    try {
+      assert.equal(backend.capabilities.sessionDelete, true);
+      const session = await backend.createSession();
+      await backend.deleteSession(session.id);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});

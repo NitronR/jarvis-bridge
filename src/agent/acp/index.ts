@@ -132,10 +132,12 @@ export class AcpAgentBackend implements AgentBackend {
       typeof obj === "object" && obj !== null && key in (obj as Record<string, unknown>);
     const steer = hasExtension(caps.extensions, STEER_EXTENSION_KEY);
     const canFork = hasExtension(caps.sessionCapabilities, "fork");
+    const sessionDelete = hasExtension(caps.sessionCapabilities, "delete");
     const images = caps.promptCapabilities?.image === true;
 
     this.capabilities.steer = steer;
     this.capabilities.canFork = canFork;
+    this.capabilities.sessionDelete = sessionDelete;
     this.capabilities.images = images;
 
     // Register server→client handlers.
@@ -406,6 +408,13 @@ export class AcpAgentBackend implements AgentBackend {
     const sessionObj = new AcpAgentSession(this, res.sessionId, ctx);
     this.sessionObjects.set(res.sessionId, sessionObj);
     return sessionObj;
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.capabilities.sessionDelete) throw new Error("delete not supported by this agent");
+    await this.conn.sendRequest("session/delete", { sessionId });
+    this.sessions.delete(sessionId);
+    this.sessionObjects.delete(sessionId);
   }
 
   getSession(sessionId: string): AgentSession | null {
