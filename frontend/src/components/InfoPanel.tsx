@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ChatState } from "../state/ChatContext";
 import styles from "./InfoPanel.module.css";
 
@@ -13,15 +14,45 @@ export interface InfoPanelProps {
   onAutoApproveToggle: () => void;
 }
 
+function SaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" strokeLinejoin="round" />
+      <path d="M17 21v-8H7v8M7 3v5h8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function InfoPanel(props: InfoPanelProps) {
   const { state, title, group, pinned, onRename, onGroup, onPinned, onModelChange, onAutoApproveToggle } = props;
+  const [titleDraft, setTitleDraft] = useState(title);
+  useEffect(() => setTitleDraft(title), [title]);
+  const titleDirty = titleDraft !== title;
+  const saveTitle = () => { if (titleDirty) onRename(titleDraft); };
   return (
     <aside className={styles.panel}>
       <div className={styles.card}>
         <h3>Current chat</h3>
         <div className={styles.row}>
           <span className={styles.key}>Title</span>
-          <input placeholder="Untitled" value={title} onChange={(e) => onRename(e.target.value)} />
+          <div className={styles.titleField}>
+            <input
+              placeholder="Untitled"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); }}
+            />
+            <button
+              type="button"
+              className={styles.saveButton}
+              aria-label="Save title"
+              title="Save title"
+              disabled={!titleDirty}
+              onClick={saveTitle}
+            >
+              <SaveIcon />
+            </button>
+          </div>
         </div>
         <div className={styles.row}>
           <span className={styles.key}>Group</span>
@@ -29,7 +60,16 @@ export function InfoPanel(props: InfoPanelProps) {
         </div>
         <div className={styles.row}>
           <span className={styles.key}>Pinned</span>
-          <input type="checkbox" checked={pinned} onChange={(e) => onPinned(e.target.checked)} />
+          <button
+            type="button"
+            className={`${styles.pinButton} ${pinned ? styles.pinButtonActive : ""}`}
+            onClick={() => onPinned(!pinned)}
+            aria-label={pinned ? "Unpin session" : "Pin session"}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M16 2l-1.5 4 5 5 4-1.5v3l-5 1.5-3.5 6.5L13 17l-6 6-1.5-1.5 6-6-3.5-2.5L9.5 8 8 3h3L9.5 7.5l4 4 4-5.5L16 2z" />
+            </svg>
+          </button>
         </div>
       </div>
 

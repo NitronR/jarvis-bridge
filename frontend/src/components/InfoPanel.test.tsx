@@ -6,6 +6,8 @@ import type { ChatState } from "../state/ChatContext";
 const baseState: ChatState = {
   sessionId: "sess-1",
   cwd: "/tmp/ws",
+  backendName: "fake",
+  loading: false,
   capabilities: {
     multipleSessions: true, customWorkingDirectory: true, cancel: true, steer: true,
     toolApprovals: true, slashCommands: true, canFork: true, images: true,
@@ -16,9 +18,13 @@ const baseState: ChatState = {
   currentModel: "m1",
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   busy: false,
+  unread: false,
+  pinned: false,
+  group: "",
   title: "My chat",
   resumed: false,
   history: [],
+  turnCounts: {},
 };
 
 const baseProps = {
@@ -36,11 +42,35 @@ describe("<InfoPanel>", () => {
     expect(screen.getByText("Model One")).toBeInTheDocument();
   });
 
-  it("calls onRename when title input changes", () => {
+  it("does not call onRename while typing, only on save", () => {
     const onRename = vi.fn();
     render(<InfoPanel {...baseProps} title="" onRename={onRename} />);
     fireEvent.change(screen.getByPlaceholderText("Untitled"), { target: { value: "new title" } });
+    expect(onRename).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText("Save title"));
     expect(onRename).toHaveBeenCalledWith("new title");
+  });
+
+  it("calls onRename when Enter is pressed in the title input", () => {
+    const onRename = vi.fn();
+    render(<InfoPanel {...baseProps} title="" onRename={onRename} />);
+    fireEvent.change(screen.getByPlaceholderText("Untitled"), { target: { value: "new title" } });
+    fireEvent.keyDown(screen.getByPlaceholderText("Untitled"), { key: "Enter" });
+    expect(onRename).toHaveBeenCalledWith("new title");
+  });
+
+  it("disables the save button until the title is edited", () => {
+    render(<InfoPanel {...baseProps} />);
+    expect(screen.getByLabelText("Save title")).toBeDisabled();
+    fireEvent.change(screen.getByDisplayValue("My chat"), { target: { value: "My chat 2" } });
+    expect(screen.getByLabelText("Save title")).toBeEnabled();
+  });
+
+  it("resets the draft title when the title prop changes externally", () => {
+    const { rerender } = render(<InfoPanel {...baseProps} />);
+    fireEvent.change(screen.getByDisplayValue("My chat"), { target: { value: "unsaved edit" } });
+    rerender(<InfoPanel {...baseProps} title="Renamed elsewhere" />);
+    expect(screen.getByDisplayValue("Renamed elsewhere")).toBeInTheDocument();
   });
 
   it("calls onAutoApproveToggle when the toggle is clicked", () => {

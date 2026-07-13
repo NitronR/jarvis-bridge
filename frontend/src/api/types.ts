@@ -22,6 +22,7 @@ export interface SessionSummary {
   pinned?: boolean;
   group?: string;
   active?: boolean;
+  backendName?: string;
 }
 
 export interface AutoApproveState {
@@ -34,13 +35,16 @@ export interface AutoApproveState {
 
 export interface ChatInitResponse {
   ok: true;
-  backend: { kind: string; role: string; model: string | null };
+  backend: { kind: string; role: string; model: string | null; name: string };
   sessionId: string;
   cwd: string;
   resumed: boolean;
   capabilities: AgentCapabilities;
   slashCommands: SlashCommand[];
   history: ChatHistoryEntry[];
+  customTitle: string | null;
+  pinned: boolean;
+  group: string | null;
   autoApprove: AutoApproveState;
   model: { supported: boolean; available: ModelInfo[]; current: string | null };
 }

@@ -50,16 +50,21 @@ export function Composer(props: ComposerProps) {
       <div className={styles.row}>
         <textarea
           rows={2}
-          placeholder={steerEnabled ? "Steer the running turn…" : "Type a message… (Shift+Enter for newline, Enter to send)"}
+          placeholder={
+            steerEnabled
+              ? "Steer the running turn…"
+              : busy
+                ? "Queue a message for after this turn… (Enter to queue)"
+                : "Type a message… (Shift+Enter for newline, Enter to send)"
+          }
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               submit();
             }
           }}
-          disabled={busy && !steerEnabled}
         />
         <input
           ref={fileInputRef}

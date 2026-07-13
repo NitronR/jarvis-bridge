@@ -136,7 +136,7 @@ function renderBubble(b: Bubble, key: number): JSX.Element {
       );
     case "tool":
       return (
-        <details key={key} className={b.result && !b.result.ok ? `${styles.tool} ${styles.toolError}` : styles.tool} open>
+        <details key={key} className={b.result && !b.result.ok ? `${styles.tool} ${styles.toolError}` : styles.tool}>
           <summary>{b.toolName}</summary>
           {b.argsText && <pre className={styles.toolArgs}>{b.argsText}</pre>}
           {b.result && (

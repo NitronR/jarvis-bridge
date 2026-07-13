@@ -24,8 +24,8 @@ export interface BackendRegistry {
   getDefaultBackendName(): string;
   setDefaultBackendName(name: string): Promise<void>;
   listBackendNames(): string[];
-  getDefaultBackend(): Promise<AgentBackend>;
-  getBackend(name: string): Promise<AgentBackend>;
+  getDefaultBackend(cwd?: string): Promise<AgentBackend>;
+  getBackend(name: string, cwd?: string): Promise<AgentBackend>;
   listSessions(): Promise<RegistrySessionEntry[]>;
   findSession(sessionId: string): Promise<RegistrySessionEntry | null>;
   getSession(sessionId: string): Promise<AgentSession | null>;
@@ -99,13 +99,17 @@ export async function createBackendRegistry(opts: {
     listBackendNames(): string[] {
       return profiles.map((p) => p.name);
     },
-    async getDefaultBackend(): Promise<AgentBackend> {
+    async getDefaultBackend(cwd?: string): Promise<AgentBackend> {
       const pool = await getPool(settings.getDefaultBackendName());
-      return pool.getDefaultBackend();
+      // A cwd routes through the pool's per-cwd cache (getOrCreate short-
+      // circuits back to the pool's own default backend when cwd resolves to
+      // the canonical workspace) so sessions in other workspaces get their
+      // own backend instance instead of all being attributed to the default.
+      return cwd ? pool.getOrCreate(cwd) : pool.getDefaultBackend();
     },
-    async getBackend(name: string): Promise<AgentBackend> {
+    async getBackend(name: string, cwd?: string): Promise<AgentBackend> {
       const pool = await getPool(name);
-      return pool.getDefaultBackend();
+      return cwd ? pool.getOrCreate(cwd) : pool.getDefaultBackend();
     },
     async listSessions(): Promise<RegistrySessionEntry[]> {
       const out: RegistrySessionEntry[] = [];

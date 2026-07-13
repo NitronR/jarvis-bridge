@@ -8,14 +8,33 @@ import { SkillsManagePanel } from "./components/SkillsManagePanel";
 import { SkillPanel } from "./components/SkillPanel";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { ToastProvider } from "./state/ToastContext";
+import { ChatProvider, useChatContext } from "./state/ChatContext";
 import { useHashRoute } from "./useHashRoute";
+import { useFavicon } from "./useFavicon";
 
 export function App() {
+  return (
+    <ChatProvider>
+      <AppInner />
+    </ChatProvider>
+  );
+}
+
+function AppInner() {
   const { route, navigate } = useHashRoute();
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
+
+  useFavicon();
+
+  const { setUnread } = useChatContext();
+  useEffect(() => {
+    const onClick = () => setUnread(false);
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [setUnread]);
 
   useEffect(() => {
     const onCwd = (e: Event) => {

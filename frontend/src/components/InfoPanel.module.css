@@ -31,3 +31,53 @@
   word-break: break-all;
   text-align: right;
 }
+.titleField {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.titleField input {
+  flex: 1;
+  min-width: 0;
+}
+.saveButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  flex-shrink: 0;
+}
+.saveButton svg {
+  width: 14px;
+  height: 14px;
+}
+.pinButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  padding: 4px 6px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.pinButton svg {
+  width: 14px;
+  height: 14px;
+}
+.pinButton:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+.pinButtonActive {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+  background: rgba(210, 153, 34, 0.12);
+}
+.pinButtonActive:hover {
+  background: rgba(210, 153, 34, 0.2);
+}

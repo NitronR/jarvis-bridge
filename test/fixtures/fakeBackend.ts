@@ -65,6 +65,8 @@ export class FakeBackend implements AgentBackend {
   readonly capabilities: AgentCapabilities;
   readonly sessions = new Map<string, FakeSession>();
   public createdSessions: Array<{ sessionId: string }> = [];
+  public createdWithCwd = new Map<string, string | undefined>();
+  public loadedWithCwd: Array<{ sessionId: string; cwd: string | undefined }> = [];
   public listSessionsResult: ChatSessionSummary[] | null;
   public forked: string[] = [];
   public currentModelBySession = new Map<string, string>();
@@ -95,7 +97,7 @@ export class FakeBackend implements AgentBackend {
   async healthcheck() {
     return { ok: true };
   }
-  async createSession() {
+  async createSession(opts?: { cwd?: string }) {
     const id = `sess-${Math.random().toString(36).slice(2, 10)}`;
     const session = new FakeSession(id, this.opts.initialSessionPatches ?? [
       { type: "text-delta", index: 0, delta: "hi from fake" },
@@ -103,11 +105,13 @@ export class FakeBackend implements AgentBackend {
     ]);
     this.sessions.set(id, session);
     this.createdSessions.push({ sessionId: id });
+    this.createdWithCwd.set(id, opts?.cwd);
     return session;
   }
-  async loadSession(sessionId: string) {
+  async loadSession(sessionId: string, opts?: { cwd?: string }) {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`unknown session: ${sessionId}`);
+    this.loadedWithCwd.push({ sessionId, cwd: opts?.cwd });
     return s;
   }
   async listSessions() {

@@ -77,6 +77,10 @@ export async function createBackendPool(
       const p = (async () => {
         try {
           const backend = await factory("chat", cfg, { workspace: canonicalWorkspace });
+          // New backend instances start with their own auto-approve default
+          // (false) — inherit the pool's current default so opening a new
+          // workspace doesn't silently reset auto-approve.
+          backend.setDefaultAutoApprove?.(defaultBackend.getDefaultAutoApprove?.() ?? false);
           resolved.set(key, backend);
           return backend;
         } catch (err) {

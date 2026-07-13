@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChatProvider } from "../state/ChatContext";
 import { useChat } from "../state/useChat";
 import { useToast } from "../state/ToastContext";
 import { fetchJSON } from "../api/client";
@@ -7,16 +6,33 @@ import { Transcript } from "./Transcript";
 import { Composer } from "./Composer";
 import { InfoPanel } from "./InfoPanel";
 import { ApprovalModal } from "./ApprovalModal";
-import { PastChatsMenu } from "./PastChatsMenu";
+import { ChatsDrawer } from "./ChatsDrawer";
+import { WorkspacesDrawer } from "./WorkspacesDrawer";
+import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
 import type { ImageAttachment, SessionSummary, ChatPatch } from "../api/types";
 import styles from "./ChatPanel.module.css";
 
+const FOLLOW_CHAT_STORAGE_KEY = "jarvis.followChat";
+
+function safeGetStoredFollowChat(): boolean {
+  try {
+    const raw = window.localStorage?.getItem(FOLLOW_CHAT_STORAGE_KEY);
+    return raw === null ? true : raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function safeSetStoredFollowChat(value: boolean): void {
+  try {
+    window.localStorage?.setItem(FOLLOW_CHAT_STORAGE_KEY, String(value));
+  } catch {
+    // ignore (storage may be unavailable)
+  }
+}
+
 export function ChatPanel() {
-  return (
-    <ChatProvider>
-      <ChatPanelInner />
-    </ChatProvider>
-  );
+  return <ChatPanelInner />;
 }
 
 function ChatPanelInner() {
@@ -24,13 +40,22 @@ function ChatPanelInner() {
   const toast = useToast();
   const ctx = chat.context;
   const [infoHidden, setInfoHidden] = useState(false);
+  const [followChat, setFollowChatState] = useState(() => safeGetStoredFollowChat());
+  const setFollowChat = useCallback((value: boolean | ((v: boolean) => boolean)) => {
+    setFollowChatState((prev) => {
+      const next = typeof value === "function" ? (value as (v: boolean) => boolean)(prev) : value;
+      safeSetStoredFollowChat(next);
+      return next;
+    });
+  }, []);
   const [pastChatsOpen, setPastChatsOpen] = useState(false);
+  const [workspacesOpen, setWorkspacesOpen] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => loadRecentWorkspaces());
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [steerEnabled, setSteerEnabled] = useState(false);
-  const [pendingApproval, setPendingApproval] = useState<ChatPatch | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<(ChatPatch & { type: "approval-request" }) | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
-  const [group, setGroup] = useState("");
-  const [pinned, setPinned] = useState(false);
+  const [pickingFolder, setPickingFolder] = useState(false);
   const queueRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -119,7 +144,7 @@ function ChatPanelInner() {
 
   const onGroupChange = useCallback(
     (g: string) => {
-      setGroup(g);
+      ctx.setGroup(g);
       if (ctx.state.sessionId) {
         void fetchJSON(`/chat/sessions/${encodeURIComponent(ctx.state.sessionId)}`, {
           method: "PATCH",
@@ -132,7 +157,7 @@ function ChatPanelInner() {
 
   const onPinnedChange = useCallback(
     (p: boolean) => {
-      setPinned(p);
+      ctx.setPinned(p);
       if (ctx.state.sessionId) {
         void fetchJSON(`/chat/sessions/${encodeURIComponent(ctx.state.sessionId)}`, {
           method: "PATCH",
@@ -172,11 +197,9 @@ function ChatPanelInner() {
     }
   }, [chat.busy, chat]);
 
-  const openPastChats = useCallback(async () => {
-    const res = await fetchJSON<{ sessions: SessionSummary[] }>("/chat/sessions");
-    if (res.ok && res.data) setSessions(res.data.sessions);
-    setPastChatsOpen(true);
-  }, []);
+  const onForkCurrent = useCallback(async () => {
+    await chat.forkCurrent();
+  }, [chat]);
 
   const onSwitchSession = useCallback(
     async (sessionId: string) => {
@@ -188,26 +211,83 @@ function ChatPanelInner() {
 
   const onDeleteSession = useCallback(
     async (sessionId: string) => {
-      const res = await fetchJSON(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
-      if (res.ok) {
-        const refreshed = await fetchJSON<{ sessions: SessionSummary[] }>("/chat/sessions");
-        if (refreshed.ok && refreshed.data) setSessions(refreshed.data.sessions);
-        toast.push("Session deleted", "success");
-        if (sessionId === ctx.state.sessionId) await chat.startNewChat();
-      } else {
-        toast.push("Could not delete session", "error");
-      }
+      await chat.deleteSession(sessionId);
+      setSessions((cur) => cur.filter((s) => s.sessionId !== sessionId));
     },
-    [toast, chat, ctx.state.sessionId],
+    [chat],
   );
 
-  const onForkCurrent = useCallback(() => {
-    void chat.forkCurrent().then(() => toast.push("Forked new session", "success"));
-  }, [chat, toast]);
+  const onOpenSessionInNewTab = useCallback(
+    (sessionId: string) => {
+      chat.openSessionInNewTab(sessionId);
+    },
+    [chat],
+  );
 
-  const onNewChat = useCallback(async () => {
-    await chat.startNewChat();
-  }, [chat]);
+  const onNewChat = useCallback(
+    async (e?: { metaKey?: boolean; ctrlKey?: boolean }) => {
+      if (e?.metaKey || e?.ctrlKey) {
+        chat.openNewChatInNewTab();
+        return;
+      }
+      await chat.startNewChat();
+    },
+    [chat],
+  );
+
+  const openPastChats = useCallback(async () => {
+    const res = await fetchJSON<{ sessions: SessionSummary[] }>("/chat/sessions");
+    if (res.ok && res.data) {
+      setSessions(res.data.sessions);
+      ctx.pruneTurnCounts(new Set(res.data.sessions.map((s) => s.sessionId)));
+    }
+    setPastChatsOpen(true);
+  }, [ctx]);
+
+  const startInCwd = useCallback(
+    async (cwd: string) => {
+      await chat.startNewChatInWorkspace(cwd);
+      setRecentWorkspaces(pushRecentWorkspace(cwd));
+    },
+    [chat],
+  );
+
+  const openWorkspaceInNewTab = useCallback(
+    (cwd: string) => {
+      setRecentWorkspaces(pushRecentWorkspace(cwd));
+      chat.openWorkspaceInNewTab(cwd);
+    },
+    [chat],
+  );
+
+  const onPickFolder = useCallback(async () => {
+    setPickingFolder(true);
+    try {
+      const initialCwd = recentWorkspaces[0];
+      const res = await fetchJSON<{ ok: boolean; cancelled: boolean; cwd: string | null; error?: string }>(
+        "/chat/pick-folder",
+        { method: "POST", body: { initialCwd } },
+      );
+      if (!res.ok || !res.data?.ok) {
+        toast.push(res.data?.error ?? "Folder picker unavailable", "error");
+        return;
+      }
+      if (res.data.cancelled || !res.data.cwd) return;
+      setWorkspacesOpen(false);
+      await startInCwd(res.data.cwd);
+    } finally {
+      setPickingFolder(false);
+    }
+  }, [recentWorkspaces, startInCwd, toast]);
+
+  const openWorkspacesDrawer = useCallback(() => {
+    setRecentWorkspaces(loadRecentWorkspaces());
+    setWorkspacesOpen(true);
+  }, []);
+
+  const onNewChatInWorkspace = useCallback(() => {
+    openWorkspacesDrawer();
+  }, [openWorkspacesDrawer]);
 
   return (
     <div className={styles.panel}>
@@ -216,8 +296,21 @@ function ChatPanelInner() {
           <div className={styles.header}>
             <h1>{ctx.state.title || "New chat"}</h1>
             <button onClick={() => setInfoHidden((v) => !v)}>Info</button>
+            <button
+              onClick={() => setFollowChat((v) => !v)}
+              className={followChat ? "primary" : ""}
+              title={followChat ? "Following chat — click to stop auto-scrolling" : "Not following — click to auto-scroll to latest"}
+            >
+              Follow
+            </button>
             <button onClick={openPastChats}>Chats</button>
             <button onClick={onNewChat}>+ New</button>
+            <button
+              onClick={onNewChatInWorkspace}
+              disabled={!ctx.state.capabilities?.customWorkingDirectory || pickingFolder}
+            >
+              + New in...
+            </button>
             <button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork || chat.busy}>Fork</button>
             <button
               onClick={() => setSteerEnabled((v) => !v)}
@@ -230,8 +323,20 @@ function ChatPanelInner() {
               {ctx.state.autoApprove.effective ? "AA✓" : "AA"}
             </button>
           </div>
-          <PastChatsMenu open={pastChatsOpen} sessions={sessions} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onDelete={onDeleteSession} canDelete={!!ctx.state.capabilities?.sessionDelete} />
-          <Transcript entries={chat.transcript} onApproval={onApproval} onSteerAck={onSteerAck} onImagesSkipped={onImagesSkipped} />
+          <ChatsDrawer open={pastChatsOpen} sessions={sessions} recentWorkspaces={recentWorkspaces} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onOpenInNewTab={onOpenSessionInNewTab} onDelete={onDeleteSession} canDelete={!!ctx.state.capabilities?.sessionDelete} getTurnCount={ctx.getTurnCount} />
+          <WorkspacesDrawer
+            open={workspacesOpen}
+            recentWorkspaces={recentWorkspaces}
+            onClose={() => setWorkspacesOpen(false)}
+            onOpenInWorkspace={async (cwd) => {
+              setWorkspacesOpen(false);
+              await startInCwd(cwd);
+            }}
+            onOpenInNewTab={openWorkspaceInNewTab}
+            onPickFolder={onPickFolder}
+            pickDisabled={pickingFolder}
+          />
+          <Transcript entries={chat.transcript} loading={ctx.state.loading} follow={followChat} onApproval={onApproval} onSteerAck={onSteerAck} onImagesSkipped={onImagesSkipped} />
           <Composer
             busy={chat.busy}
             steerEnabled={steerEnabled}
@@ -251,8 +356,8 @@ function ChatPanelInner() {
           <InfoPanel
             state={ctx.state}
             title={ctx.state.title}
-            group={group}
-            pinned={pinned}
+            group={ctx.state.group}
+            pinned={ctx.state.pinned}
             onRename={onRename}
             onGroup={onGroupChange}
             onPinned={onPinnedChange}

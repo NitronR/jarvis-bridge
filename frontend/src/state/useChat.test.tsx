@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import type { ReactNode } from "react";
 import { renderHook, act } from "@testing-library/react";
 import { ChatProvider } from "./ChatContext";
@@ -8,7 +8,7 @@ import type { ChatInitResponse, ChatPatch } from "../api/types";
 
 const baseInit: ChatInitResponse = {
   ok: true,
-  backend: { kind: "fake", role: "chat", model: null },
+  backend: { kind: "fake", role: "chat", model: null, name: "fake" },
   sessionId: "sess-1",
   cwd: "/tmp/ws",
   resumed: false,
@@ -18,6 +18,9 @@ const baseInit: ChatInitResponse = {
     sessionDelete: false, promptQueueing: false,
   },
   slashCommands: [], history: [],
+  customTitle: null,
+  pinned: false,
+  group: null,
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   model: { supported: false, available: [], current: null },
 };
@@ -27,8 +30,8 @@ function wrapperWithChat({ children }: { children: ReactNode }) {
 }
 
 describe("useChat", () => {
-  let fetchJSONSpy: ReturnType<typeof vi.spyOn>;
-  let fetchSSESpy: ReturnType<typeof vi.spyOn>;
+  let fetchJSONSpy: MockInstance<typeof client.fetchJSON>;
+  let fetchSSESpy: MockInstance<typeof client.fetchSSE>;
 
   beforeEach(() => { fetchJSONSpy = vi.spyOn(client, "fetchJSON"); });
   afterEach(() => { fetchSSESpy?.mockRestore(); fetchJSONSpy.mockRestore(); vi.restoreAllMocks(); });

@@ -1,9 +1,7 @@
 import type { ChatPatch } from "../api/types";
 import styles from "./ApprovalModal.module.css";
 
-interface ApprovalRequestPatch extends ChatPatch {
-  type: "approval-request";
-}
+type ApprovalRequestPatch = Extract<ChatPatch, { type: "approval-request" }>;
 
 export function ApprovalModal({
   patch, onResolve,

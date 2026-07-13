@@ -23,8 +23,13 @@ export interface UseChatResult {
   cancel: () => void;
   sendSteer: (text: string) => Promise<void>;
   resolveApproval: (requestId: string, optionId: string) => Promise<void>;
-  startNewChat: () => Promise<void>;
+  startNewChat: (opts?: { fork?: boolean }) => Promise<void>;
+  startNewChatInWorkspace: (cwd: string) => Promise<void>;
+  openSessionInNewTab: (sessionId: string) => void;
+  openWorkspaceInNewTab: (cwd: string) => void;
+  openNewChatInNewTab: () => void;
   switchSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   forkCurrent: () => Promise<void>;
   setModel: (modelId: string) => Promise<void>;
   setAutoApprove: (enabled: boolean) => Promise<void>;
@@ -63,7 +68,7 @@ export function useChat(): UseChatResult {
               return next;
             });
           },
-          onDone: () => { ctx.setBusy(false); sseRef.current = null; },
+          onDone: () => { ctx.setBusy(false); ctx.setUnread(true); sseRef.current = null; },
           onError: (err) => {
             setTranscript((cur) => {
               const next = cur.slice();
@@ -104,18 +109,50 @@ export function useChat(): UseChatResult {
     await fetchJSON("/chat/approval", { method: "POST", body: { sessionId: ctx.state.sessionId, requestId, optionId } });
   }, [ctx]);
 
-  const startNewChat = useCallback(async () => {
+  const startNewChatInWorkspace = useCallback(async (cwd: string) => {
     if (ctx.state.busy) cancel();
     setTranscript([]);
-    await ctx.init(null);
-    ctx.setTitle("New chat");
+    await ctx.init(null, cwd);
+    const base = cwd.split("/").filter(Boolean).pop() ?? cwd;
+    ctx.setTitle(`Chat: ${base}`);
   }, [ctx, cancel]);
+
+  const openSessionInNewTab = useCallback((sessionId: string) => {
+    const params = new URLSearchParams();
+    params.set("sessionId", sessionId);
+    const url = `${window.location.pathname}?${params.toString()}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const openWorkspaceInNewTab = useCallback((cwd: string) => {
+    const params = new URLSearchParams();
+    params.set("cwd", cwd);
+    const url = `${window.location.pathname}?${params.toString()}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const openNewChatInNewTab = useCallback(() => {
+    const params = new URLSearchParams();
+    if (ctx.state.cwd) params.set("cwd", ctx.state.cwd);
+    if (ctx.state.backendName) params.set("backend", ctx.state.backendName);
+    if (ctx.state.currentModel) params.set("model", ctx.state.currentModel);
+    const url = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, [ctx.state.cwd, ctx.state.backendName, ctx.state.currentModel]);
 
   const switchSession = useCallback(async (sessionId: string) => {
     if (ctx.state.busy) cancel();
     setTranscript([]);
     await ctx.init(sessionId);
   }, [ctx, cancel]);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    await fetchJSON(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+    if (sessionId === ctx.state.sessionId) {
+      setTranscript([]);
+      await ctx.init(null);
+    }
+  }, [ctx]);
 
   const forkCurrent = useCallback(async () => {
     if (!ctx.state.sessionId) return;
@@ -125,6 +162,17 @@ export function useChat(): UseChatResult {
     );
     if (res.ok && res.data?.sessionId) await switchSession(res.data.sessionId);
   }, [ctx, switchSession]);
+
+  const startNewChat = useCallback(async (opts?: { fork?: boolean }) => {
+    if (opts?.fork) {
+      await forkCurrent();
+      return;
+    }
+    if (ctx.state.busy) cancel();
+    setTranscript([]);
+    await ctx.init(null, ctx.state.cwd ?? undefined, ctx.state.backendName ?? undefined);
+    ctx.setTitle("New chat");
+  }, [ctx, cancel, forkCurrent]);
 
   const setModel = useCallback(async (modelId: string) => {
     if (!ctx.state.sessionId) return;
@@ -161,7 +209,12 @@ export function useChat(): UseChatResult {
     sendSteer,
     resolveApproval,
     startNewChat,
+    startNewChatInWorkspace,
+    openSessionInNewTab,
+    openWorkspaceInNewTab,
+    openNewChatInNewTab,
     switchSession,
+    deleteSession,
     forkCurrent,
     setModel,
     setAutoApprove,

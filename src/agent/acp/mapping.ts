@@ -8,8 +8,14 @@ export interface AcpUpdate {
   // content is used by agent_message_chunk / agent_thought_chunk /
   // user_message_chunk and (in some agents) the failing tool_call_update body.
   content?: AcpContent | AcpContent[];
-  // tool_call notifications carry the toolCallId + an optional toolCall envelope
+  // Per the ACP spec, tool_call / tool_call_update notifications carry
+  // title/kind directly on the update body (siblings of sessionUpdate) —
+  // confirmed against real opencode and Claude wire traffic.
   toolCallId?: string;
+  title?: string;
+  kind?: string;
+  // Some agents (and our own test fixtures) instead nest these under a
+  // toolCall envelope; support both shapes.
   toolCall?: {
     toolCallId: string;
     title?: string;
@@ -87,7 +93,7 @@ function extractToolInput(update: AcpUpdate): unknown {
 }
 
 function toolNameFromUpdate(update: AcpUpdate): string {
-  return update.toolCall?.title ?? update.toolCall?.kind ?? "tool";
+  return update.title ?? update.kind ?? update.toolCall?.title ?? update.toolCall?.kind ?? "tool";
 }
 
 export function acpUpdateToPatches(

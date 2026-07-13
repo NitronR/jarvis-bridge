@@ -63,6 +63,6 @@ describe("<Timeline>", () => {
       />,
     );
     expect(received).not.toBeNull();
-    expect((received as ChatPatch & { requestId: string }).requestId).toBe("r1");
+    expect((received as unknown as ChatPatch & { requestId: string }).requestId).toBe("r1");
   });
 });

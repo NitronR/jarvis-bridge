@@ -6,6 +6,7 @@ import path from "node:path";
 import { createServer } from "./server";
 import { FakeBackend } from "../test/fixtures/fakeBackend";
 import { createToolRegistry } from "./tools";
+import { createSessionConfigStore } from "./agent/sessionConfigStore";
 
 async function mkWorkspace(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-server-"));
@@ -28,7 +29,11 @@ async function withServer<T>(
     // what createBackendRegistry exposes.
     const testRegistry = makeSingleBackendTestRegistry(backend);
     const tools = createToolRegistry(ws);
-    const app = createServer({ workspace: ws, port: 0, registry: testRegistry, tools });
+    const sessionConfig = await createSessionConfigStore({
+      path: path.join(ws, "session_metadata.json"),
+      envDefault: false,
+    });
+    const app = createServer({ workspace: ws, port: 0, registry: testRegistry, tools, sessionConfig });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.on("listening", () => resolve()));
     const addr = server.address();
@@ -293,6 +298,144 @@ test("PATCH /chat/sessions/:id stores customTitle metadata", async () => {
   }));
 });
 
+test("GET /chat/init returns the stored customTitle after a rename (within same instance)", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string; customTitle?: string };
+      assert.equal(initBody.customTitle, null, "fresh session has no customTitle");
+
+      await fetch(`${url}/chat/sessions/${initBody.sessionId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ customTitle: "renamed" }),
+      });
+
+      const reloadRes = await fetch(`${url}/chat/init?sessionId=${initBody.sessionId}`);
+      const reloadBody = (await reloadRes.json()) as { customTitle?: string };
+      assert.equal(reloadBody.customTitle, "renamed");
+    },
+  }));
+});
+
+test("PATCH /chat/sessions/:id persists customTitle to disk", async () => {
+  const ws = await mkWorkspace();
+  const sessionConfigPath = path.join(ws, "session_metadata.json");
+  try {
+    const backend = new FakeBackend({
+      initialSessionId: "sess-1",
+      initialSessionPatches: [],
+    });
+    const testRegistry = makeSingleBackendTestRegistry(backend);
+    const app = createServer({
+      workspace: ws,
+      port: 0,
+      registry: testRegistry,
+      tools: createToolRegistry(ws),
+      sessionConfig: await createSessionConfigStore({ path: sessionConfigPath, envDefault: false }),
+    });
+    const server = app.listen(0);
+    try {
+      await new Promise<void>((resolve) => server.on("listening", () => resolve()));
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("no port");
+      const url = `http://127.0.0.1:${addr.port}`;
+
+      const patchRes = await fetch(`${url}/chat/sessions/sess-1`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ customTitle: "disk-backed" }),
+      });
+      assert.equal(patchRes.status, 200);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    const reopened = await createSessionConfigStore({ path: sessionConfigPath, envDefault: false });
+    assert.deepEqual(reopened.getMetadata("sess-1"), { customTitle: "disk-backed" });
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("GET /chat/init returns stored customTitle across server restart (persistent metadata)", async () => {
+  const ws = await mkWorkspace();
+  const sessionConfigPath = path.join(ws, "session_metadata.json");
+  try {
+    // Pre-populate the store with a customTitle (simulating a previous session).
+    const sessionConfig = await createSessionConfigStore({ path: sessionConfigPath, envDefault: false });
+    await sessionConfig.setMetadata("sess-1", { customTitle: "carried over" });
+
+    const backend = new FakeBackend({
+      initialSessionId: "sess-1",
+      initialSessionPatches: [],
+    });
+    const testRegistry = makeSingleBackendTestRegistry(backend);
+    const app = createServer({
+      workspace: ws,
+      port: 0,
+      registry: testRegistry,
+      tools: createToolRegistry(ws),
+      sessionConfig: await createSessionConfigStore({ path: sessionConfigPath, envDefault: false }),
+    });
+    const server = app.listen(0);
+    try {
+      await new Promise<void>((resolve) => server.on("listening", () => resolve()));
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("no port");
+      const url = `http://127.0.0.1:${addr.port}`;
+
+      const res = await fetch(`${url}/chat/init?sessionId=sess-1`);
+      const body = (await res.json()) as { customTitle?: string };
+      assert.equal(body.customTitle, "carried over");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("GET /chat/sessions includes persisted customTitle", async () => {
+  const ws = await mkWorkspace();
+  const sessionConfigPath = path.join(ws, "session_metadata.json");
+  try {
+    const sessionConfig = await createSessionConfigStore({ path: sessionConfigPath, envDefault: false });
+    await sessionConfig.setMetadata("sess-1", { customTitle: "pinned title" });
+
+    const backend = new FakeBackend({
+      initialSessionId: "sess-1",
+      initialSessionPatches: [],
+    });
+    backend.listSessions = async () => [{ sessionId: "sess-1", title: "generated" }];
+    const testRegistry = makeSingleBackendTestRegistry(backend);
+    const app = createServer({
+      workspace: ws,
+      port: 0,
+      registry: testRegistry,
+      tools: createToolRegistry(ws),
+      sessionConfig: await createSessionConfigStore({ path: sessionConfigPath, envDefault: false }),
+    });
+    const server = app.listen(0);
+    try {
+      await new Promise<void>((resolve) => server.on("listening", () => resolve()));
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("no port");
+      const url = `http://127.0.0.1:${addr.port}`;
+
+      const res = await fetch(`${url}/chat/sessions`);
+      const body = (await res.json()) as { sessions: Array<{ sessionId: string; customTitle?: string }> };
+      assert.equal(body.sessions.length, 1);
+      assert.equal(body.sessions[0].customTitle, "pinned title");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test("GET /chat/model returns model info for the current session", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend({
@@ -407,6 +550,39 @@ test("GET /chat/init respects sessionId in query (resume)", async () => {
       assert.equal(body.resumed, true);
     },
   }));
+});
+
+test("GET /chat/init resuming a session created in a non-default cwd reloads it against that same cwd", async () => {
+  await withServer(async (ws) => {
+    const backend = new FakeBackend();
+    return {
+      backend,
+      fn: async (url) => {
+        const nonDefaultCwd = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-other-workspace-"));
+        try {
+          const createRes = await fetch(`${url}/chat/init?cwd=${encodeURIComponent(nonDefaultCwd)}`);
+          assert.equal(createRes.status, 200);
+          const created = (await createRes.json()) as { sessionId: string; cwd: string };
+          assert.equal(created.cwd, nonDefaultCwd);
+          assert.equal(backend.createdWithCwd.get(created.sessionId), nonDefaultCwd);
+
+          // Simulate a plain page reload: only sessionId is sent, no cwd —
+          // the browser strips the one-shot cwd param once it's consumed.
+          const resumeRes = await fetch(`${url}/chat/init?sessionId=${encodeURIComponent(created.sessionId)}`);
+          assert.equal(resumeRes.status, 200);
+          const resumed = (await resumeRes.json()) as { sessionId: string; cwd: string; resumed: boolean };
+          assert.equal(resumed.resumed, true);
+          assert.equal(resumed.sessionId, created.sessionId);
+          assert.equal(resumed.cwd, nonDefaultCwd);
+          const lastLoad = backend.loadedWithCwd.at(-1);
+          assert.equal(lastLoad?.sessionId, created.sessionId);
+          assert.equal(lastLoad?.cwd, nonDefaultCwd);
+        } finally {
+          await fs.rm(nonDefaultCwd, { recursive: true, force: true });
+        }
+      },
+    };
+  });
 });
 
 test("GET /chat/auto-approve default effective=false", async () => {

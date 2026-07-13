@@ -3,7 +3,8 @@
 // Startup sequence:
 //   1. Load env config.
 //   2. Ensure the workspace dir is ready (create if missing).
-//   3. Load backend profiles + the runtime default-backend setting.
+//   3. Load backend profiles + the runtime default-backend setting, and the
+//      persisted session config (auto-approve default, session metadata).
 //   4. Initialize Backend Registry (spawns default backend).
 //   5. Healthcheck the default backend; on failure print an actionable hint and exit.
 //   6. Start the HTTP gateway.
@@ -15,6 +16,7 @@ import path from "node:path";
 import { loadConfig } from "./config";
 import { loadBackendProfiles } from "./agent/backendConfig";
 import { createSettingsStore } from "./agent/settingsStore";
+import { createSessionConfigStore } from "./agent/sessionConfigStore";
 import { createBackendRegistry } from "./agent/backendRegistry";
 import { createServer } from "./server";
 import { createToolRegistry } from "./tools";
@@ -35,12 +37,19 @@ async function main(): Promise<void> {
     validNames: profiles.map((p) => p.name),
   });
 
-  // 3. Backend registry (eagerly spawns only the current default).
+  // 3a. Session-scoped config (auto-approve default/overrides, session
+  // metadata) — persisted to the workspace dir so it survives restarts.
+  const sessionConfig = await createSessionConfigStore({
+    path: path.join(cfg.workspace, "session_metadata.json"),
+    envDefault: cfg.autoApprove,
+  });
+
+  // 3b. Backend registry (eagerly spawns only the current default).
   const registry = await createBackendRegistry({
     profiles,
     settings,
     workspace: cfg.workspace,
-    autoApprove: cfg.autoApprove,
+    autoApprove: sessionConfig.getAutoApproveDefault(),
   });
 
   // 4. Healthcheck the default backend.
@@ -75,6 +84,7 @@ async function main(): Promise<void> {
     port: cfg.port,
     registry,
     tools,
+    sessionConfig,
   });
   const server = app.listen(cfg.port, () => {
     console.log(`[jarvis-bridge] gateway listening on http://localhost:${cfg.port}`);

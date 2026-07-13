@@ -9,21 +9,14 @@ import { z } from "zod";
 import type { AgentBackend, AgentSession } from "./agent/types";
 import type { BackendRegistry } from "./agent/backendRegistry";
 import type { ToolHandler } from "./types";
+import type { SessionConfigStore, SessionMetadataPatch } from "./agent/sessionConfigStore";
 
 export interface CreateServerOptions {
   workspace: string;
   port: number;
   registry: BackendRegistry;
   tools: Map<string, ToolHandler>;
-}
-
-// Per-session metadata store (gateway-side; not on the agent).
-const sessionMeta: Map<string, SessionMetadata> = new Map();
-interface SessionMetadata {
-  sessionId: string;
-  customTitle?: string;
-  pinned?: boolean;
-  group?: string;
+  sessionConfig?: SessionConfigStore;
 }
 
 export function createServer(opts: CreateServerOptions): Express {
@@ -64,17 +57,33 @@ export function createServer(opts: CreateServerOptions): Express {
         return;
       }
     }
-    const backend = await registry.getDefaultBackend();
+    let backend: AgentBackend;
+    let backendName: string;
     let session: AgentSession;
     let resumed = false;
+    let effectiveCwd: string;
     if (q.sessionId) {
+      // The browser only sends `cwd` for a one-shot new-tab handoff — a plain
+      // reload sends just `sessionId`. Fall back to the cwd persisted at
+      // session-creation time so resuming a session rooted in a non-default
+      // workspace doesn't silently reload it against `workspace` (or, worse,
+      // the agent process's own launch directory).
+      effectiveCwd = requestedCwd ?? opts.sessionConfig?.getSessionCwd(q.sessionId) ?? workspace;
+      // Route to the backend that created this session (never the current
+      // default) so changing the default backend can't migrate existing
+      // sessions. Falls back to the default backend's per-cwd instance if the
+      // owning backend's pool hasn't been spawned in this process yet — see
+      // the cross-server-restart caveat in docs/acp-notes.md.
+      const owner = await registry.findSession(q.sessionId);
+      backend = owner ? owner.backend : await registry.getDefaultBackend(effectiveCwd);
+      backendName = owner ? owner.backendName : registry.getDefaultBackendName();
       // Always go through loadSession (when supported) rather than reusing an
       // in-memory resident session — loadSession is what triggers the agent
       // to replay its persisted history, which we capture below. Reusing a
       // resident session (e.g. reloading the tab you're already in) would
       // otherwise silently skip the replay and return no history.
       if (backend.loadSession) {
-        session = await backend.loadSession(q.sessionId, requestedCwd ? { cwd: requestedCwd } : undefined);
+        session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd });
         resumed = true;
       } else {
         const found = await registry.getSession(q.sessionId);
@@ -86,8 +95,28 @@ export function createServer(opts: CreateServerOptions): Express {
         resumed = true;
       }
     } else {
-      session = await backend.createSession(requestedCwd ? { cwd: requestedCwd } : undefined);
+      backendName = q.backend ?? registry.getDefaultBackendName();
+      effectiveCwd = requestedCwd ?? workspace;
+      if (q.backend) {
+        try {
+          backend = await registry.getBackend(q.backend, effectiveCwd);
+        } catch {
+          res.status(400).json({ error: "unknown backend" });
+          return;
+        }
+      } else {
+        backend = await registry.getDefaultBackend(effectiveCwd);
+      }
+      session = await backend.createSession({ cwd: effectiveCwd });
+      if (q.model) await backend.setSessionModel?.(session.id, q.model);
+      await opts.sessionConfig?.setSessionCwd(session.id, effectiveCwd);
     }
+    // Backend instances hold auto-approve state in memory only; reseed a
+    // persisted per-session override in case this instance was just spawned
+    // (gateway restart, or first touch of a lazily-spawned backend) and
+    // wouldn't otherwise know about it.
+    const storedOverride = opts.sessionConfig?.getAutoApproveOverride(session.id);
+    if (storedOverride !== undefined) backend.setSessionAutoApprove?.(session.id, storedOverride);
     const history = session.consumeReplayHistory?.() ?? [];
     const models = backend.getSessionModels?.(session.id) ?? null;
     const slashCommands = session.getSlashCommands
@@ -101,11 +130,15 @@ export function createServer(opts: CreateServerOptions): Express {
         kind: backend.kind,
         role: backend.role,
         model: models?.current ?? null,
+        name: backendName,
       },
       sessionId: session.id,
-      cwd: requestedCwd ?? workspace,
+      cwd: effectiveCwd,
       resumed,
       history,
+      customTitle: opts.sessionConfig?.getMetadata(session.id)?.customTitle ?? null,
+      pinned: opts.sessionConfig?.getMetadata(session.id)?.pinned ?? false,
+      group: opts.sessionConfig?.getMetadata(session.id)?.group ?? null,
       capabilities: backend.capabilities,
       slashCommands,
       autoApprove: {
@@ -270,6 +303,7 @@ export function createServer(opts: CreateServerOptions): Express {
     if (!body.sessionId) {
       const backend = await registry.getDefaultBackend();
       backend.setDefaultAutoApprove?.(Boolean(body.enabled));
+      await opts.sessionConfig?.setAutoApproveDefault(Boolean(body.enabled));
       const def = backend.getDefaultAutoApprove?.() ?? false;
       res.json({ ok: true, supported: true, default: def, override: null, effective: def, enabled: def });
       return;
@@ -280,6 +314,7 @@ export function createServer(opts: CreateServerOptions): Express {
       return;
     }
     entry.backend.setSessionAutoApprove?.(body.sessionId, body.enabled);
+    await opts.sessionConfig?.setAutoApproveOverride(body.sessionId, body.enabled);
     const def = entry.backend.getDefaultAutoApprove?.() ?? false;
     const ov = entry.backend.getSessionAutoApproveOverride?.(body.sessionId);
     res.json({ ok: true, supported: true, default: def, override: ov ?? null, effective: ov ?? def, enabled: ov ?? def });
@@ -289,17 +324,20 @@ export function createServer(opts: CreateServerOptions): Express {
   app.get("/chat/sessions", smallJson, asyncRoute(async (_req, res) => {
     const all = await registry.listSessions();
     const active = await defaultSessionId(registry);
-    const sessions = all.map((e) => ({
-      sessionId: e.summary.sessionId,
-      title: e.summary.title,
-      updatedAt: e.summary.updatedAt ?? null,
-      cwd: e.cwd,
-      backendName: e.backendName,
-      customTitle: sessionMeta.get(e.summary.sessionId)?.customTitle,
-      pinned: sessionMeta.get(e.summary.sessionId)?.pinned,
-      group: sessionMeta.get(e.summary.sessionId)?.group,
-      active: e.summary.sessionId === active,
-    }));
+    const sessions = all.map((e) => {
+      const meta = opts.sessionConfig?.getMetadata(e.summary.sessionId);
+      return {
+        sessionId: e.summary.sessionId,
+        title: e.summary.title,
+        updatedAt: e.summary.updatedAt ?? null,
+        cwd: e.cwd,
+        backendName: e.backendName,
+        customTitle: meta?.customTitle,
+        pinned: meta?.pinned,
+        group: meta?.group,
+        active: e.summary.sessionId === active,
+      };
+    });
     res.json({ sessions });
   }));
 
@@ -321,19 +359,21 @@ export function createServer(opts: CreateServerOptions): Express {
   app.patch("/chat/sessions/:sessionId", smallJson, asyncRoute(async (req, res) => {
     const body = SessionPatchBodySchema.parse(req.body ?? {});
     const sid = req.params.sessionId;
-    const cur = sessionMeta.get(sid) ?? { sessionId: sid };
-    if (body.customTitle !== undefined) cur.customTitle = body.customTitle ?? undefined;
-    if (body.pinned !== undefined) cur.pinned = body.pinned;
-    if (body.group !== undefined) cur.group = body.group ?? undefined;
-    sessionMeta.set(sid, cur);
-    res.json({ ok: true, sessionId: sid, metadata: cur });
+    const cur = opts.sessionConfig?.getMetadata(sid) ?? {};
+    const patch: SessionMetadataPatch = {};
+    if (body.customTitle !== undefined) patch.customTitle = body.customTitle ?? null;
+    if (body.pinned !== undefined) patch.pinned = body.pinned;
+    if (body.group !== undefined) patch.group = body.group ?? null;
+    if (opts.sessionConfig) await opts.sessionConfig.setMetadata(sid, patch);
+    const merged = opts.sessionConfig?.getMetadata(sid) ?? cur;
+    res.json({ ok: true, sessionId: sid, metadata: { ...merged, sessionId: sid } });
   }));
 
   app.delete("/chat/sessions/:sessionId", smallJson, asyncRoute(async (req, res) => {
     const sid = req.params.sessionId;
     try {
       await registry.deleteSession(sid);
-      sessionMeta.delete(sid);
+      await opts.sessionConfig?.setMetadata(sid, { customTitle: null, group: null });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -502,6 +542,8 @@ function asyncRoute(handler: AsyncRoute) {
 const InitQuerySchema = z.object({
   sessionId: z.string().optional(),
   cwd: z.string().optional(),
+  backend: z.string().optional(),
+  model: z.string().optional(),
 });
 
 const SendBodySchema = z.object({

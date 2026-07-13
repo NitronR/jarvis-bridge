@@ -104,6 +104,31 @@ describe("acpUpdateToPatches — tool calls", () => {
     assert.equal(state.finalizedToolCalls.has("tc-1"), false);
   });
 
+  test("tool_call with title/kind flat on the update (real ACP wire shape) uses them, not the 'tool' fallback", () => {
+    const state = freshState();
+    const patches = acpUpdateToPatches(
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-1",
+        title: "Read",
+        kind: "read",
+      },
+      state,
+    );
+    const p = patches[0] as Extract<typeof patches[0], { type: "tool-call-start" }>;
+    assert.equal(p.toolName, "Read");
+  });
+
+  test("tool_call with neither flat nor nested title/kind falls back to 'tool'", () => {
+    const state = freshState();
+    const patches = acpUpdateToPatches(
+      { sessionUpdate: "tool_call", toolCallId: "tc-1" },
+      state,
+    );
+    const p = patches[0] as Extract<typeof patches[0], { type: "tool-call-start" }>;
+    assert.equal(p.toolName, "tool");
+  });
+
   test("tool_call WITH rawInput emits start + finalized exactly once", () => {
     const state = freshState();
     const patches = acpUpdateToPatches(

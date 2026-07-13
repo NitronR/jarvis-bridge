@@ -138,6 +138,61 @@ test("setDefaultBackendName changes what getDefaultBackend resolves to", async (
   }
 });
 
+test("getDefaultBackend(cwd) routes to a distinct per-cwd backend so sessions are attributed to the right workspace", async () => {
+  const workspace = await mkWorkspace();
+  const other = await mkWorkspace();
+  let registry;
+  try {
+    const settings = await createSettingsStore({
+      path: path.join(workspace, "settings.json"),
+      envDefault: "opencode",
+      validNames: ["opencode", "claude"],
+    });
+    registry = await createBackendRegistry({ profiles: profiles(), settings, workspace, autoApprove: false });
+
+    const def = await registry.getDefaultBackend();
+    const forOther = await registry.getDefaultBackend(other);
+    // A non-default cwd must resolve to its own pooled backend instance, not
+    // the one spawned for the canonical workspace — otherwise every session
+    // ends up attributed to `workspace` regardless of where it was created.
+    assert.notEqual(def, forOther);
+
+    // Session created "in" `other` should be reported with `other`'s cwd,
+    // not the canonical workspace's.
+    forOther.listSessions = async () => [{ sessionId: "s-other" }];
+    const all = await registry.listSessions();
+    const entry = all.find((e) => e.summary.sessionId === "s-other");
+    assert.ok(entry);
+    assert.equal(path.resolve(entry!.cwd), path.resolve(other));
+  } finally {
+    if (registry) await registry.shutdown();
+    await fs.rm(workspace, { recursive: true, force: true });
+    await fs.rm(other, { recursive: true, force: true });
+  }
+});
+
+test("getBackend(name, cwd) routes to a distinct per-cwd backend for a named non-default profile", async () => {
+  const workspace = await mkWorkspace();
+  const other = await mkWorkspace();
+  let registry;
+  try {
+    const settings = await createSettingsStore({
+      path: path.join(workspace, "settings.json"),
+      envDefault: "opencode",
+      validNames: ["opencode", "claude"],
+    });
+    registry = await createBackendRegistry({ profiles: profiles(), settings, workspace, autoApprove: false });
+
+    const claudeDefault = await registry.getBackend("claude");
+    const claudeOther = await registry.getBackend("claude", other);
+    assert.notEqual(claudeDefault, claudeOther);
+  } finally {
+    if (registry) await registry.shutdown();
+    await fs.rm(workspace, { recursive: true, force: true });
+    await fs.rm(other, { recursive: true, force: true });
+  }
+});
+
 test("claude backend profile sets kind to claude-acp and propagates configured env verbatim", async () => {
   const workspace = await mkWorkspace();
   let registry;

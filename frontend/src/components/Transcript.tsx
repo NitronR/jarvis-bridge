@@ -5,6 +5,8 @@ import styles from "./Transcript.module.css";
 
 export interface TranscriptProps {
   entries: MessageEntry[];
+  loading?: boolean;
+  follow?: boolean;
   onApproval: (p: ChatPatch & { type: "approval-request" }) => void;
   onSteerAck: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped: (p: ChatPatch & { type: "images-skipped" }) => void;
@@ -12,9 +14,19 @@ export interface TranscriptProps {
 
 export function Transcript(props: TranscriptProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const follow = props.follow ?? true;
   useEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [props.entries]);
+    if (follow && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [props.entries, follow]);
+  if (props.loading) {
+    return (
+      <div ref={ref} className={styles.transcript}>
+        <div className={styles.empty}>
+          <p>Loading…</p>
+        </div>
+      </div>
+    );
+  }
   if (props.entries.length === 0) {
     return (
       <div ref={ref} className={styles.transcript}>
