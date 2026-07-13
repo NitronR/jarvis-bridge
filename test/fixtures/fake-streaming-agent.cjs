@@ -7,8 +7,26 @@
 //   X_FAKE_AGENT_TOOL_CALL — JSON object: { toolCallId, title, kind, rawInput, output }
 //                            (default: null — no tool call)
 //   X_FAKE_AGENT_DELAY_MS — delay before sending chunks (default 20)
+//   X_FAKE_AGENT_PERMISSION_OPTIONS — JSON array of { optionId, kind, name } sent as the
+//                            `options` of a session/request_permission call before the
+//                            prompt finalizes. Mirrors the real Claude adapter's shape,
+//                            where optionId (e.g. "allow") and kind (e.g. "allow_once")
+//                            are distinct strings — see docs/agent-claude-code.md.
+//   X_FAKE_AGENT_PERMISSION_RESULT_FILE — path to write the client's
+//                            session/request_permission response as JSON, for the test
+//                            to assert against.
+//   X_FAKE_AGENT_SESSION_LIST — JSON array of { sessionId, cwd, title, updatedAt } to
+//                            return from session/list (default: []). Mirrors the real
+//                            Claude adapter, which returns sessions across every
+//                            project the user has ever used, not just this cwd.
+//   X_FAKE_AGENT_SESSION_DELETE_ERROR — JSON { code, message, data } to return as a
+//                            session/delete error response instead of success. Mirrors
+//                            the real Claude adapter's shape: a generic top-level
+//                            message ("Internal error") with the useful detail nested
+//                            under data.details.
 
 const readline = require("node:readline");
+const fs = require("node:fs");
 
 let newText;
 try {
@@ -30,8 +48,35 @@ const advertiseDelete = process.env.X_FAKE_AGENT_SESSION_DELETE === "true";
 const advertisePromptQueueing = process.env.X_FAKE_AGENT_PROMPT_QUEUEING === "true";
 const claudeStyleConfig = process.env.X_FAKE_AGENT_CLAUDE_STYLE_CONFIG === "true";
 
+let permissionOptions = null;
+try {
+  const raw = process.env.X_FAKE_AGENT_PERMISSION_OPTIONS;
+  if (raw) permissionOptions = JSON.parse(raw);
+} catch {
+  permissionOptions = null;
+}
+const permissionResultFile = process.env.X_FAKE_AGENT_PERMISSION_RESULT_FILE || null;
+
+let sessionList = [];
+try {
+  const raw = process.env.X_FAKE_AGENT_SESSION_LIST;
+  if (raw) sessionList = JSON.parse(raw);
+} catch {
+  sessionList = [];
+}
+
+let sessionDeleteError = null;
+try {
+  const raw = process.env.X_FAKE_AGENT_SESSION_DELETE_ERROR;
+  if (raw) sessionDeleteError = JSON.parse(raw);
+} catch {
+  sessionDeleteError = null;
+}
+
 let nextId = 1;
 let nextSessionId = 1;
+let nextAgentRequestId = 1;
+const pendingFromAgent = new Map();
 
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
@@ -43,8 +88,16 @@ function reply(id, result) {
   emit({ jsonrpc: "2.0", id, result });
 }
 
-function replyError(id, code, message) {
-  emit({ jsonrpc: "2.0", id, error: { code, message } });
+function replyError(id, code, message, data) {
+  emit({ jsonrpc: "2.0", id, error: data === undefined ? { code, message } : { code, message, data } });
+}
+
+function sendRequestToClient(method, params) {
+  const id = `agent-${nextAgentRequestId++}`;
+  emit({ jsonrpc: "2.0", id, method, params });
+  return new Promise((resolve) => {
+    pendingFromAgent.set(id, resolve);
+  });
 }
 
 function makeSessionId() {
@@ -124,6 +177,16 @@ async function handlePrompt(id, params, sessionId) {
     });
     await chunkDelay(chunkEvery);
   }
+  if (permissionOptions) {
+    const result = await sendRequestToClient("session/request_permission", {
+      sessionId,
+      toolCall: { toolCallId: "perm-probe" },
+      options: permissionOptions,
+    });
+    if (permissionResultFile) {
+      fs.writeFileSync(permissionResultFile, JSON.stringify(result));
+    }
+  }
   // usage
   emit({
     jsonrpc: "2.0",
@@ -158,7 +221,15 @@ rl.on("line", async (line) => {
   }
   if (!msg || msg.jsonrpc !== "2.0") return;
 
-  if (typeof msg.method !== "string") return; // response — ignore
+  if (typeof msg.method !== "string") {
+    // response to a request we sent (e.g. session/request_permission)
+    const resolve = pendingFromAgent.get(msg.id);
+    if (resolve) {
+      pendingFromAgent.delete(msg.id);
+      resolve(msg.result);
+    }
+    return;
+  }
 
   switch (msg.method) {
     case "initialize":
@@ -224,13 +295,17 @@ rl.on("line", async (line) => {
       break;
     }
     case "session/list":
-      reply(msg.id, { sessions: [] });
+      reply(msg.id, { sessions: sessionList });
       break;
     case "session/fork":
       reply(msg.id, { sessionId: makeSessionId() });
       break;
     case "session/delete":
-      reply(msg.id, {});
+      if (sessionDeleteError) {
+        replyError(msg.id, sessionDeleteError.code, sessionDeleteError.message, sessionDeleteError.data);
+      } else {
+        reply(msg.id, {});
+      }
       break;
     case "session/set_model":
       reply(msg.id, null);

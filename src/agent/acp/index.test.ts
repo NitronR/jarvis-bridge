@@ -3,6 +3,8 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { AcpAgentBackend, AcpAgentSession } from "./index";
 import type { ChatPatch } from "../types";
@@ -139,6 +141,61 @@ describe("AcpAgentSession.sendMessage — streaming", () => {
   });
 });
 
+describe("AcpAgentBackend.listSessions — cwd scoping", () => {
+  // Live-probe regression (docs/agent-claude-code.md): the real Claude adapter's
+  // session/list returns the user's entire global session history across every
+  // project, not scoped to this backend's workspace. listSessions() must filter
+  // to sessions reporting this backend's own cwd (or no cwd at all, for agents
+  // like opencode that don't report one and already scope server-side).
+  test("filters out sessions reporting a different cwd", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_SESSION_LIST: JSON.stringify([
+        { sessionId: "s-here", cwd: process.cwd(), title: "in this workspace" },
+        { sessionId: "s-elsewhere", cwd: "/some/other/project", title: "unrelated project" },
+        { sessionId: "s-no-cwd", title: "agent that doesn't report cwd" },
+      ]),
+    });
+    try {
+      const sessions = await backend.listSessions();
+      const ids = sessions.map((s) => s.sessionId).sort();
+      assert.deepEqual(ids, ["s-here", "s-no-cwd"]);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
+describe("AcpAgentBackend — auto-approve permission selection", () => {
+  // Live-probe regression (docs/agent-claude-code.md): the real Claude adapter's
+  // "allow once" option has optionId "allow" with kind "allow_once" — optionId and
+  // kind are distinct, agent-defined vocabularies. Auto-approve must select by
+  // kind, not assume optionId is always the literal string "allow_once".
+  test("selects the option by kind=allow_once, not a hardcoded optionId", async () => {
+    const resultFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "jb-perm-")),
+      "result.json",
+    );
+    const backend = await newBackend({
+      X_FAKE_AGENT_PERMISSION_OPTIONS: JSON.stringify([
+        { optionId: "allow_always", kind: "allow_always", name: "Always Allow" },
+        { optionId: "allow", kind: "allow_once", name: "Allow" },
+        { optionId: "reject", kind: "reject_once", name: "Reject" },
+      ]),
+      X_FAKE_AGENT_PERMISSION_RESULT_FILE: resultFile,
+    });
+    try {
+      backend.setDefaultAutoApprove(true);
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await collectPatches(session.sendMessage("do something"));
+      const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(result.outcome.outcome, "selected");
+      assert.equal(result.outcome.optionId, "allow");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
 describe("AcpAgentSession.cancel", () => {
   test("cancel() sends a session/cancel notification without throwing", async () => {
     const backend = await newBackend();
@@ -171,6 +228,28 @@ describe("AcpAgentBackend.deleteSession", () => {
       assert.equal(backend.capabilities.sessionDelete, true);
       const session = await backend.createSession();
       await backend.deleteSession(session.id);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  // Live-probe regression (docs/agent-claude-code.md): the real Claude adapter
+  // returns a generic top-level "Internal error" message for a not-found delete,
+  // with the useful "not found" detail nested under error.data.details. server.ts's
+  // DELETE route classifies 404 vs 500 by matching /not found/i against the thrown
+  // error's message, so that detail must be folded into the message, not dropped.
+  test("folds error.data.details into the thrown message (Claude's error shape)", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_SESSION_DELETE: "true",
+      X_FAKE_AGENT_SESSION_DELETE_ERROR: JSON.stringify({
+        code: -32603,
+        message: "Internal error",
+        data: { details: "Session abc123 not found in any project directory" },
+      }),
+    });
+    try {
+      const session = await backend.createSession();
+      await assert.rejects(() => backend.deleteSession(session.id), /not found/i);
     } finally {
       await backend.shutdown();
     }

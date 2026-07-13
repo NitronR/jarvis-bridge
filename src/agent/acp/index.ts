@@ -160,8 +160,16 @@ export class AcpAgentBackend implements AgentBackend {
       const ctx = sid ? this.sessions.get(sid) : undefined;
       const effective = this.effectiveAutoApprove(ctx);
       if (effective || !ctx || !ctx.onPatch) {
-        // Auto-approve → reply allow_once immediately.
-        return { outcome: { outcome: "selected", optionId: "allow_once" } };
+        // Auto-approve → select by kind, not a hardcoded optionId. optionId is
+        // agent-defined and varies per backend (e.g. Claude's "allow_once"-kind
+        // option has optionId "allow", not "allow_once"); kind is the stable,
+        // ACP-defined vocabulary to match against.
+        const opts = p?.options ?? [];
+        const chosen =
+          opts.find((o) => o.kind === "allow_once") ??
+          opts.find((o) => o.kind === "allow_always") ??
+          opts[0];
+        return { outcome: { outcome: "selected", optionId: chosen?.optionId ?? "allow_once" } };
       }
       // Route to UI.
       return this.routeApprovalToUI(ctx, p);
@@ -383,6 +391,11 @@ export class AcpAgentBackend implements AgentBackend {
       .filter((s): s is { sessionId: string; title?: string; updatedAt?: string; cwd?: string } =>
         Boolean(s.sessionId),
       )
+      // Claude's session/list returns the user's entire global session history
+      // across every project, not scoped to this backend's workspace — filter
+      // to this cwd. Sessions that don't report a cwd (e.g. opencode) pass
+      // through unfiltered, since the agent already scoped them itself.
+      .filter((s) => s.cwd === undefined || s.cwd === this.cfg.cwd)
       .map((s) => ({
         sessionId: s.sessionId,
         title: s.title,
@@ -409,7 +422,23 @@ export class AcpAgentBackend implements AgentBackend {
 
   async deleteSession(sessionId: string): Promise<void> {
     if (!this.capabilities.sessionDelete) throw new Error("delete not supported by this agent");
-    await this.conn.sendRequest("session/delete", { sessionId });
+    try {
+      await this.conn.sendRequest("session/delete", { sessionId });
+    } catch (err) {
+      // Claude's adapter puts the useful detail (e.g. "Session ... not found
+      // in any project directory") in error.data.details, behind a generic
+      // top-level "Internal error" message — fold it in so server.ts's
+      // message-substring classification (404 vs 501 vs 500) still works.
+      if (err instanceof AcpRequestError) {
+        const data = err.data;
+        const details =
+          typeof data === "object" && data !== null && "details" in data
+            ? String((data as { details?: unknown }).details)
+            : undefined;
+        throw new Error(details ? `${err.message}: ${details}` : err.message);
+      }
+      throw err;
+    }
     this.sessions.delete(sessionId);
     this.sessionObjects.delete(sessionId);
   }
