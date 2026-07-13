@@ -138,7 +138,7 @@ test("setDefaultBackendName changes what getDefaultBackend resolves to", async (
   }
 });
 
-test("claude backend profile sets kind to claude-acp and propagates mock and color envs", async () => {
+test("claude backend profile sets kind to claude-acp and propagates configured env verbatim", async () => {
   const workspace = await mkWorkspace();
   let registry;
   try {
@@ -147,12 +147,22 @@ test("claude backend profile sets kind to claude-acp and propagates mock and col
       envDefault: "opencode",
       validNames: ["opencode", "claude"],
     });
-    registry = await createBackendRegistry({ profiles: profiles(), settings, workspace, autoApprove: false });
+    const claudeProfiles: BackendProfile[] = [
+      { name: "opencode", kind: "opencode", command: process.execPath, args: [FAKE_AGENT] },
+      {
+        name: "claude",
+        kind: "claude-acp",
+        command: process.execPath,
+        args: [FAKE_AGENT],
+        env: { CLAUDE_CONFIG_DIR: "/tmp/example-claude-config" },
+      },
+    ];
+    registry = await createBackendRegistry({ profiles: claudeProfiles, settings, workspace, autoApprove: false });
     const claudeBackend = await registry.getBackend("claude");
     assert.equal(claudeBackend.kind, "claude-acp");
     const env = (claudeBackend as any).cfg.env;
-    assert.equal(env.CLAUDE_MOCK_PROMPT_FLOWS, "true");
-    assert.equal(env.FORCE_COLOR, "0");
+    assert.equal(env.CLAUDE_CONFIG_DIR, "/tmp/example-claude-config");
+    assert.equal(env.CLAUDE_MOCK_PROMPT_FLOWS, undefined);
   } finally {
     if (registry) await registry.shutdown();
     await fs.rm(workspace, { recursive: true, force: true });

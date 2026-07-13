@@ -18,21 +18,12 @@ export async function createAgentBackend(
     ? `${opts.logsDir.replace(/\/$/, "")}/agent-chat-${new Date().toISOString().replace(/[:.]/g, "-")}.log`
     : undefined;
 
-  let env = cfg.env;
-  if (cfg.kind === "claude-acp") {
-    env = { ...process.env, ...cfg.env };
-    env.CLAUDE_MOCK_PROMPT_FLOWS = "true";
-    if (env.FORCE_COLOR === undefined) {
-      env.FORCE_COLOR = "0";
-    }
-  }
-
   return AcpAgentBackend.spawn({
     kind: cfg.kind,
     command: cfg.command,
     args: cfg.args,
     cwd: opts.workspace,
-    env,
+    env: cfg.env,
     model: cfg.model,
     stderrLogPath,
   });
