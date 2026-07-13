@@ -183,11 +183,12 @@ function ChatPanelInner() {
         const refreshed = await fetchJSON<{ sessions: SessionSummary[] }>("/chat/sessions");
         if (refreshed.ok && refreshed.data) setSessions(refreshed.data.sessions);
         toast.push("Session deleted", "success");
+        if (sessionId === ctx.state.sessionId) await chat.startNewChat();
       } else {
         toast.push("Could not delete session", "error");
       }
     },
-    [toast],
+    [toast, chat, ctx],
   );
 
   const onForkCurrent = useCallback(() => {
