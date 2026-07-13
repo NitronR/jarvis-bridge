@@ -4,7 +4,7 @@ import {
 } from "react";
 import { fetchJSON } from "../api/client";
 import type {
-  AgentCapabilities, AutoApproveState, ChatInitResponse,
+  AgentCapabilities, AutoApproveState, ChatHistoryEntry, ChatInitResponse,
   ModelInfo, SlashCommand,
 } from "../api/types";
 
@@ -19,6 +19,7 @@ export interface ChatState {
   busy: boolean;
   title: string;
   resumed: boolean;
+  history: ChatHistoryEntry[];
 }
 
 const INITIAL: ChatState = {
@@ -32,6 +33,7 @@ const INITIAL: ChatState = {
   busy: false,
   title: "New chat",
   resumed: false,
+  history: [],
 };
 
 export interface ChatContextApi {
@@ -48,6 +50,20 @@ export interface ChatContextApi {
 
 const ChatContext = createContext<ChatContextApi | null>(null);
 
+function getSessionIdFromUrl(): string | null {
+  return new URLSearchParams(window.location.search).get("sessionId");
+}
+
+function setSessionIdInUrl(sessionId: string | null): void {
+  const url = new URL(window.location.href);
+  if (sessionId) {
+    url.searchParams.set("sessionId", sessionId);
+  } else {
+    url.searchParams.delete("sessionId");
+  }
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ChatState>(INITIAL);
 
@@ -55,7 +71,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const url = sessionId ? `/chat/init?sessionId=${encodeURIComponent(sessionId)}` : "/chat/init";
     const res = await fetchJSON<ChatInitResponse>(url);
     if (!res.ok || !res.data || !res.data.ok) {
-      setState((s) => ({ ...s, sessionId: null }));
+      setState((s) => ({ ...s, sessionId: null, history: [] }));
+      setSessionIdInUrl(null);
       return;
     }
     const d = res.data;
@@ -69,7 +86,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       currentModel: d.model?.current || null,
       autoApprove: d.autoApprove,
       resumed: d.resumed,
+      history: d.history || [],
     }));
+    setSessionIdInUrl(d.sessionId);
   }, []);
 
   const setBusy = useCallback((b: boolean) => {
@@ -86,7 +105,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
   const reset = useCallback(() => setState(INITIAL), []);
 
-  useEffect(() => { void init(null); }, [init]);
+  useEffect(() => { void init(getSessionIdFromUrl()); }, [init]);
 
   const api = useMemo<ChatContextApi>(
     () => ({ state, init, setBusy, setTitle, setSlashCommands, setModels, setAutoApprove, setSession, reset }),

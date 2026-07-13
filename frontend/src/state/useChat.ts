@@ -1,11 +1,19 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJSON, fetchSSE } from "../api/client";
-import type { ChatPatch, ImageAttachment } from "../api/types";
+import type { ChatHistoryEntry, ChatPatch, ImageAttachment } from "../api/types";
 import { useChatContext } from "./ChatContext";
 
 export type TranscriptEntry =
   | { role: "user"; text: string; images?: ImageAttachment[]; queued?: boolean }
   | { role: "assistant"; patches: ChatPatch[] };
+
+function historyToTranscript(history: ChatHistoryEntry[]): TranscriptEntry[] {
+  return history.map((h) =>
+    h.kind === "user"
+      ? { role: "user", text: h.content }
+      : { role: "assistant", patches: h.patches },
+  );
+}
 
 export interface UseChatResult {
   context: ReturnType<typeof useChatContext>;
@@ -26,6 +34,10 @@ export function useChat(): UseChatResult {
   const ctx = useChatContext();
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const sseRef = useRef<ReturnType<typeof fetchSSE> | null>(null);
+
+  useEffect(() => {
+    if (ctx.state.sessionId) setTranscript(historyToTranscript(ctx.state.history));
+  }, [ctx.state.sessionId, ctx.state.history]);
 
   const sendMessage = useCallback(
     async (text: string, images: ImageAttachment[] = []) => {

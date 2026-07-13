@@ -68,6 +68,11 @@ export function createServer(opts: CreateServerOptions): Express {
     let session: AgentSession;
     let resumed = false;
     if (q.sessionId) {
+      // Always go through loadSession (when supported) rather than reusing an
+      // in-memory resident session — loadSession is what triggers the agent
+      // to replay its persisted history, which we capture below. Reusing a
+      // resident session (e.g. reloading the tab you're already in) would
+      // otherwise silently skip the replay and return no history.
       if (backend.loadSession) {
         session = await backend.loadSession(q.sessionId, requestedCwd ? { cwd: requestedCwd } : undefined);
         resumed = true;

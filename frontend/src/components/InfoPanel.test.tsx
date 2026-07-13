@@ -18,6 +18,7 @@ const baseState: ChatState = {
   busy: false,
   title: "My chat",
   resumed: false,
+  history: [],
 };
 
 const baseProps = {

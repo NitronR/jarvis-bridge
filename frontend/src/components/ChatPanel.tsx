@@ -39,6 +39,16 @@ function ChatPanelInner() {
     );
   }, [ctx.state.cwd]);
 
+  useEffect(() => {
+    document.title = `${ctx.state.title || "New chat"} — Jarvis Bridge`;
+  }, [ctx.state.title]);
+
+  useEffect(() => {
+    return () => {
+      document.title = "Jarvis Bridge";
+    };
+  }, []);
+
   const onApproval = useCallback((p: ChatPatch & { type: "approval-request" }) => {
     setPendingApproval(p);
   }, []);

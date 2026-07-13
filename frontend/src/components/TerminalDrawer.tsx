@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
-export function TerminalDrawer({ cwd }: { cwd: string | null }) {
+export function TerminalDrawer({
+  cwd,
+  open,
+  onClose,
+}: {
+  cwd: string | null;
+  open: boolean;
+  onClose: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{
     term: { write: (s: string) => void; dispose: () => void; onData: (cb: (s: string) => void) => void; onResize: (cb: (e: { cols: number; rows: number }) => void) => void };
@@ -87,13 +95,41 @@ export function TerminalDrawer({ cwd }: { cwd: string | null }) {
   }, [cwd]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 420,
+        maxWidth: "80vw",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        background: "var(--color-bg, #0b0f14)",
+        borderLeft: "1px solid var(--color-border, #333)",
+        boxShadow: "-4px 0 16px rgba(0, 0, 0, 0.4)",
+        transform: open ? "translateX(0)" : "translateX(100%)",
+        transition: "transform 200ms ease",
+        zIndex: 20,
+      }}
+    >
       <header style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         padding: "4px 8px", fontSize: 11, color: "var(--color-text-muted, #888)",
         borderBottom: "1px solid var(--color-border, #333)",
       }}>
         <span>shell · cwd={cwd ?? "(unset)"} · {status}</span>
+        <button
+          onClick={onClose}
+          title="Close (Ctrl+`)"
+          style={{
+            background: "transparent", border: "none", color: "inherit",
+            cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px",
+          }}
+        >
+          ×
+        </button>
       </header>
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, background: "#001020", padding: 4 }} />
     </div>

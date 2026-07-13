@@ -216,17 +216,22 @@ export class AcpAgentBackend implements AgentBackend {
     const ctx = this.sessions.get(sid);
     if (!ctx) return;
 
+    const patches = acpUpdateToPatches(update, ctx.state);
+
     // Replay capture: reconstruct user/assistant history entries from updates.
     if (ctx.captureReplay) {
-      this.captureReplayUpdate(ctx, update);
+      this.captureReplayUpdate(ctx, update, patches);
     }
 
-    const patches = acpUpdateToPatches(update, ctx.state);
     if (patches.length === 0) return;
     ctx.onPatch?.(patches);
   }
 
-  private captureReplayUpdate(ctx: SessionContext, update: AcpUpdate & { sessionId?: string }): void {
+  private captureReplayUpdate(
+    ctx: SessionContext,
+    update: AcpUpdate & { sessionId?: string },
+    patches: ChatPatch[],
+  ): void {
     ctx.lastReplayActivityAt = Date.now();
     switch (update.sessionUpdate) {
       case "user_message_chunk": {
@@ -252,18 +257,13 @@ export class AcpAgentBackend implements AgentBackend {
       case "agent_thought_chunk":
       case "tool_call":
       case "tool_call_update": {
-        // Emit a placeholder assistant entry on the first content of the turn;
-        // patches are streamed into it via the regular handler.
-        const last = ctx.replayHistory[ctx.replayHistory.length - 1];
+        let last = ctx.replayHistory[ctx.replayHistory.length - 1];
         if (!last || last.kind !== "assistant") {
-          if (ctx.suppressReplayAssistant) {
-            ctx.suppressReplayAssistant = false;
-            // mark suppression by skipping the entry; create a marker
-            ctx.replayHistory.push({ kind: "assistant", patches: [] });
-          } else {
-            ctx.replayHistory.push({ kind: "assistant", patches: [] });
-          }
+          ctx.suppressReplayAssistant = false;
+          last = { kind: "assistant", patches: [] };
+          ctx.replayHistory.push(last);
         }
+        last.patches.push(...patches);
         break;
       }
       default:
@@ -356,30 +356,33 @@ export class AcpAgentBackend implements AgentBackend {
 
   async loadSession(sessionId: string, opts?: CreateSessionOptions): Promise<AgentSession> {
     const cwd = opts?.cwd ?? process.cwd();
-    ctx: {
-      const ctx = this.makeSessionContext();
-      ctx.captureReplay = true;
-      ctx.suppressReplayAssistant = true; // first user msg is the wrapped one
-      ctx.lastReplayActivityAt = Date.now();
-      const res = (await this.conn.sendRequest("session/load", {
-        sessionId,
-        cwd,
-        mcpServers: [],
-      })) as SessionConfigResponse & { sessionId?: string };
-      const id = res.sessionId ?? sessionId;
-      const parsed = parseSessionConfig(res);
-      ctx.availableModels = parsed.models.available;
-      ctx.currentModelId = parsed.models.current;
-      ctx.rawConfigOptions = parsed.rawConfigOptions;
-      ctx.modes = parsed.modes;
-      this.sessions.set(id, ctx);
-      const sessionObj = new AcpAgentSession(this, id, ctx);
-      this.sessionObjects.set(id, sessionObj);
-      // Wait briefly for replay activity to drain.
-      await this.waitForReplayIdle(ctx);
-      ctx.captureReplay = false;
-      return sessionObj;
-    }
+    const ctx = this.makeSessionContext();
+    ctx.captureReplay = true;
+    ctx.suppressReplayAssistant = true; // first user msg is the wrapped one
+    ctx.lastReplayActivityAt = Date.now();
+    // Register under the known sessionId BEFORE sending the request. Per the
+    // ACP spec, the agent streams the session's history back as session/update
+    // notifications WHILE session/load is in flight, not in its response body.
+    // handleSessionUpdate() drops notifications for unregistered sessions, so
+    // registering after the await (as this used to) silently discarded the
+    // entire replay.
+    this.sessions.set(sessionId, ctx);
+    const sessionObj = new AcpAgentSession(this, sessionId, ctx);
+    this.sessionObjects.set(sessionId, sessionObj);
+    const res = (await this.conn.sendRequest("session/load", {
+      sessionId,
+      cwd,
+      mcpServers: [],
+    })) as SessionConfigResponse & { sessionId?: string };
+    const parsed = parseSessionConfig(res);
+    ctx.availableModels = parsed.models.available;
+    ctx.currentModelId = parsed.models.current;
+    ctx.rawConfigOptions = parsed.rawConfigOptions;
+    ctx.modes = parsed.modes;
+    // Wait briefly for replay activity to drain.
+    await this.waitForReplayIdle(ctx);
+    ctx.captureReplay = false;
+    return sessionObj;
   }
 
   async listSessions(): Promise<ChatSessionSummary[]> {

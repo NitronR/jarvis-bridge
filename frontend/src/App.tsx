@@ -14,6 +14,8 @@ export function App() {
   const { route, navigate } = useHashRoute();
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalMounted, setTerminalMounted] = useState(false);
 
   useEffect(() => {
     const onCwd = (e: Event) => {
@@ -23,6 +25,21 @@ export function App() {
     window.addEventListener("jarvis:cwd-changed", onCwd);
     return () => window.removeEventListener("jarvis:cwd-changed", onCwd);
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && (e.code === "Backquote" || e.key === "`")) {
+        e.preventDefault();
+        setTerminalOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (terminalOpen) setTerminalMounted(true);
+  }, [terminalOpen]);
 
   const onHealthUpdate = useCallback((ok: boolean) => setHealthOk(ok), []);
 
@@ -37,7 +54,9 @@ export function App() {
           {route === "settings" && <SettingsPanel />}
           {route === "skills-manage" && <SkillsManagePanel />}
           {route.startsWith("skill/") && <SkillPanel name={route.slice("skill/".length)} />}
-          <TerminalDrawer cwd={cwd} />
+          {terminalMounted && (
+            <TerminalDrawer cwd={cwd} open={terminalOpen} onClose={() => setTerminalOpen(false)} />
+          )}
         </main>
       </div>
     </ToastProvider>
