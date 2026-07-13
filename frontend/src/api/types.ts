@@ -86,3 +86,9 @@ export interface ImageAttachment {
   mimeType: string;
   filename?: string;
 }
+
+export interface DefaultBackendState {
+  ok: boolean;
+  available: string[];
+  default: string;
+}
