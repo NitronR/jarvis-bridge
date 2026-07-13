@@ -18,12 +18,16 @@ export async function createAgentBackend(
     ? `${opts.logsDir.replace(/\/$/, "")}/agent-chat-${new Date().toISOString().replace(/[:.]/g, "-")}.log`
     : undefined;
 
+  // cfg.env is a partial override (e.g. agents.json's "env": {}), not a full
+  // environment — merge over process.env rather than replacing it, or a
+  // profile with any env entries loses PATH/HOME entirely (AcpConnection.spawn
+  // only falls back to process.env when env is nullish, not when it's `{}`).
   return AcpAgentBackend.spawn({
     kind: cfg.kind,
     command: cfg.command,
     args: cfg.args,
     cwd: opts.workspace,
-    env: cfg.env,
+    env: { ...process.env, ...cfg.env },
     model: cfg.model,
     stderrLogPath,
   });

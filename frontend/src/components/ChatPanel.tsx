@@ -188,7 +188,7 @@ function ChatPanelInner() {
         toast.push("Could not delete session", "error");
       }
     },
-    [toast, chat, ctx],
+    [toast, chat, ctx.state.sessionId],
   );
 
   const onForkCurrent = useCallback(() => {

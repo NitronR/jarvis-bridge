@@ -3,6 +3,7 @@
 // Translates JSON-RPC traffic on the AcpConnection into the
 // backend-agnostic AgentBackend / AgentSession contract.
 
+import path from "node:path";
 import {
   AcpConnection,
   AcpConnectionClosedError,
@@ -165,10 +166,13 @@ export class AcpAgentBackend implements AgentBackend {
         // option has optionId "allow", not "allow_once"); kind is the stable,
         // ACP-defined vocabulary to match against.
         const opts = p?.options ?? [];
+        // Only fall back to opts[0] if it's actually an allow-kind option —
+        // an options list containing only reject/ask kinds must never be
+        // auto-selected, or "auto-approve" would silently auto-reject.
         const chosen =
           opts.find((o) => o.kind === "allow_once") ??
           opts.find((o) => o.kind === "allow_always") ??
-          opts[0];
+          opts.find((o) => o.kind?.startsWith("allow"));
         return { outcome: { outcome: "selected", optionId: chosen?.optionId ?? "allow_once" } };
       }
       // Route to UI.
@@ -395,7 +399,7 @@ export class AcpAgentBackend implements AgentBackend {
       // across every project, not scoped to this backend's workspace — filter
       // to this cwd. Sessions that don't report a cwd (e.g. opencode) pass
       // through unfiltered, since the agent already scoped them itself.
-      .filter((s) => s.cwd === undefined || s.cwd === this.cfg.cwd)
+      .filter((s) => s.cwd === undefined || path.resolve(s.cwd) === path.resolve(this.cfg.cwd))
       .map((s) => ({
         sessionId: s.sessionId,
         title: s.title,
@@ -431,10 +435,11 @@ export class AcpAgentBackend implements AgentBackend {
       // message-substring classification (404 vs 501 vs 500) still works.
       if (err instanceof AcpRequestError) {
         const data = err.data;
-        const details =
-          typeof data === "object" && data !== null && "details" in data
-            ? String((data as { details?: unknown }).details)
+        const rawDetails =
+          typeof data === "object" && data !== null
+            ? (data as { details?: unknown }).details
             : undefined;
+        const details = rawDetails != null ? String(rawDetails) : undefined;
         throw new Error(details ? `${err.message}: ${details}` : err.message);
       }
       throw err;

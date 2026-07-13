@@ -151,6 +151,10 @@ describe("AcpAgentBackend.listSessions — cwd scoping", () => {
     const backend = await newBackend({
       X_FAKE_AGENT_SESSION_LIST: JSON.stringify([
         { sessionId: "s-here", cwd: process.cwd(), title: "in this workspace" },
+        // Trailing slash: same real directory, different literal string — must
+        // still match, or a normalization quirk in the agent's own cwd
+        // reporting would silently hide the user's own sessions.
+        { sessionId: "s-here-trailing-slash", cwd: process.cwd() + "/", title: "same dir, trailing slash" },
         { sessionId: "s-elsewhere", cwd: "/some/other/project", title: "unrelated project" },
         { sessionId: "s-no-cwd", title: "agent that doesn't report cwd" },
       ]),
@@ -158,7 +162,7 @@ describe("AcpAgentBackend.listSessions — cwd scoping", () => {
     try {
       const sessions = await backend.listSessions();
       const ids = sessions.map((s) => s.sessionId).sort();
-      assert.deepEqual(ids, ["s-here", "s-no-cwd"]);
+      assert.deepEqual(ids, ["s-here", "s-here-trailing-slash", "s-no-cwd"]);
     } finally {
       await backend.shutdown();
     }

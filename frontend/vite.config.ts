@@ -15,6 +15,7 @@ export default defineConfig({
       "/slack": "http://localhost:3001",
       "/analytics": "http://localhost:3001",
       "/tools": "http://localhost:3001",
+      "/settings": "http://localhost:3001",
     },
   },
   test: { environment: "jsdom", globals: true, setupFiles: ["./src/test-setup.ts"] },

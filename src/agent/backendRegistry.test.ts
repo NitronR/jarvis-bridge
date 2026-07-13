@@ -163,6 +163,9 @@ test("claude backend profile sets kind to claude-acp and propagates configured e
     const env = (claudeBackend as any).cfg.env;
     assert.equal(env.CLAUDE_CONFIG_DIR, "/tmp/example-claude-config");
     assert.equal(env.CLAUDE_MOCK_PROMPT_FLOWS, undefined);
+    // Regression: a profile's env is a partial override, not a full environment —
+    // PATH/HOME (or any process.env var) must survive, not be replaced wholesale.
+    assert.equal(env.PATH, process.env.PATH);
   } finally {
     if (registry) await registry.shutdown();
     await fs.rm(workspace, { recursive: true, force: true });
