@@ -5,9 +5,11 @@ export interface PastChatsMenuProps {
   sessions: SessionSummary[];
   onClose: () => void;
   onSwitch: (sessionId: string) => void;
+  onDelete?: (sessionId: string) => void;
+  canDelete?: boolean;
 }
 
-export function PastChatsMenu({ open, sessions, onClose, onSwitch }: PastChatsMenuProps) {
+export function PastChatsMenu({ open, sessions, onClose, onSwitch, onDelete, canDelete }: PastChatsMenuProps) {
   if (!open) return null;
   return (
     <div
@@ -33,10 +35,19 @@ export function PastChatsMenu({ open, sessions, onClose, onSwitch }: PastChatsMe
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {sessions.map((s) => (
-              <li key={s.sessionId} style={{ padding: "4px 0", cursor: "pointer", color: "var(--color-accent)" }}
-                  onClick={() => onSwitch(s.sessionId)}>
-                {s.customTitle || s.title || s.sessionId.slice(0, 12)}
-                {s.pinned ? " 📌" : ""}
+              <li key={s.sessionId} style={{ padding: "4px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ cursor: "pointer", color: "var(--color-accent)" }} onClick={() => onSwitch(s.sessionId)}>
+                  {s.customTitle || s.title || s.sessionId.slice(0, 12)}
+                  {s.pinned ? " 📌" : ""}
+                </span>
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDelete?.(s.sessionId); }}
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             ))}
           </ul>

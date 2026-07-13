@@ -176,6 +176,20 @@ function ChatPanelInner() {
     [chat],
   );
 
+  const onDeleteSession = useCallback(
+    async (sessionId: string) => {
+      const res = await fetchJSON(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+      if (res.ok) {
+        const refreshed = await fetchJSON<{ sessions: SessionSummary[] }>("/chat/sessions");
+        if (refreshed.ok && refreshed.data) setSessions(refreshed.data.sessions);
+        toast.push("Session deleted", "success");
+      } else {
+        toast.push("Could not delete session", "error");
+      }
+    },
+    [toast],
+  );
+
   const onForkCurrent = useCallback(() => {
     void chat.forkCurrent().then(() => toast.push("Forked new session", "success"));
   }, [chat, toast]);
@@ -205,7 +219,7 @@ function ChatPanelInner() {
               {ctx.state.autoApprove.effective ? "AA✓" : "AA"}
             </button>
           </div>
-          <PastChatsMenu open={pastChatsOpen} sessions={sessions} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} />
+          <PastChatsMenu open={pastChatsOpen} sessions={sessions} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onDelete={onDeleteSession} canDelete={!!ctx.state.capabilities?.sessionDelete} />
           <Transcript entries={chat.transcript} onApproval={onApproval} onSteerAck={onSteerAck} onImagesSkipped={onImagesSkipped} />
           <Composer
             busy={chat.busy}

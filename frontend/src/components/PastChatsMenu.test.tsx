@@ -31,4 +31,34 @@ describe("<PastChatsMenu>", () => {
     const { container } = render(<PastChatsMenu open={false} sessions={[]} onClose={vi.fn()} onSwitch={vi.fn()} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it("renders a Delete button per session when canDelete is true", () => {
+    const onDelete = vi.fn();
+    render(
+      <PastChatsMenu
+        open={true}
+        sessions={[{ sessionId: "s1", title: "Test" }]}
+        onClose={vi.fn()}
+        onSwitch={vi.fn()}
+        onDelete={onDelete}
+        canDelete={true}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(btn);
+    expect(onDelete).toHaveBeenCalledWith("s1");
+  });
+
+  it("omits the Delete button when canDelete is false", () => {
+    render(
+      <PastChatsMenu
+        open={true}
+        sessions={[{ sessionId: "s1", title: "Test" }]}
+        onClose={vi.fn()}
+        onSwitch={vi.fn()}
+        canDelete={false}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
 });
