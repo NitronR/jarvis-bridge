@@ -23,6 +23,11 @@ export interface UseChatResult {
   cancel: () => void;
   sendSteer: (text: string) => Promise<void>;
   resolveApproval: (requestId: string, optionId: string) => Promise<void>;
+  resolveElicitation: (
+    requestId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>,
+  ) => Promise<void>;
   startNewChat: (opts?: { fork?: boolean }) => Promise<void>;
   startNewChatInWorkspace: (cwd: string) => Promise<void>;
   openSessionInNewTab: (sessionId: string) => void;
@@ -108,6 +113,17 @@ export function useChat(): UseChatResult {
     if (!ctx.state.sessionId) return;
     await fetchJSON("/chat/approval", { method: "POST", body: { sessionId: ctx.state.sessionId, requestId, optionId } });
   }, [ctx]);
+
+  const resolveElicitation = useCallback(
+    async (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
+      if (!ctx.state.sessionId) return;
+      await fetchJSON("/chat/elicitation", {
+        method: "POST",
+        body: { sessionId: ctx.state.sessionId, requestId, action, content },
+      });
+    },
+    [ctx],
+  );
 
   const startNewChatInWorkspace = useCallback(async (cwd: string) => {
     if (ctx.state.busy) cancel();
@@ -208,6 +224,7 @@ export function useChat(): UseChatResult {
     cancel,
     sendSteer,
     resolveApproval,
+    resolveElicitation,
     startNewChat,
     startNewChatInWorkspace,
     openSessionInNewTab,

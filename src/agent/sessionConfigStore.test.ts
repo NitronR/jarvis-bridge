@@ -142,6 +142,103 @@ test("setMetadata coexists with autoApprove entries in the same file", async () 
   assert.deepEqual(reloaded.getMetadata("sess-A"), { customTitle: "Project kickoff" });
 });
 
+test("getLastUsage returns undefined for an unknown sessionId", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.equal(store.getLastUsage("never-seen"), undefined);
+});
+
+test("setLastUsage persists a claude-shaped usage (no token breakdown) across reload", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  const usage = {
+    requests: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    context_limit: 1000000,
+    context_used: 44042,
+    cost: { amount: 0.13, currency: "USD" },
+  };
+  await store.setLastUsage("sess-A", usage);
+  assert.deepEqual(store.getLastUsage("sess-A"), usage);
+
+  const reloaded = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(reloaded.getLastUsage("sess-A"), usage);
+});
+
+test("setLastUsage overwrites the previous value for the same session", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  await store.setLastUsage("sess-A", {
+    requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+    context_used: 100,
+  });
+  await store.setLastUsage("sess-A", {
+    requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+    context_used: 200,
+  });
+  assert.equal(store.getLastUsage("sess-A")?.context_used, 200);
+});
+
+test("setLastUsage persists rate_limits across reload", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  const usage = {
+    requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+    rate_limits: {
+      five_hour: { status: "allowed" as const, utilization: 0.12, resetsAt: 1234567890000 },
+      seven_day: { status: "allowed_warning" as const, utilization: 0.86 },
+    },
+  };
+  await store.setLastUsage("sess-A", usage);
+  assert.deepEqual(store.getLastUsage("sess-A"), usage);
+
+  const reloaded = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(reloaded.getLastUsage("sess-A"), usage);
+});
+
+test("drops a malformed rate_limits entry (bad window shape) but keeps the rest of the usage", async () => {
+  const p = await tmpPath();
+  await fs.writeFile(
+    p,
+    JSON.stringify({
+      usage: {
+        "sess-A": {
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          context_used: 50,
+          rate_limits: { five_hour: { utilization: 0.5 } }, // missing required status
+        },
+      },
+    }),
+    "utf8",
+  );
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.equal(store.getLastUsage("sess-A")?.context_used, 50);
+  assert.equal(store.getLastUsage("sess-A")?.rate_limits, undefined);
+});
+
+test("ignores a malformed usage entry on load but keeps others", async () => {
+  const p = await tmpPath();
+  await fs.writeFile(
+    p,
+    JSON.stringify({
+      usage: {
+        "sess-bad": { context_used: 100 }, // missing required token-count fields
+        "sess-good": {
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          context_used: 50,
+        },
+      },
+    }),
+    "utf8",
+  );
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.equal(store.getLastUsage("sess-bad"), undefined);
+  assert.equal(store.getLastUsage("sess-good")?.context_used, 50);
+});
+
 test("setMetadata ignores non-string customTitle / non-boolean pinned / non-string group on load", async () => {
   const p = await tmpPath();
   await fs.writeFile(

@@ -111,12 +111,33 @@ export async function createBackendRegistry(opts: {
       const pool = await getPool(name);
       return cwd ? pool.getOrCreate(cwd) : pool.getDefaultBackend();
     },
+    // Collect sessions from every known profile, lazy-spawning any pool
+    // that hasn't been materialized yet. Without the lazy-spawn step, a
+    // session owned by a non-default backend whose pool was never touched
+    // in this process (the typical "gateway restarted with a different
+    // default than the one that created the session" flow) is invisible
+    // here, /chat/init?sessionId=X falls back to the current default's
+    // loadSession, and the chat never loads. A backend's listSessions is
+    // best-effort: if it throws (e.g. agent subprocess crashed between
+    // spawns), skip that profile rather than failing the whole listing.
     async listSessions(): Promise<RegistrySessionEntry[]> {
       const out: RegistrySessionEntry[] = [];
       for (const name of profiles.map((p) => p.name)) {
-        const pool = pools.get(name);
-        if (!pool) continue; // never spawned — nothing to list
-        const entries: BackendPoolSessionEntry[] = await pool.listSessions();
+        let pool: BackendPool;
+        try {
+          pool = await getPool(name);
+        } catch {
+          // Profile can't be spawned (e.g. agent CLI missing). Skip — we
+          // can't list its sessions, and that's better than crashing the
+          // whole /chat/sessions response.
+          continue;
+        }
+        let entries: BackendPoolSessionEntry[];
+        try {
+          entries = await pool.listSessions();
+        } catch {
+          continue;
+        }
         for (const e of entries) {
           out.push({
             backend: e.backend,
@@ -129,13 +150,45 @@ export async function createBackendRegistry(opts: {
       return out;
     },
     async findSession(sessionId: string): Promise<RegistrySessionEntry | null> {
-      const all = await registry.listSessions();
-      return all.find((e) => e.summary.sessionId === sessionId) ?? null;
+      // Same fan-out as listSessions, but short-circuits on the first hit
+      // so a refresh doesn't have to ask every backend's agent process
+      // for its full session list when a single owner is found early.
+      for (const name of profiles.map((p) => p.name)) {
+        let pool: BackendPool;
+        try {
+          pool = await getPool(name);
+        } catch {
+          continue;
+        }
+        let entries: BackendPoolSessionEntry[];
+        try {
+          entries = await pool.listSessions();
+        } catch {
+          continue;
+        }
+        const hit = entries.find((e) => e.summary.sessionId === sessionId);
+        if (hit) {
+          return {
+            backend: hit.backend,
+            backendName: name,
+            cwd: hit.cwd,
+            summary: hit.summary,
+          };
+        }
+      }
+      return null;
     },
     async getSession(sessionId: string): Promise<AgentSession | null> {
+      // Same lazy-spawn guarantee as findSession: a session owned by an
+      // un-spawned pool must still be reachable so /chat/send can route
+      // the message to the correct backend.
       for (const name of profiles.map((p) => p.name)) {
-        const pool = pools.get(name);
-        if (!pool) continue;
+        let pool: BackendPool;
+        try {
+          pool = await getPool(name);
+        } catch {
+          continue;
+        }
         const s = await pool.getSession(sessionId);
         if (s) return s;
       }

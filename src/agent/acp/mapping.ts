@@ -1,7 +1,7 @@
 // Translate ACP `session/update` notifications into the backend-agnostic
 // `ChatPatch` stream consumed by the rest of the gateway.
 
-import type { ChatPatch, UsageTotals } from "../types.js";
+import type { ChatPatch, ElicitationField, RateLimitWindow, UsageTotals } from "../types.js";
 
 export interface AcpUpdate {
   sessionUpdate: string;
@@ -40,6 +40,9 @@ export interface AcpUpdate {
   // session/prompt final result
   stopReason?: string;
   usage?: Record<string, unknown>;
+  // claude-agent-acp stamps subscription rate-limit info here on usage_update
+  // notifications triggered by a `rate_limit_event` (see docs/acp-notes.md).
+  _meta?: Record<string, unknown>;
 }
 
 export interface AcpContent {
@@ -70,6 +73,9 @@ export function resetTurnState(state: AcpStreamState): AcpStreamState {
     output_tokens: 0,
     cache_read_tokens: 0,
     cache_write_tokens: 0,
+    // Rate-limit events are infrequent (only fire when the quota changes),
+    // so a fresh turn shouldn't blank out the last known values.
+    rate_limits: state.usage.rate_limits,
   };
   // intentionally preserve state.slashCommands
   return state;
@@ -248,6 +254,30 @@ interface AcpUsageShape {
   cost?: { amount: number; currency: string };
   thoughtTokens?: number;
   thought_tokens?: number;
+  _meta?: Record<string, unknown>;
+}
+
+interface ClaudeRateLimitMeta {
+  status?: string;
+  resetsAt?: number;
+  rateLimitType?: string;
+  utilization?: number;
+}
+
+function rateLimitFromMeta(meta: Record<string, unknown> | undefined): UsageTotals["rate_limits"] | undefined {
+  const info = meta?.["_claude/rateLimit"] as ClaudeRateLimitMeta | undefined;
+  if (!info || typeof info !== "object" || !info.rateLimitType || !info.status) return undefined;
+  return {
+    [info.rateLimitType]: {
+      status: info.status as RateLimitWindow["status"],
+      ...(typeof info.utilization === "number" ? { utilization: info.utilization } : {}),
+      // The SDK's SDKRateLimitInfo.resetsAt is Unix epoch *seconds* (confirmed
+      // empirically — treating it as ms landed the reset time in Jan 1970).
+      // Normalize to epoch ms here so RateLimitWindow.resetsAt is a plain
+      // `new Date(...)`-able value everywhere downstream.
+      ...(typeof info.resetsAt === "number" ? { resetsAt: info.resetsAt * 1000 } : {}),
+    },
+  };
 }
 
 export function usageFromAcp(value: AcpUsageShape | null | undefined): UsageTotals | null {
@@ -260,7 +290,24 @@ export function usageFromAcp(value: AcpUsageShape | null | undefined): UsageTota
     value.cachedReadTokens ?? value.cache_read_tokens ?? 0;
   const cacheWrite =
     value.cachedWriteTokens ?? value.cache_write_tokens ?? 0;
-  if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) {
+  const limit = value.contextLimit ?? value.context_limit ?? value.size;
+  const used = value.used ?? value.contextUsed ?? value.context_used;
+  const rateLimits = rateLimitFromMeta(value._meta);
+  // claude-agent-acp's usage_update notifications carry only `used`/`size`/`cost` —
+  // no token breakdown at all (see dist/acp-agent.js) — so the "anything present"
+  // check must also look at limit/used/cost/rate-limits, or every real claude
+  // usage_update gets discarded here and the context-usage indicator never has
+  // data to show.
+  if (
+    input === 0 &&
+    output === 0 &&
+    cacheRead === 0 &&
+    cacheWrite === 0 &&
+    limit == null &&
+    used == null &&
+    !value.cost &&
+    !rateLimits
+  ) {
     return null;
   }
   const out: UsageTotals = {
@@ -270,9 +317,8 @@ export function usageFromAcp(value: AcpUsageShape | null | undefined): UsageTota
     cache_read_tokens: cacheRead,
     cache_write_tokens: cacheWrite,
   };
-  const limit = value.contextLimit ?? value.context_limit ?? value.size;
+  if (rateLimits) out.rate_limits = rateLimits;
   if (typeof limit === "number") out.context_limit = limit;
-  const used = value.used ?? value.contextUsed ?? value.context_used;
   if (typeof used === "number") out.context_used = used;
   if (value.cost) out.cost = value.cost;
   const thought = value.thoughtTokens ?? value.thought_tokens;
@@ -292,6 +338,13 @@ export function mergeUsage(current: UsageTotals, incoming: UsageTotals): UsageTo
     context_used: incoming.context_used ?? current.context_used,
     cost: incoming.cost ?? current.cost,
     thought_tokens: incoming.thought_tokens ?? current.thought_tokens,
+    // Each rate_limit_event only reports one window (e.g. "five_hour"), so
+    // merge by key instead of replacing wholesale, or an incoming five_hour
+    // update would blank out the last known seven_day value.
+    rate_limits:
+      current.rate_limits || incoming.rate_limits
+        ? { ...current.rate_limits, ...incoming.rate_limits }
+        : undefined,
   };
 }
 
@@ -313,4 +366,54 @@ export function patchFromPromptResult(
   if (!totals) return null;
   state.usage = mergeUsage(state.usage, totals);
   return { type: "usage", usage: { ...state.usage } };
+}
+
+// ── Elicitation (`elicitation/create`, form mode) ─────────────────────────
+
+interface AcpEnumOption {
+  const?: unknown;
+  title?: string;
+  description?: string;
+}
+
+interface AcpElicitationPropertySchema {
+  type?: string;
+  title?: string;
+  description?: string;
+  oneOf?: AcpEnumOption[];
+  items?: { anyOf?: AcpEnumOption[] };
+}
+
+export interface AcpElicitationSchema {
+  properties?: Record<string, AcpElicitationPropertySchema>;
+}
+
+function optionsFromEnum(options: AcpEnumOption[] | undefined): ElicitationField["options"] {
+  return (options ?? [])
+    .filter((o): o is AcpEnumOption & { const: string } => typeof o.const === "string")
+    .map((o) => ({ value: o.const, label: o.title ?? o.const, description: o.description }));
+}
+
+// Normalizes an ACP `requestedSchema` (form-mode `elicitation/create`) into a
+// generic field list. Deliberately shape-agnostic to any particular tool
+// (e.g. Claude's AskUserQuestion) — any ACP backend's form elicitation goes
+// through the same rules:
+//   - `oneOf` (array of {const,title,description}) -> single-select
+//   - `type: "array"` with `items.anyOf` -> multi-select
+//   - `type: "string"` (no oneOf) -> free text
+//   - anything else unrecognized -> free text (generic fallback, nothing dropped)
+export function elicitationSchemaToFields(
+  schema: AcpElicitationSchema | null | undefined,
+): ElicitationField[] {
+  const properties = schema?.properties ?? {};
+  return Object.entries(properties).map(([key, prop]) => {
+    const base = { key, title: prop.title, description: prop.description };
+    if (prop.oneOf) {
+      return { ...base, kind: "select" as const, options: optionsFromEnum(prop.oneOf) };
+    }
+    if (prop.type === "array" && prop.items?.anyOf) {
+      return { ...base, kind: "multi-select" as const, options: optionsFromEnum(prop.items.anyOf) };
+    }
+    return { ...base, kind: "text" as const };
+  });
 }

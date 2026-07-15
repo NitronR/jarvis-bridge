@@ -6,7 +6,7 @@ import express, { type Express, type Request, type Response } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { AgentBackend, AgentSession } from "./agent/types";
+import type { AgentBackend, AgentSession, UsageTotals } from "./agent/types";
 import type { BackendRegistry } from "./agent/backendRegistry";
 import type { ToolHandler } from "./types";
 import type { SessionConfigStore, SessionMetadataPatch } from "./agent/sessionConfigStore";
@@ -71,9 +71,9 @@ export function createServer(opts: CreateServerOptions): Express {
       effectiveCwd = requestedCwd ?? opts.sessionConfig?.getSessionCwd(q.sessionId) ?? workspace;
       // Route to the backend that created this session (never the current
       // default) so changing the default backend can't migrate existing
-      // sessions. Falls back to the default backend's per-cwd instance if the
-      // owning backend's pool hasn't been spawned in this process yet — see
-      // the cross-server-restart caveat in docs/acp-notes.md.
+      // sessions. findSession() lazy-spawns every known profile's pool
+      // (see backendRegistry.ts) so the owner is always reachable, not
+      // just within the lifetime of the eagerly-spawned default pool.
       const owner = await registry.findSession(q.sessionId);
       backend = owner ? owner.backend : await registry.getDefaultBackend(effectiveCwd);
       backendName = owner ? owner.backendName : registry.getDefaultBackendName();
@@ -108,7 +108,17 @@ export function createServer(opts: CreateServerOptions): Express {
         backend = await registry.getDefaultBackend(effectiveCwd);
       }
       session = await backend.createSession({ cwd: effectiveCwd });
-      if (q.model) await backend.setSessionModel?.(session.id, q.model);
+      if (q.model) {
+        // Best-effort: same as the model pin in AcpAgentBackend.createSession,
+        // the agent may not support switching models (or this modelId) — don't
+        // fail the whole session handoff over it, just fall back to whatever
+        // model the session actually started with.
+        try {
+          await backend.setSessionModel?.(session.id, q.model);
+        } catch {
+          // ignore — agent may not support it
+        }
+      }
       await opts.sessionConfig?.setSessionCwd(session.id, effectiveCwd);
     }
     // Backend instances hold auto-approve state in memory only; reseed a
@@ -139,6 +149,7 @@ export function createServer(opts: CreateServerOptions): Express {
       customTitle: opts.sessionConfig?.getMetadata(session.id)?.customTitle ?? null,
       pinned: opts.sessionConfig?.getMetadata(session.id)?.pinned ?? false,
       group: opts.sessionConfig?.getMetadata(session.id)?.group ?? null,
+      lastUsage: opts.sessionConfig?.getLastUsage(session.id) ?? null,
       capabilities: backend.capabilities,
       slashCommands,
       autoApprove: {
@@ -193,6 +204,17 @@ export function createServer(opts: CreateServerOptions): Express {
         const line = `data: ${JSON.stringify(patch)}\n\n`;
         res.write(line);
         const pt = (patch as { type?: string }).type;
+        if (pt === "usage") {
+          // Best-effort cache so the context-usage indicator survives a page
+          // reload — Claude's own session/load replay doesn't re-emit
+          // usage_update for past turns (see docs/acp-notes.md), so this is
+          // the only way stale-but-still-useful usage data outlives the
+          // live SSE stream. Fire-and-forget: must not slow the stream, and
+          // losing a cache write is harmless (just a stale/missing bar).
+          opts.sessionConfig
+            ?.setLastUsage(sessionId, (patch as { usage: UsageTotals }).usage)
+            .catch(() => {});
+        }
         if (pt === "done" || pt === "error") break;
       }
       // Guarantee the SSE terminator.
@@ -222,6 +244,23 @@ export function createServer(opts: CreateServerOptions): Express {
     const ok = session.resolveApproval ? session.resolveApproval(body.requestId, body.optionId) : false;
     if (!ok) {
       res.status(409).json({ error: "no pending approval" });
+      return;
+    }
+    res.json({ ok: true });
+  }));
+
+  app.post("/chat/elicitation", smallJson, asyncRoute(async (req, res) => {
+    const body = ElicitationBodySchema.parse(req.body ?? {});
+    const session = await resolveSession(registry, body.sessionId);
+    if (!session) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    const ok = session.resolveElicitation
+      ? session.resolveElicitation(body.requestId, body.action, body.content)
+      : false;
+    if (!ok) {
+      res.status(409).json({ error: "no pending elicitation" });
       return;
     }
     res.json({ ok: true });
@@ -568,6 +607,12 @@ const ApprovalBodySchema = z.object({
   sessionId: z.string().optional(),
   requestId: z.string(),
   optionId: z.string(),
+});
+const ElicitationBodySchema = z.object({
+  sessionId: z.string().optional(),
+  requestId: z.string(),
+  action: z.enum(["accept", "decline", "cancel"]),
+  content: z.record(z.string(), z.unknown()).optional(),
 });
 const SteerBodySchema = z.object({
   prompt: z.string(),

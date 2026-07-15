@@ -17,6 +17,7 @@ export class FakeSession implements AgentSession {
   public cancelled = 0;
   public sentMessages: Array<{ message: string; opts?: SendMessageOptions }> = [];
   public approvals: Array<{ requestId: string; optionId: string }> = [];
+  public elicitations: Array<{ requestId: string; action: string; content?: Record<string, unknown> }> = [];
   constructor(id: string, patches: ChatPatch[]) {
     this.id = id;
     this.opts = { patches };
@@ -44,6 +45,14 @@ export class FakeSession implements AgentSession {
   }
   resolveApproval(requestId: string, optionId: string): boolean {
     this.approvals.push({ requestId, optionId });
+    return true;
+  }
+  resolveElicitation(
+    requestId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>,
+  ): boolean {
+    this.elicitations.push({ requestId, action, content });
     return true;
   }
   async close(): Promise<void> {}

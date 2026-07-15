@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "../state/useChat";
 import { useToast } from "../state/ToastContext";
 import { fetchJSON } from "../api/client";
@@ -6,10 +6,11 @@ import { Transcript } from "./Transcript";
 import { Composer } from "./Composer";
 import { InfoPanel } from "./InfoPanel";
 import { ApprovalModal } from "./ApprovalModal";
+import { ElicitationModal } from "./ElicitationModal";
 import { ChatsDrawer } from "./ChatsDrawer";
 import { WorkspacesDrawer } from "./WorkspacesDrawer";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
-import type { ImageAttachment, SessionSummary, ChatPatch } from "../api/types";
+import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals } from "../api/types";
 import styles from "./ChatPanel.module.css";
 
 const FOLLOW_CHAT_STORAGE_KEY = "jarvis.followChat";
@@ -54,9 +55,26 @@ function ChatPanelInner() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [steerEnabled, setSteerEnabled] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<(ChatPatch & { type: "approval-request" }) | null>(null);
+  const [pendingElicitation, setPendingElicitation] = useState<(ChatPatch & { type: "elicitation-request" }) | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [pickingFolder, setPickingFolder] = useState(false);
   const queueRef = useRef<string | null>(null);
+
+  const latestUsage = useMemo((): UsageTotals | undefined => {
+    for (let i = chat.transcript.length - 1; i >= 0; i--) {
+      const entry = chat.transcript[i];
+      if (entry.role !== "assistant") continue;
+      for (let j = entry.patches.length - 1; j >= 0; j--) {
+        const p = entry.patches[j];
+        if (p.type === "usage") return p.usage;
+      }
+    }
+    // No live usage patch in this tab's transcript yet (e.g. right after a
+    // resume/reload) — fall back to the gateway's cached last-known usage,
+    // since Claude's own session/load replay doesn't re-emit usage_update
+    // for past turns (see docs/acp-notes.md).
+    return ctx.state.lastUsage ?? undefined;
+  }, [chat.transcript, ctx.state.lastUsage]);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -85,6 +103,22 @@ function ChatPanelInner() {
         await chat.resolveApproval(requestId, optionId);
       } catch (err) {
         toast.push("Approval failed: " + (err instanceof Error ? err.message : String(err)), "error");
+      }
+    },
+    [chat, toast],
+  );
+
+  const onElicitation = useCallback((p: ChatPatch & { type: "elicitation-request" }) => {
+    setPendingElicitation(p);
+  }, []);
+
+  const onResolveElicitation = useCallback(
+    async (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
+      setPendingElicitation(null);
+      try {
+        await chat.resolveElicitation(requestId, action, content);
+      } catch (err) {
+        toast.push("Failed to send answer: " + (err instanceof Error ? err.message : String(err)), "error");
       }
     },
     [chat, toast],
@@ -336,13 +370,22 @@ function ChatPanelInner() {
             onPickFolder={onPickFolder}
             pickDisabled={pickingFolder}
           />
-          <Transcript entries={chat.transcript} loading={ctx.state.loading} follow={followChat} onApproval={onApproval} onSteerAck={onSteerAck} onImagesSkipped={onImagesSkipped} />
+          <Transcript
+            entries={chat.transcript}
+            loading={ctx.state.loading}
+            follow={followChat}
+            onApproval={onApproval}
+            onElicitation={onElicitation}
+            onSteerAck={onSteerAck}
+            onImagesSkipped={onImagesSkipped}
+          />
           <Composer
             busy={chat.busy}
             steerEnabled={steerEnabled}
             steerSupported={!!ctx.state.capabilities?.steer}
             imagesSupported={!!ctx.state.capabilities?.images}
             attachments={attachments}
+            latestUsage={latestUsage}
             onRemoveAttachment={onRemoveAttachment}
             onAttachFiles={onAttachFiles}
             onSend={onSend}
@@ -358,6 +401,7 @@ function ChatPanelInner() {
             title={ctx.state.title}
             group={ctx.state.group}
             pinned={ctx.state.pinned}
+            usage={latestUsage}
             onRename={onRename}
             onGroup={onGroupChange}
             onPinned={onPinnedChange}
@@ -367,6 +411,7 @@ function ChatPanelInner() {
         </div>
       </div>
       <ApprovalModal patch={pendingApproval} onResolve={onResolveApproval} />
+      <ElicitationModal patch={pendingElicitation} onResolve={onResolveElicitation} />
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
-import type { ImageAttachment } from "../api/types";
+import type { ImageAttachment, UsageTotals } from "../api/types";
+import { loadQuickPhrases, saveQuickPhrases } from "../state/quickPhrases";
+import { QuickPhrasesRow } from "./QuickPhrasesRow";
 import styles from "./Composer.module.css";
 
 export interface ComposerProps {
@@ -8,6 +10,7 @@ export interface ComposerProps {
   steerSupported: boolean;
   imagesSupported: boolean;
   attachments: ImageAttachment[];
+  latestUsage?: UsageTotals;
   onRemoveAttachment: (idx: number) => void;
   onAttachFiles: (files: File[]) => void;
   onSend: (text: string) => void;
@@ -20,19 +23,47 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const {
     busy, steerEnabled, steerSupported, imagesSupported,
-    attachments, onRemoveAttachment, onAttachFiles,
+    attachments, latestUsage,
+    onRemoveAttachment, onAttachFiles,
     onSend, onSteer, onCancel, onQueue, onToggleSteer,
   } = props;
   const [text, setText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [phrases, setPhrases] = useState<string[]>(() => loadQuickPhrases());
+
+  const dispatch = (trimmed: string) => {
+    if (steerEnabled) void onSteer(trimmed);
+    else if (busy) void onQueue(trimmed);
+    else onSend(trimmed);
+  };
+
+  const submitPhrase = (phrase: string) => {
+    dispatch(phrase.trim());
+    textareaRef.current?.focus();
+  };
+
+  const addPhrase = (phrase: string) => {
+    setPhrases((prev) => {
+      const next = [...prev, phrase];
+      saveQuickPhrases(next);
+      return next;
+    });
+  };
+
+  const deletePhrase = (idx: number) => {
+    setPhrases((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      saveQuickPhrases(next);
+      return next;
+    });
+  };
 
   const submit = (ev?: FormEvent) => {
     if (ev) ev.preventDefault();
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
-    if (steerEnabled) void onSteer(trimmed);
-    else if (busy) void onQueue(trimmed);
-    else onSend(trimmed);
+    dispatch(trimmed);
     setText("");
   };
 
@@ -47,8 +78,10 @@ export function Composer(props: ComposerProps) {
           </div>
         ))}
       </div>
+      <QuickPhrasesRow phrases={phrases} onSubmit={submitPhrase} onAdd={addPhrase} onDelete={deletePhrase} />
       <div className={styles.row}>
         <textarea
+          ref={textareaRef}
           rows={2}
           placeholder={
             steerEnabled
@@ -91,6 +124,25 @@ export function Composer(props: ComposerProps) {
           )}
         </div>
       </div>
+      {latestUsage && latestUsage.context_limit != null && latestUsage.context_limit > 0 && (
+        <div className={styles.contextBar}>
+          <span>
+            Context: {latestUsage.context_used?.toLocaleString() ?? "0"} /{" "}
+            {latestUsage.context_limit.toLocaleString()}
+            {" ("}
+            <span className={latestUsage.context_used != null && latestUsage.context_used / latestUsage.context_limit > 0.8 ? styles.warn : undefined}>
+              {latestUsage.context_used != null
+                ? Math.round((latestUsage.context_used / latestUsage.context_limit) * 100)
+                : 0}
+              %
+            </span>
+            {")"}
+          </span>
+          {latestUsage.cost && (
+            <span> · ${latestUsage.cost.amount.toFixed(2)}</span>
+          )}
+        </div>
+      )}
     </form>
   );
 }

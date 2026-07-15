@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Markdown } from "../markdown";
 import type { ChatPatch, UsageTotals } from "../api/types";
 import styles from "./Timeline.module.css";
@@ -6,6 +6,7 @@ import styles from "./Timeline.module.css";
 export interface TimelineProps {
   patches: ChatPatch[];
   onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
+  onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
 }
@@ -25,9 +26,19 @@ function buildTimelineState(
   patches: ChatPatch[],
   emit: {
     onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
+    onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
     onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
     onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
   },
+  // buildTimelineState re-walks the whole patches array from scratch on every
+  // recompute (each streamed delta grows the array), so without this guard
+  // every side-effecting patch (approval/elicitation/steer-ack/images-skipped)
+  // would re-fire its callback on every later patch in the same turn — e.g.
+  // reopening an already-answered elicitation modal once the tool result or
+  // trailing assistant text streams in. Keyed by patch object identity, which
+  // is stable across recomputes since historical patches are never mutated or
+  // recreated, only appended to.
+  emitted: Set<ChatPatch>,
 ): TimelineState {
   const bubbles: Bubble[] = [];
   let usage: UsageTotals | undefined;
@@ -108,13 +119,28 @@ function buildTimelineState(
         error = p.message;
         break;
       case "approval-request":
-        emit.onApproval?.(p);
+        if (!emitted.has(p)) {
+          emitted.add(p);
+          emit.onApproval?.(p);
+        }
+        break;
+      case "elicitation-request":
+        if (!emitted.has(p)) {
+          emitted.add(p);
+          emit.onElicitation?.(p);
+        }
         break;
       case "steer-ack":
-        emit.onSteerAck?.(p);
+        if (!emitted.has(p)) {
+          emitted.add(p);
+          emit.onSteerAck?.(p);
+        }
         break;
       case "images-skipped":
-        emit.onImagesSkipped?.(p);
+        if (!emitted.has(p)) {
+          emitted.add(p);
+          emit.onImagesSkipped?.(p);
+        }
         break;
       default:
         break;
@@ -159,10 +185,11 @@ function usagePills(u: UsageTotals): string[] {
   return out;
 }
 
-export function Timeline({ patches, onApproval, onSteerAck, onImagesSkipped }: TimelineProps) {
+export function Timeline({ patches, onApproval, onElicitation, onSteerAck, onImagesSkipped }: TimelineProps) {
+  const emittedRef = useRef<Set<ChatPatch>>(new Set());
   const state = useMemo(
-    () => buildTimelineState(patches, { onApproval, onSteerAck, onImagesSkipped }),
-    [patches, onApproval, onSteerAck, onImagesSkipped],
+    () => buildTimelineState(patches, { onApproval, onElicitation, onSteerAck, onImagesSkipped }, emittedRef.current),
+    [patches, onApproval, onElicitation, onSteerAck, onImagesSkipped],
   );
   return (
     <div className={styles.timeline}>

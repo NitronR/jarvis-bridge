@@ -6,6 +6,7 @@ import {
   usageFromAcp,
   mergeUsage,
   patchFromPromptResult,
+  elicitationSchemaToFields,
   type AcpUpdate,
   type AcpStreamState,
 } from "./mapping";
@@ -330,6 +331,21 @@ describe("usageFromAcp / mergeUsage", () => {
     );
   });
 
+  // Regression: claude-agent-acp's usage_update notifications carry ONLY
+  // `used`/`size`/`cost` — no inputTokens/outputTokens/cachedReadTokens/
+  // cachedWriteTokens at all (confirmed against dist/acp-agent.js). The
+  // original null-check only looked at token counts, so every real claude
+  // usage_update was discarded and the context-usage indicator never had
+  // data to show for claude sessions.
+  test("accepts a claude-shaped update with only used/size/cost, no token breakdown", () => {
+    const u = usageFromAcp({ used: 32921, size: 200000, cost: { amount: 0.42, currency: "USD" } });
+    assert.ok(u, "should not be null when size/used/cost are present");
+    assert.equal(u!.context_limit, 200000);
+    assert.equal(u!.context_used, 32921);
+    assert.equal(u!.cost?.amount, 0.42);
+    assert.equal(u!.input_tokens, 0);
+  });
+
   test("mergeUsage sums token counts", () => {
     const a = {
       requests: 0,
@@ -350,6 +366,47 @@ describe("usageFromAcp / mergeUsage", () => {
     assert.equal(m.output_tokens, 7);
     assert.equal(m.cache_read_tokens, 1);
     assert.equal(m.cache_write_tokens, 4);
+  });
+
+  // claude-agent-acp forwards subscription rate-limit info (from the SDK's
+  // `rate_limit_event`) as `usage_update._meta["_claude/rateLimit"]`. This
+  // carries no token counts at all, so it must survive the same
+  // "anything present" null-check as the used/size/cost-only shape above.
+  test("accepts a rate-limit-only update via _meta, no tokens/limit/cost", () => {
+    const u = usageFromAcp({
+      _meta: {
+        "_claude/rateLimit": {
+          status: "allowed",
+          rateLimitType: "five_hour",
+          utilization: 0.12,
+          resetsAt: 1234567890, // wire value is Unix epoch *seconds*
+        },
+      },
+    });
+    assert.ok(u, "should not be null when only rate-limit meta is present");
+    assert.deepEqual(u!.rate_limits, {
+      // normalized to epoch ms (regression: was passed through unconverted,
+      // which put every reset time near Jan 1970 in the UI)
+      five_hour: { status: "allowed", utilization: 0.12, resetsAt: 1234567890000 },
+    });
+  });
+
+  test("ignores malformed rate-limit meta (missing rateLimitType/status)", () => {
+    const u = usageFromAcp({ used: 100, size: 200, _meta: { "_claude/rateLimit": { utilization: 0.5 } } });
+    assert.ok(u);
+    assert.equal(u!.rate_limits, undefined);
+  });
+
+  test("mergeUsage merges rate_limits by key instead of replacing wholesale", () => {
+    const a = { requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+      rate_limits: { five_hour: { status: "allowed" as const, utilization: 0.1 } } };
+    const b = { requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+      rate_limits: { seven_day: { status: "allowed_warning" as const, utilization: 0.86 } } };
+    const m = mergeUsage(a, b);
+    assert.deepEqual(m.rate_limits, {
+      five_hour: { status: "allowed", utilization: 0.1 },
+      seven_day: { status: "allowed_warning", utilization: 0.86 },
+    });
   });
 });
 
@@ -373,6 +430,16 @@ describe("resetTurnState", () => {
     assert.equal(r.slashCommands.length, 1);
     assert.equal(r.slashCommands[0]!.name, "help");
   });
+
+  // rate_limit_events are infrequent (only fire when the quota changes), so a
+  // fresh turn shouldn't blank out the last known session/week percentages
+  // the way it blanks per-turn token counts.
+  test("preserves rate_limits across a turn reset", () => {
+    const state = freshState();
+    state.usage.rate_limits = { five_hour: { status: "allowed", utilization: 0.12 } };
+    const r = resetTurnState(state);
+    assert.deepEqual(r.usage.rate_limits, { five_hour: { status: "allowed", utilization: 0.12 } });
+  });
 });
 
 describe("patchFromPromptResult", () => {
@@ -395,5 +462,69 @@ describe("patchFromPromptResult", () => {
     const state = freshState();
     const patch = patchFromPromptResult({ stopReason: "end_turn" }, state);
     assert.equal(patch, null);
+  });
+});
+
+describe("elicitationSchemaToFields", () => {
+  test("oneOf property becomes a single-select field", () => {
+    const fields = elicitationSchemaToFields({
+      properties: {
+        question_0: {
+          title: "Pick one",
+          oneOf: [
+            { const: "a", title: "Option A", description: "first" },
+            { const: "b", title: "Option B" },
+          ],
+        },
+      },
+    });
+    assert.equal(fields.length, 1);
+    assert.deepEqual(fields[0], {
+      key: "question_0",
+      title: "Pick one",
+      description: undefined,
+      kind: "select",
+      options: [
+        { value: "a", label: "Option A", description: "first" },
+        { value: "b", label: "Option B", description: undefined },
+      ],
+    });
+  });
+
+  test("array type with items.anyOf becomes a multi-select field", () => {
+    const fields = elicitationSchemaToFields({
+      properties: {
+        question_0: {
+          type: "array",
+          items: { anyOf: [{ const: "x", title: "X" }, { const: "y", title: "Y" }] },
+        },
+      },
+    });
+    assert.equal(fields[0]!.kind, "multi-select");
+    assert.deepEqual(fields[0]!.options, [
+      { value: "x", label: "X", description: undefined },
+      { value: "y", label: "Y", description: undefined },
+    ]);
+  });
+
+  test("plain string property becomes a text field", () => {
+    const fields = elicitationSchemaToFields({
+      properties: { question_0_custom: { type: "string", title: "Other" } },
+    });
+    assert.equal(fields[0]!.kind, "text");
+    assert.equal(fields[0]!.options, undefined);
+  });
+
+  test("unrecognized property type falls back to text rather than dropping it", () => {
+    const fields = elicitationSchemaToFields({
+      properties: { count: { type: "number" as never, title: "Count" } },
+    });
+    assert.equal(fields.length, 1);
+    assert.equal(fields[0]!.kind, "text");
+  });
+
+  test("missing/empty schema yields no fields", () => {
+    assert.deepEqual(elicitationSchemaToFields(undefined), []);
+    assert.deepEqual(elicitationSchemaToFields({}), []);
   });
 });

@@ -7,6 +7,11 @@ import { createServer } from "./server";
 import { FakeBackend } from "../test/fixtures/fakeBackend";
 import { createToolRegistry } from "./tools";
 import { createSessionConfigStore } from "./agent/sessionConfigStore";
+import { createBackendRegistry } from "./agent/backendRegistry";
+import { createSettingsStore } from "./agent/settingsStore";
+import type { BackendProfile } from "./agent/backendConfig";
+
+const FAKE_AGENT = path.resolve(process.cwd(), "test/fixtures/fake-streaming-agent.cjs");
 
 async function mkWorkspace(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-server-"));
@@ -153,6 +158,66 @@ test("POST /chat/send streams SSE patches and ends with {type:'done'}", async ()
   }));
 });
 
+test("GET /chat/init returns lastUsage=null when no turn has happened yet", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/init`);
+      const body = (await res.json()) as { lastUsage: unknown };
+      assert.equal(body.lastUsage, null);
+    },
+  }));
+});
+
+// Regression: the context-usage indicator needs the last known usage to
+// survive a page reload. Claude's own session/load replay doesn't re-emit
+// usage_update for past turns (see docs/acp-notes.md), so the gateway must
+// cache it itself in sessionConfigStore and return it out-of-band on init,
+// independent of what the agent chooses to replay.
+test("POST /chat/send caches a usage patch, and GET /chat/init returns it as lastUsage on a later resume", async () => {
+  const sessionId = "sess-usage-1";
+  await withServer(async (ws) => ({
+    backend: new FakeBackend({
+      initialSessionId: sessionId,
+      initialSessionPatches: [
+        { type: "text-delta", index: 0, delta: "6" },
+        {
+          type: "usage",
+          usage: {
+            requests: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            context_limit: 1000000,
+            context_used: 44042,
+            cost: { amount: 0.13, currency: "USD" },
+          },
+        },
+        { type: "done" },
+      ],
+    }),
+    fn: async (url) => {
+      const sendRes = await fetch(`${url}/chat/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "what is 3+3", sessionId }),
+      });
+      assert.equal(sendRes.status, 200);
+      await sendRes.text(); // drain the SSE stream
+
+      const initRes = await fetch(`${url}/chat/init?sessionId=${sessionId}`);
+      const body = (await initRes.json()) as {
+        lastUsage: { context_limit?: number; context_used?: number; cost?: { amount: number } } | null;
+      };
+      assert.ok(body.lastUsage, "lastUsage should be populated after a turn with a usage patch");
+      assert.equal(body.lastUsage!.context_limit, 1000000);
+      assert.equal(body.lastUsage!.context_used, 44042);
+      assert.equal(body.lastUsage!.cost?.amount, 0.13);
+    },
+  }));
+});
+
 test("POST /chat/cancel resolves the cancel on the session", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),
@@ -184,6 +249,29 @@ test("POST /chat/approval forwards optionId to the session", async () => {
           sessionId: initBody.sessionId,
           requestId: "appr-1",
           optionId: "allow_once",
+        }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean };
+      assert.equal(body.ok, true);
+    },
+  }));
+});
+
+test("POST /chat/elicitation forwards action/content to the session", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/elicitation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: initBody.sessionId,
+          requestId: "elic-1",
+          action: "accept",
+          content: { question_0: "b" },
         }),
       });
       assert.equal(res.status, 200);
@@ -718,4 +806,92 @@ test("PUT /settings/default-backend updates the default backend name", async () 
       assert.equal(getBody.default, "other");
     },
   }));
+});
+
+test("GET /chat/init?sessionId=X reloads on the backend that owns the session, not the current default", async () => {
+  // Regression: when the user changes the default backend and then refreshes
+  // a session tab, /chat/init must load the session against the backend
+  // that originally created it — otherwise the new default's loadSession
+  // call fails with "session not found" / 500, and the chat never loads.
+  // The bug fires specifically when the owning backend's pool was never
+  // spawned in this process (typical "gateway restarted with a different
+  // default than the one that originally created the session" flow):
+  // BackendRegistry.findSession() / listSessions() used to skip pools that
+  // hadn't been spawned yet, so the session became invisible to the lookup
+  // and the server fell back to the new default's loadSession, which then
+  // failed. The fix: findSession/listSessions/getSession now lazy-spawn
+  // every known profile's pool and consult its listSessions, so the
+  // owning backend is always reachable.
+  //
+  // This test simulates the post-restart state with a fresh registry whose
+  // envDefault differs from the session's owning backend, so the owning
+  // pool is genuinely not in memory when findSession runs. The fake
+  // streaming agent reads its advertised session list from the
+  // X_FAKE_AGENT_SESSION_LIST env var at startup — we use that to make
+  // the freshly-spawned "opencode" subprocess report the session we
+  // created in the first phase, mirroring how a real agent CLI persists
+  // sessions to its own storage across process restarts.
+  const ws = await mkWorkspace();
+  let registry1: import("./agent/backendRegistry").BackendRegistry | undefined;
+  let registry2: import("./agent/backendRegistry").BackendRegistry | undefined;
+  try {
+    const settingsPath = path.join(ws, "settings.json");
+    // Phase 1: a registry starts with default=opencode, creates a session
+    // on opencode, then the user switches default to claude and the process
+    // is restarted. We use a shared settings file so the second registry
+    // boots with default=claude.
+    const settings1 = await createSettingsStore({
+      path: settingsPath,
+      envDefault: "opencode",
+      validNames: ["opencode", "claude"],
+    });
+    const profiles: BackendProfile[] = [
+      { name: "opencode", kind: "opencode", command: process.execPath, args: [FAKE_AGENT] },
+      { name: "claude", kind: "claude-acp", command: process.execPath, args: [FAKE_AGENT] },
+    ];
+    registry1 = await createBackendRegistry({ profiles, settings: settings1, workspace: ws, autoApprove: false });
+    const opencodeBackend = await registry1.getDefaultBackend();
+    const created = await opencodeBackend.createSession({ cwd: ws });
+    const sid = created.id;
+    await registry1.setDefaultBackendName("claude");
+    await registry1.shutdown();
+    registry1 = undefined;
+
+    // Phase 2: a fresh registry boots with the persisted default=claude.
+    // Only claude's pool is spawned eagerly. The opencode pool — the one
+    // that owns `sid` — is un-spawned. The next time the opencode agent
+    // subprocess starts, it must report `sid` in its session/list so
+    // findSession can find it. We pre-seed that via the env-var contract
+    // fake-streaming-agent.cjs uses, scoped to the opencode profile only
+    // (not the global process env, so the claude subprocess still reports
+    // an empty list and can't be mistaken for the owner).
+    const phase2Profiles: BackendProfile[] = [
+      {
+        name: "opencode",
+        kind: "opencode",
+        command: process.execPath,
+        args: [FAKE_AGENT],
+        env: {
+          X_FAKE_AGENT_SESSION_LIST: JSON.stringify([
+            { sessionId: sid, cwd: ws, title: "t", updatedAt: new Date().toISOString() },
+          ]),
+        },
+      },
+      { name: "claude", kind: "claude-acp", command: process.execPath, args: [FAKE_AGENT] },
+    ];
+    const settings2 = await createSettingsStore({
+      path: settingsPath,
+      envDefault: "claude",
+      validNames: ["opencode", "claude"],
+    });
+    registry2 = await createBackendRegistry({ profiles: phase2Profiles, settings: settings2, workspace: ws, autoApprove: false });
+
+    const found = await registry2.findSession(sid);
+    assert.ok(found, "findSession must discover a session on a non-default backend whose pool is un-spawned in this registry");
+    assert.equal(found?.backendName, "opencode");
+  } finally {
+    if (registry1) await registry1.shutdown();
+    if (registry2) await registry2.shutdown();
+    await fs.rm(ws, { recursive: true, force: true });
+  }
 });

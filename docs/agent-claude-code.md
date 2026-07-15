@@ -229,6 +229,44 @@ shape as opencode, `{ sessionId, update: {...} }`):
 | `available_commands_update` | `availableCommands: [{name, description}, ...]` | fires once per session, same as opencode; on this probe it returned the *local* user's full skill/slash-command list (a lot of entries — this is a property of running under the real `claude` CLI with the user's own config, not a jarvis-bridge concern) |
 | `session_info_update` | `title`, `updatedAt` | falls through `mapping.ts`'s existing `default:` no-op case, same as opencode — confirmed harmless |
 
+### `_meta._claude/rateLimit` — subscription usage windows (confirmed 2026-07-15)
+
+`usage_update` notifications triggered by the SDK's `rate_limit_event` (infrequent — only fires when
+quota status changes, not every turn) carry `_meta["_claude/rateLimit"]` alongside the usual
+`used`/`size`. Confirmed shape from a live `.logs/<sessionId>.log` capture:
+```json
+{
+  "status": "allowed",
+  "resetsAt": 1783957200,
+  "rateLimitType": "five_hour",
+  "overageStatus": "rejected",
+  "overageDisabledReason": "org_level_disabled",
+  "isUsingOverage": false
+}
+```
+
+Two gotchas found building the InfoPanel "Usage" card (`RateLimitWindow` in `src/agent/types.ts`,
+extraction in `mapping.ts`'s `rateLimitFromMeta`/`usageFromAcp`):
+
+- **`resetsAt` is Unix epoch *seconds*, not milliseconds** — despite every other timestamp-shaped field
+  in this codebase being ms. Passing it straight to `new Date(...)` silently lands on Jan 1970 (this
+  shipped once and was caught from a screenshot, not a test). `rateLimitFromMeta` normalizes by `* 1000`
+  at ingestion so `RateLimitWindow.resetsAt` is honestly epoch-ms everywhere downstream — don't
+  reintroduce the bare passthrough.
+- **`utilization` is not always present.** The JSON above (a real `status: "allowed"` event) has no
+  `utilization` key at all. Claude appears to only include it once you're closer to a threshold
+  (unconfirmed whether `allowed_warning`/`rejected` always include it). `InfoPanel.tsx` falls back to
+  rendering the bare `status` text when `utilization` is absent — that's correct/expected, not a bug.
+
+**Not currently reachable: the richer `get_usage` control API.** The SDK also exposes an
+actively-queryable `SDKControlGetUsageRequest`/`SDKControlGetUsageResponse` (`subtype: "get_usage"`, see
+`@anthropic-ai/claude-agent-sdk`'s `sdk.d.ts`) — this is what backs the CLI's own `/usage` command and
+reliably returns `utilization: number | null` per window regardless of status. `claude-agent-acp` never
+calls or forwards it (confirmed by reading its `acp-agent.ts` source, 2026-07-15) — it only wires up the
+passive `rate_limit_event`. There is no ACP-level way to reach `get_usage` today; always-populated
+utilization would require patching the upstream `claude-agent-acp` package to call `query.getUsage()`
+and forward the response — out of scope for jarvis-bridge itself, left as a known gap (see §11).
+
 **Final `session/prompt` result** (verbatim, trivial prompt):
 ```json
 {
@@ -301,26 +339,33 @@ capability from `clientCapabilities` make `AskUserQuestion` gracefully degrade t
 `session/request_permission` flow, or does it break?":
 
 - **With `clientCapabilities.elicitation.form` advertised** (today's behavior): `AskUserQuestion` is
-  available to the model, fires a real `elicitation/create` request (shape above). The current stub
-  handler (`src/agent/acp/index.ts:170-172`) replies `{ action: "cancel" }` unconditionally. Confirmed
-  effect: the tool call completes with `status: "failed"`, `rawOutput: "Tool permission request failed:
-  Error: Tool use aborted"`, and the model gracefully recovers in its next text chunk (no hang, no
-  protocol error) — e.g. *"The question was sent but got aborted before you could respond."* This
-  matches the already-documented, already-deferred "real elicitation handling" gap in
-  `docs/claude-acp-future-phases.md` — no new gap, just confirmation that today's stub degrades safely
-  rather than hanging.
+  available to the model, fires a real `elicitation/create` request (shape above). At the time of the
+  original probe, the stub handler replied `{ action: "cancel" }` unconditionally; the tool call
+  completed with `status: "failed"`, `rawOutput: "Tool permission request failed: Error: Tool use
+  aborted"`, and the model gracefully recovered in its next text chunk (no hang, no protocol error) —
+  e.g. *"The question was sent but got aborted before you could respond."*
 - **With `elicitation` omitted from `clientCapabilities`:** `AskUserQuestion` is **not offered to the
   model at all**. Asked to use it, the model responded: *"There's no AskUserQuestion tool available in
   this environment — it's not among the tools I have access to here,"* then fell back to asking the
   question as plain text. This does **not** match the "degrades to `session/request_permission`"
-  hypothesis from the design spec — it removes the tool entirely, which is strictly worse than today's
-  auto-cancel behavior (today, the model at least attempts the structured tool and recovers gracefully;
-  without the capability, structured multi-choice questions are unavailable at all).
+  hypothesis from the design spec — it removes the tool entirely, which is strictly worse than the
+  auto-cancel behavior above (the model at least attempts the structured tool and recovers gracefully
+  with elicitation advertised; without the capability, structured multi-choice questions are
+  unavailable at all).
 
 **Decision (per plan Task 11 Step 4):** keep advertising `clientCapabilities: { elicitation: { form: {} } }`
-unconditionally, exactly as today. **No code change.** Real elicitation handling (routing
-`elicitation/create` to the UI instead of auto-cancelling) remains correctly deferred to
-`docs/claude-acp-future-phases.md`.
+unconditionally, exactly as today.
+
+**Update (2026-07-15): real elicitation handling shipped.** `elicitation/create` with `mode: "form"` now
+routes to the UI instead of auto-cancelling — see `src/agent/acp/index.ts`'s `routeElicitationToUI`
+(mirrors `routeApprovalToUI`) and `src/agent/acp/mapping.ts`'s `elicitationSchemaToFields`, which
+normalizes `requestedSchema` into generic `ElicitationField[]` (`oneOf` → `select`, `array` with
+`items.anyOf` → `multi-select`, everything else → `text`) — deliberately shape-agnostic to
+`AskUserQuestion` specifically, so any ACP backend's form elicitation renders the same way. The frontend's
+`ElicitationModal.tsx` renders the fields; Submit resolves `POST /chat/elicitation` with
+`{action:"accept", content}`, Skip resolves `{action:"decline"}`. Any `mode` other than `"form"` (MCP
+dialogs, `refusal_fallback_prompt`) still falls back to `{action:"cancel"}` — those remain deferred, see
+`docs/claude-acp-future-phases.md`. Full implementation notes: `docs/archives/2026-07-15-elicitation-support.md`.
 
 ---
 
@@ -368,11 +413,17 @@ Re-run this probe after any adapter or `claude` CLI upgrade before treating this
 - **Auto-approve `optionId` selection (fixed, this task):** see §7. Worth double-checking if opencode
   ever changes its own `optionId` convention — the fix is now kind-based and agent-agnostic, so it
   should be safe regardless.
-- **Real elicitation handling:** still deferred per `docs/claude-acp-future-phases.md` — confirmed safe
-  to defer (§8), not blocking.
+- **Real elicitation handling (form mode):** shipped 2026-07-15, see §8. MCP-server-initiated dialogs
+  and `refusal_fallback_prompt` remain deferred per `docs/claude-acp-future-phases.md`.
 - **`session/resume`/`session/close`:** advertised by Claude but intentionally unimplemented per the
   Phase 1 design decision — no change from that decision as a result of this probe.
 - **arm64/Rosetta hang (documented, not a code fix):** see §1. This is a deployment/environment note for
   whoever runs jarvis-bridge with the Claude backend on Apple Silicon with a Rosetta-built Node — not
   something jarvis-bridge's own code can detect or work around beyond documenting
   `CLAUDE_CODE_EXECUTABLE` as the fix.
+- **Subscription rate-limit `utilization` not always populated (documented, not fixed):** see §6. The
+  passive `rate_limit_event` the adapter forwards can omit `utilization` (only `status`/`resetsAt`); the
+  richer `get_usage` control API that always includes it is not exposed by `claude-agent-acp`. The
+  InfoPanel "Usage" card falls back to showing the bare status text in that case — working as intended.
+  Fixing this for real would mean patching the upstream `claude-agent-acp` package, deliberately not
+  pursued for now (decided 2026-07-15).

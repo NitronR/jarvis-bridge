@@ -32,6 +32,11 @@ export interface AgentSession {
   cancel(): Promise<void>;
   steer?(prompt: string): Promise<{ accepted: boolean; reason?: string }>;
   resolveApproval?(requestId: string, optionId: string): boolean;
+  resolveElicitation?(
+    requestId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>,
+  ): boolean;
   getSlashCommands?(): Array<{ name: string; description?: string }>;
   consumeReplayHistory?(): ChatHistoryEntry[];
   close(): Promise<void>;
@@ -96,6 +101,20 @@ export interface PromptImageAttachment {
   filename?: string;
 }
 
+// ── Elicitation (ACP `elicitation/create`, form mode) ────────────────────
+
+// Normalized, protocol-generic rendering of an ACP `requestedSchema` property —
+// deliberately not shaped around Claude's `AskUserQuestion` tool specifically, so
+// any ACP backend's form elicitation renders the same way (capability-driven, not
+// a hardcoded per-backend shape).
+export interface ElicitationField {
+  key: string;
+  title?: string;
+  description?: string;
+  kind: "select" | "multi-select" | "text";
+  options?: Array<{ value: string; label: string; description?: string }>;
+}
+
 // ── ChatPatch — the streaming wire contract ──────────────────────────────
 
 export type ChatPatch =
@@ -138,6 +157,13 @@ export type ChatPatch =
       toolInput?: unknown;
       options: Array<{ id: string; name: string; kind?: string }>;
     }
+  | {
+      type: "elicitation-request";
+      requestId: string;
+      toolCallId: string | null;
+      message: string;
+      fields: ElicitationField[];
+    }
   | { type: "steer-ack"; accepted: boolean; reason?: string }
   | {
       type: "images-skipped";
@@ -147,6 +173,16 @@ export type ChatPatch =
         reason: "too-large" | "unsupported" | "decode-error";
       }>;
     };
+
+// Subscription-level rate limit window, as reported by the Claude SDK's
+// `rate_limit_event` (forwarded over ACP as `usage_update._meta["_claude/rateLimit"]`).
+// Distinct from context_limit/context_used above, which describe the current
+// turn's context window, not the account's five-hour/seven-day quota.
+export interface RateLimitWindow {
+  status: "allowed" | "allowed_warning" | "rejected";
+  utilization?: number; // 0-1
+  resetsAt?: number; // epoch ms
+}
 
 export interface UsageTotals {
   requests: number;
@@ -158,6 +194,8 @@ export interface UsageTotals {
   context_used?: number;
   cost?: { amount: number; currency: string };
   thought_tokens?: number;
+  // Keyed by the SDK's rateLimitType (e.g. "five_hour", "seven_day").
+  rate_limits?: Record<string, RateLimitWindow>;
 }
 
 // ── Factory config (consumed by createAgentBackend) ──────────────────────

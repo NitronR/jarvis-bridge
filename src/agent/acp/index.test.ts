@@ -141,6 +141,38 @@ describe("AcpAgentSession.sendMessage — streaming", () => {
   });
 });
 
+describe("AcpAgentBackend.loadSession — replay capture", () => {
+  // Regression: captureReplayUpdate() only handled message/tool-call update
+  // types and silently dropped everything else (default: break), so a
+  // usage_update replayed alongside history never made it into the
+  // reconstructed assistant entry's patches. That left the context-usage
+  // indicator with nothing to show after a page reload until a fresh
+  // usage_update arrived. See docs/acp-notes.md on replay capture pitfalls.
+  test("usage_update replayed mid-history lands in the assistant entry's patches", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_REPLAY_UPDATES: JSON.stringify([
+        { sessionUpdate: "user_message_chunk", content: { type: "text", text: "hi" } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } },
+        { sessionUpdate: "usage_update", inputTokens: 11, outputTokens: 22, size: 200000, used: 33 },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("replay-sid", { cwd: process.cwd() });
+      const history = (session as AcpAgentSession).consumeReplayHistory();
+      const assistant = history.find((e) => e.kind === "assistant");
+      assert.ok(assistant, "should reconstruct an assistant entry");
+      const usage = assistant!.kind === "assistant" ? assistant.patches.find((p) => p.type === "usage") : undefined;
+      assert.ok(usage, "assistant entry's patches should include the replayed usage patch");
+      if (usage?.type === "usage") {
+        assert.equal(usage.usage.context_limit, 200000);
+        assert.equal(usage.usage.context_used, 33);
+      }
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
 describe("AcpAgentBackend.listSessions — cwd scoping", () => {
   // Live-probe regression (docs/agent-claude-code.md): the real Claude adapter's
   // session/list returns the user's entire global session history across every
@@ -194,6 +226,134 @@ describe("AcpAgentBackend — auto-approve permission selection", () => {
       const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
       assert.equal(result.outcome.outcome, "selected");
       assert.equal(result.outcome.optionId, "allow");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
+describe("AcpAgentSession.resolveApproval", () => {
+  // Regression: AcpAgentSession must implement resolveApproval by delegating to
+  // AcpAgentBackend.resolveApproval(sessionId, ...) — the interface method
+  // (AgentSession.resolveApproval) previously had no implementation on
+  // AcpAgentSession at all, so a manual (non-auto-approve) approval click routed
+  // through server.ts's POST /chat/approval always hit `undefined` and 409'd.
+  test("manual (non-auto-approve) approval routes to the UI and resolves via session.resolveApproval", async () => {
+    const resultFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "jb-perm-ui-")),
+      "result.json",
+    );
+    const backend = await newBackend({
+      X_FAKE_AGENT_PERMISSION_OPTIONS: JSON.stringify([
+        { optionId: "allow", kind: "allow_once", name: "Allow" },
+        { optionId: "reject", kind: "reject_once", name: "Reject" },
+      ]),
+      X_FAKE_AGENT_PERMISSION_RESULT_FILE: resultFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      const iter = session.sendMessage("do something")[Symbol.asyncIterator]();
+      let requestId: string | undefined;
+      while (true) {
+        const { value, done } = await iter.next();
+        if (done) break;
+        if (value.type === "approval-request") {
+          requestId = value.requestId;
+          const ok = session.resolveApproval!(requestId, "allow");
+          assert.equal(ok, true);
+        }
+        if (value.type === "done") break;
+      }
+      assert.ok(requestId, "expected an approval-request patch");
+      const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(result.outcome.outcome, "selected");
+      assert.equal(result.outcome.optionId, "allow");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
+describe("AcpAgentBackend — elicitation", () => {
+  test("form-mode elicitation/create routes to the UI as elicitation-request, resolved via session.resolveElicitation", async () => {
+    const resultFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "jb-elicit-")),
+      "result.json",
+    );
+    const backend = await newBackend({
+      X_FAKE_AGENT_ELICITATION_REQUEST: JSON.stringify({
+        mode: "form",
+        message: "Pick one",
+        toolCallId: "tc-1",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            question_0: {
+              oneOf: [
+                { const: "a", title: "Option A" },
+                { const: "b", title: "Option B" },
+              ],
+            },
+          },
+        },
+      }),
+      X_FAKE_AGENT_ELICITATION_RESULT_FILE: resultFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      const iter = session.sendMessage("ask the user")[Symbol.asyncIterator]();
+      let seen: Extract<ChatPatch, { type: "elicitation-request" }> | undefined;
+      while (true) {
+        const { value, done } = await iter.next();
+        if (done) break;
+        if (value.type === "elicitation-request") {
+          seen = value;
+          const ok = session.resolveElicitation!(value.requestId, "accept", { question_0: "b" });
+          assert.equal(ok, true);
+        }
+        if (value.type === "done") break;
+      }
+      assert.ok(seen, "expected an elicitation-request patch");
+      assert.equal(seen!.message, "Pick one");
+      assert.equal(seen!.toolCallId, "tc-1");
+      assert.deepEqual(seen!.fields, [
+        {
+          key: "question_0",
+          title: undefined,
+          description: undefined,
+          kind: "select",
+          options: [
+            { value: "a", label: "Option A", description: undefined },
+            { value: "b", label: "Option B", description: undefined },
+          ],
+        },
+      ]);
+      const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(result.action, "accept");
+      assert.deepEqual(result.content, { question_0: "b" });
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("mode other than form is auto-cancelled defensively", async () => {
+    const resultFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "jb-elicit-url-")),
+      "result.json",
+    );
+    const backend = await newBackend({
+      X_FAKE_AGENT_ELICITATION_REQUEST: JSON.stringify({
+        mode: "url",
+        message: "Open this link",
+        url: "https://example.com",
+      }),
+      X_FAKE_AGENT_ELICITATION_RESULT_FILE: resultFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await collectPatches(session.sendMessage("ask the user"));
+      const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(result.action, "cancel");
     } finally {
       await backend.shutdown();
     }

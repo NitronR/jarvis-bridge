@@ -9,11 +9,13 @@ export type MessageEntry =
 export function Message({
   entry,
   onApproval,
+  onElicitation,
   onSteerAck,
   onImagesSkipped,
 }: {
   entry: MessageEntry;
   onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
+  onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
 }) {
@@ -39,7 +41,13 @@ export function Message({
     <div className={`${styles.message} ${styles.assistant} ${hasError ? styles.error : ""}`}>
       <div className={styles.role}>Assistant</div>
       <div className={styles.bubble}>
-        <Timeline patches={entry.patches} onApproval={onApproval} onSteerAck={onSteerAck} onImagesSkipped={onImagesSkipped} />
+        <Timeline
+          patches={entry.patches}
+          onApproval={onApproval}
+          onElicitation={onElicitation}
+          onSteerAck={onSteerAck}
+          onImagesSkipped={onImagesSkipped}
+        />
       </div>
     </div>
   );

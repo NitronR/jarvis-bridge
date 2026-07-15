@@ -1,11 +1,11 @@
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from "react";
 import { fetchJSON } from "../api/client";
 import type {
   AgentCapabilities, AutoApproveState, ChatHistoryEntry, ChatInitResponse,
-  ModelInfo, SlashCommand,
+  ModelInfo, SlashCommand, UsageTotals,
 } from "../api/types";
 
 export interface ChatState {
@@ -26,6 +26,7 @@ export interface ChatState {
   resumed: boolean;
   history: ChatHistoryEntry[];
   turnCounts: Record<string, number>;
+  lastUsage: UsageTotals | null;
 }
 
 const INITIAL: ChatState = {
@@ -46,11 +47,12 @@ const INITIAL: ChatState = {
   resumed: false,
   history: [],
   turnCounts: {},
+  lastUsage: null,
 };
 
 export interface ChatContextApi {
   state: ChatState;
-  init: (sessionId?: string | null, cwd?: string, backend?: string, model?: string) => Promise<void>;
+  init: (sessionId?: string | null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }) => Promise<void>;
   setBusy: (b: boolean) => void;
   setUnread: (u: boolean) => void;
   setTitle: (t: string) => void;
@@ -116,7 +118,7 @@ function getModelFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("model");
 }
 
-function setSessionIdInUrl(sessionId: string | null): void {
+function setSessionIdInUrl(sessionId: string | null, push: boolean): void {
   const url = new URL(window.location.href);
   if (sessionId) {
     url.searchParams.set("sessionId", sessionId);
@@ -126,14 +128,22 @@ function setSessionIdInUrl(sessionId: string | null): void {
   url.searchParams.delete("cwd");
   url.searchParams.delete("backend");
   url.searchParams.delete("model");
-  history.replaceState(null, "", url.pathname + url.search + url.hash);
+  const next = url.pathname + url.search + url.hash;
+  const cur = window.location.pathname + window.location.search + window.location.hash;
+  if (next === cur) return;
+  if (push) {
+    history.pushState(null, "", next);
+  } else {
+    history.replaceState(null, "", next);
+  }
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ChatState>(() => ({ ...INITIAL, turnCounts: loadTurnCounts() }));
 
-  const init = useCallback(async (sessionId: string | null = null, cwd?: string, backend?: string, model?: string) => {
-    setState((s) => ({ ...s, loading: true }));
+  const init = useCallback(async (sessionId: string | null = null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }) => {
+    const push = opts?.push ?? true;
+    setState((s) => ({ ...s, loading: true, title: "Loading" }));
     try {
       const params = new URLSearchParams();
       if (sessionId) params.set("sessionId", sessionId);
@@ -143,8 +153,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const url = params.toString() ? `/chat/init?${params.toString()}` : "/chat/init";
       const res = await fetchJSON<ChatInitResponse>(url);
       if (!res.ok || !res.data || !res.data.ok) {
-        setState((s) => ({ ...s, sessionId: null, history: [] }));
-        setSessionIdInUrl(null);
+        setState((s) => ({ ...s, sessionId: null, history: [], title: "New chat" }));
+        setSessionIdInUrl(null, push);
         return;
       }
       const d = res.data;
@@ -168,9 +178,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           pinned: d.pinned ?? false,
           group: d.group || "",
           turnCounts: nextTurnCounts,
+          lastUsage: d.lastUsage ?? null,
         };
       });
-      setSessionIdInUrl(d.sessionId);
+      setSessionIdInUrl(d.sessionId, push);
     } finally {
       setState((s) => ({ ...s, loading: false }));
     }
@@ -214,13 +225,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
   const reset = useCallback(() => setState((s) => ({ ...INITIAL, turnCounts: s.turnCounts })), []);
 
+  // Guard against React StrictMode's dev-only double-invoke of mount effects:
+  // without this, two concurrent /chat/init calls race (each reading the same
+  // un-stripped URL params before the other's response resolves), which can
+  // create a duplicate session and leave the URL/state on whichever response
+  // lands last — including the bare "no session" state if that one lost the
+  // param handoff race. The ref survives StrictMode's mount->cleanup->mount
+  // replay because the component instance itself isn't actually unmounted.
+  const didInitRef = useRef(false);
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
     const sessionId = getSessionIdFromUrl();
     if (sessionId) {
-      void init(sessionId);
+      void init(sessionId, undefined, undefined, undefined, { push: false });
     } else {
-      void init(null, getCwdFromUrl() ?? undefined, getBackendFromUrl() ?? undefined, getModelFromUrl() ?? undefined);
+      void init(null, getCwdFromUrl() ?? undefined, getBackendFromUrl() ?? undefined, getModelFromUrl() ?? undefined, { push: false });
     }
+  }, [init]);
+
+  // Browser back/forward changes the URL natively (no pushState call of ours
+  // runs) — this listener is what makes that actually switch the displayed
+  // session, instead of just changing the address bar. Re-init with
+  // push: false since the history entry already exists; pushing again here
+  // would clobber the forward-navigation stack the user just triggered.
+  useEffect(() => {
+    const onPopState = () => {
+      void init(getSessionIdFromUrl(), undefined, undefined, undefined, { push: false });
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, [init]);
 
   const api = useMemo<ChatContextApi>(

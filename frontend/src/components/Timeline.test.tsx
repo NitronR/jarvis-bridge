@@ -65,4 +65,72 @@ describe("<Timeline>", () => {
     expect(received).not.toBeNull();
     expect((received as unknown as ChatPatch & { requestId: string }).requestId).toBe("r1");
   });
+
+  it("emits elicitation-request via callback", () => {
+    let received: ChatPatch | null = null;
+    render(
+      <Timeline
+        patches={[{
+          type: "elicitation-request",
+          requestId: "e1",
+          toolCallId: "tc-1",
+          message: "Pick one",
+          fields: [{ key: "question_0", kind: "select", options: [{ value: "a", label: "A" }] }],
+        }]}
+        onElicitation={(p) => (received = p)}
+      />,
+    );
+    expect(received).not.toBeNull();
+    expect((received as unknown as ChatPatch & { requestId: string }).requestId).toBe("e1");
+  });
+
+  it("does not re-emit elicitation-request when later patches stream in after resolution", () => {
+    let calls = 0;
+    const elicitation: ChatPatch = {
+      type: "elicitation-request",
+      requestId: "e1",
+      toolCallId: "tc-1",
+      message: "Pick one",
+      fields: [{ key: "question_0", kind: "select", options: [{ value: "a", label: "A" }] }],
+    };
+    const { rerender } = render(
+      <Timeline patches={[elicitation]} onElicitation={() => calls++} />,
+    );
+    expect(calls).toBe(1);
+    // Simulate the turn continuing after the user answered: more patches get
+    // appended to the same (still-growing) array, as happens mid-stream.
+    rerender(
+      <Timeline
+        patches={[elicitation, { type: "text-start", index: 0, content: "thanks!" }]}
+        onElicitation={() => calls++}
+      />,
+    );
+    rerender(
+      <Timeline
+        patches={[elicitation, { type: "text-start", index: 0, content: "thanks!" }, { type: "text-delta", index: 0, delta: " more" }]}
+        onElicitation={() => calls++}
+      />,
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("does not re-emit approval-request when later patches stream in after resolution", () => {
+    let calls = 0;
+    const approval: ChatPatch = {
+      type: "approval-request",
+      requestId: "r1",
+      toolCallId: "tc-1",
+      toolName: "bash",
+      options: [{ id: "allow_once", name: "Allow once" }],
+    };
+    const { rerender } = render(<Timeline patches={[approval]} onApproval={() => calls++} />);
+    expect(calls).toBe(1);
+    rerender(
+      <Timeline
+        patches={[approval, { type: "tool-return", toolCallId: "tc-1", content: "ok" }]}
+        onApproval={() => calls++}
+      />,
+    );
+    expect(calls).toBe(1);
+  });
 });

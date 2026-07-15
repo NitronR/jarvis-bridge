@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ChatState } from "../state/ChatContext";
+import type { UsageTotals } from "../api/types";
 import styles from "./InfoPanel.module.css";
 
 export interface InfoPanelProps {
@@ -7,11 +8,38 @@ export interface InfoPanelProps {
   title: string;
   group: string;
   pinned: boolean;
+  usage?: UsageTotals;
   onRename: (t: string) => void;
   onGroup: (g: string) => void;
   onPinned: (p: boolean) => void;
   onModelChange: (modelId: string) => void;
   onAutoApproveToggle: () => void;
+}
+
+// Known rate-limit windows, in the order Claude's own `/usage` output shows
+// them. Any unrecognized rateLimitType (future SDK additions) still renders,
+// just with a title-cased fallback label instead of one of these.
+const RATE_LIMIT_LABELS: Record<string, string> = {
+  five_hour: "Session (5h)",
+  seven_day: "Week",
+  seven_day_opus: "Week (Opus)",
+  seven_day_sonnet: "Week (Sonnet)",
+  seven_day_overage_included: "Week (overage)",
+  overage: "Overage",
+};
+
+function rateLimitLabel(type: string): string {
+  return RATE_LIMIT_LABELS[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatResetsAt(resetsAt: number | undefined): string | null {
+  if (typeof resetsAt !== "number") return null;
+  return new Date(resetsAt).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function SaveIcon() {
@@ -24,7 +52,7 @@ function SaveIcon() {
 }
 
 export function InfoPanel(props: InfoPanelProps) {
-  const { state, title, group, pinned, onRename, onGroup, onPinned, onModelChange, onAutoApproveToggle } = props;
+  const { state, title, group, pinned, usage, onRename, onGroup, onPinned, onModelChange, onAutoApproveToggle } = props;
   const [titleDraft, setTitleDraft] = useState(title);
   useEffect(() => setTitleDraft(title), [title]);
   const titleDirty = titleDraft !== title;
@@ -111,6 +139,34 @@ export function InfoPanel(props: InfoPanelProps) {
           <span className={styles.val}>{state.slashCommands.length}</span>
         </div>
       </div>
+
+      {usage && (usage.rate_limits || usage.cost) && (
+        <div className={styles.card}>
+          <h3>Usage</h3>
+          {usage.rate_limits &&
+            Object.entries(usage.rate_limits).map(([type, w]) => {
+              const pct = typeof w.utilization === "number" ? Math.round(w.utilization * 100) : null;
+              const resets = formatResetsAt(w.resetsAt);
+              return (
+                <div key={type}>
+                  <div className={styles.row}>
+                    <span className={styles.key}>{rateLimitLabel(type)}</span>
+                    <span className={`${styles.val} ${pct != null && pct >= 80 ? styles.warn : ""}`}>
+                      {pct != null ? `${pct}%` : w.status.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  {resets && <div className={styles.resetNote}>resets {resets}</div>}
+                </div>
+              );
+            })}
+          {usage.cost && (
+            <div className={styles.row}>
+              <span className={styles.key}>Session cost</span>
+              <span className={styles.val}>${usage.cost.amount.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

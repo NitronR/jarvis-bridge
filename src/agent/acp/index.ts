@@ -13,8 +13,10 @@ import {
 import { buildAcpPrompt } from "./prompt-content";
 import {
   acpUpdateToPatches,
+  elicitationSchemaToFields,
   patchFromPromptResult,
   resetTurnState,
+  type AcpElicitationSchema,
   type AcpStreamState,
   type AcpUpdate,
 } from "./mapping";
@@ -43,6 +45,15 @@ interface PendingApproval {
   resolve: (optionId: string | null) => void;
 }
 
+type ElicitationOutcome =
+  | { action: "accept"; content: Record<string, unknown> }
+  | { action: "decline" }
+  | { action: "cancel" };
+
+interface PendingElicitation {
+  resolve: (outcome: ElicitationOutcome) => void;
+}
+
 interface SessionContext {
   busy: boolean;
   cancelRequested: boolean;
@@ -50,6 +61,7 @@ interface SessionContext {
   // Active pump callback while a turn streams.
   onPatch: ((patches: ChatPatch[]) => void) | null;
   pendingApprovals: Map<string, PendingApproval>;
+  pendingElicitations: Map<string, PendingElicitation>;
   // Replay capture (during loadSession):
   replayHistory: Array<
     { kind: "user"; content: string } | { kind: "assistant"; patches: ChatPatch[] }
@@ -179,8 +191,25 @@ export class AcpAgentBackend implements AgentBackend {
       return this.routeApprovalToUI(ctx, p);
     });
 
-    this.conn.onRequest("elicitation/create", async () => {
-      return { action: "cancel" };
+    this.conn.onRequest("elicitation/create", async (params) => {
+      const p = params as
+        | {
+            sessionId?: string;
+            mode?: string;
+            toolCallId?: string;
+            message?: string;
+            requestedSchema?: AcpElicitationSchema;
+          }
+        | undefined;
+      const sid = p?.sessionId;
+      const ctx = sid ? this.sessions.get(sid) : undefined;
+      // We only advertise clientCapabilities.elicitation.form (no `url`) at
+      // initialize, so a compliant agent should never send another mode here —
+      // this branch is defensive, not a real live case today.
+      if (!ctx || !ctx.onPatch || p?.mode !== "form") {
+        return { action: "cancel" };
+      }
+      return this.routeElicitationToUI(ctx, p);
     });
 
     this.conn.onNotification("session/update", (params) => {
@@ -266,6 +295,16 @@ export class AcpAgentBackend implements AgentBackend {
         last.patches.push(...patches);
         break;
       }
+      case "usage_update": {
+        // Attach to the current assistant entry only — a bare usage update
+        // with no preceding message/tool chunk shouldn't spawn an empty
+        // placeholder bubble (see docs/acp-notes.md on replay capture).
+        const last = ctx.replayHistory[ctx.replayHistory.length - 1];
+        if (last && last.kind === "assistant") {
+          last.patches.push(...patches);
+        }
+        break;
+      }
       default:
         break;
     }
@@ -319,6 +358,26 @@ export class AcpAgentBackend implements AgentBackend {
           toolCallId,
           toolName,
           options: optPatches,
+        },
+      ]);
+    });
+  }
+
+  private async routeElicitationToUI(
+    ctx: SessionContext,
+    params: { toolCallId?: string; message?: string; requestedSchema?: AcpElicitationSchema },
+  ): Promise<ElicitationOutcome> {
+    const fields = elicitationSchemaToFields(params.requestedSchema);
+    const requestId = `elic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise((resolve) => {
+      ctx.pendingElicitations.set(requestId, { resolve });
+      ctx.onPatch?.([
+        {
+          type: "elicitation-request",
+          requestId,
+          toolCallId: params.toolCallId ?? null,
+          message: params.message ?? "",
+          fields,
         },
       ]);
     });
@@ -503,6 +562,8 @@ export class AcpAgentBackend implements AgentBackend {
       // Resolve any dangling approvals.
       for (const [, p] of ctx.pendingApprovals) p.resolve(null);
       ctx.pendingApprovals.clear();
+      for (const [, p] of ctx.pendingElicitations) p.resolve({ action: "cancel" });
+      ctx.pendingElicitations.clear();
     }
     for (const [, s] of this.sessionObjects) {
       try {
@@ -549,6 +610,23 @@ export class AcpAgentBackend implements AgentBackend {
     return { rawConfigOptions: ctx.rawConfigOptions, modes: ctx.modes };
   }
 
+  resolveElicitation(
+    sessionId: string,
+    requestId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>,
+  ): boolean {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx) return false;
+    const pending = ctx.pendingElicitations.get(requestId);
+    if (!pending) return false;
+    ctx.pendingElicitations.delete(requestId);
+    pending.resolve(
+      action === "accept" ? { action: "accept", content: content ?? {} } : { action },
+    );
+    return true;
+  }
+
   resolveApproval(sessionId: string, requestId: string, optionId: string): boolean {
     const ctx = this.sessions.get(sessionId);
     if (!ctx) return false;
@@ -586,6 +664,7 @@ export class AcpAgentBackend implements AgentBackend {
       state,
       onPatch: null,
       pendingApprovals: new Map(),
+      pendingElicitations: new Map(),
       replayHistory: [],
       captureReplay: false,
       suppressReplayAssistant: false,
@@ -819,10 +898,24 @@ export class AcpAgentSession implements AgentSession {
     }
   }
 
+  resolveApproval(requestId: string, optionId: string): boolean {
+    return this.backend.resolveApproval(this.id, requestId, optionId);
+  }
+
+  resolveElicitation(
+    requestId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>,
+  ): boolean {
+    return this.backend.resolveElicitation(this.id, requestId, action, content);
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     for (const [, p] of this.ctx.pendingApprovals) p.resolve(null);
     this.ctx.pendingApprovals.clear();
+    for (const [, p] of this.ctx.pendingElicitations) p.resolve({ action: "cancel" });
+    this.ctx.pendingElicitations.clear();
     this.ctx.onPatch = null;
     const queue = this.turnQueue;
     this.turnQueue = [];

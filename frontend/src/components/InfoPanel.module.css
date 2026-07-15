@@ -31,6 +31,13 @@
   word-break: break-all;
   text-align: right;
 }
+.val.warn { color: var(--color-warning); }
+.resetNote {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: right;
+  margin: -2px 0 4px;
+}
 .titleField {
   display: flex;
   align-items: center;

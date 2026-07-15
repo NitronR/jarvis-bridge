@@ -1,5 +1,10 @@
 .timeline { display: flex; flex-direction: column; gap: 8px; }
 .text { word-wrap: break-word; }
+.text a, .text a:visited {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.text a:hover { text-decoration: underline; }
 .thought {
   font-style: italic;
   color: var(--color-text-muted);

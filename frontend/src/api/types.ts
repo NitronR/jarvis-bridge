@@ -45,6 +45,7 @@ export interface ChatInitResponse {
   customTitle: string | null;
   pinned: boolean;
   group: string | null;
+  lastUsage: UsageTotals | null;
   autoApprove: AutoApproveState;
   model: { supported: boolean; available: ModelInfo[]; current: string | null };
 }
@@ -52,6 +53,16 @@ export interface ChatInitResponse {
 export type ChatHistoryEntry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; patches: ChatPatch[] };
+
+// Normalized, protocol-generic rendering of an ACP elicitation `requestedSchema`
+// property — mirrors src/agent/types.ts's ElicitationField.
+export interface ElicitationField {
+  key: string;
+  title?: string;
+  description?: string;
+  kind: "select" | "multi-select" | "text";
+  options?: Array<{ value: string; label: string; description?: string }>;
+}
 
 export type ChatPatch =
   | { type: "text-start"; index: number; content: string }
@@ -69,9 +80,16 @@ export type ChatPatch =
   | { type: "error"; message: string }
   | { type: "slash-commands"; commands: SlashCommand[] }
   | { type: "approval-request"; requestId: string; toolCallId: string | null; toolName: string; toolKind?: string; toolInput?: unknown; options: Array<{ id: string; name?: string; kind?: string }> }
+  | { type: "elicitation-request"; requestId: string; toolCallId: string | null; message: string; fields: ElicitationField[] }
   | { type: "steer-ack"; accepted: boolean; reason?: string }
   | { type: "images-skipped"; skipped: Array<{ filename?: string; mimeType: string; reason: "too-large" | "unsupported" | "decode-error" }> }
   | { type: "done" };
+
+export interface RateLimitWindow {
+  status: "allowed" | "allowed_warning" | "rejected";
+  utilization?: number; // 0-1
+  resetsAt?: number; // epoch ms
+}
 
 export interface UsageTotals {
   requests: number;
@@ -83,6 +101,8 @@ export interface UsageTotals {
   context_used?: number;
   cost?: { amount: number; currency: string };
   thought_tokens?: number;
+  // Keyed by the SDK's rateLimitType (e.g. "five_hour", "seven_day").
+  rate_limits?: Record<string, RateLimitWindow>;
 }
 
 export interface ImageAttachment {

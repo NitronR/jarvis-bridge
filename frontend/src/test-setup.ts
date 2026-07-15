@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
+class StubResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal("ResizeObserver", StubResizeObserver);
+
 const store: Record<string, string> = {};
 vi.stubGlobal("localStorage", {
   getItem: (key: string) => store[key] ?? null,

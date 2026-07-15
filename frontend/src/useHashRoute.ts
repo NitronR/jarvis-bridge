@@ -27,7 +27,7 @@ export function useHashRoute(): { route: Route; navigate: (r: Route) => void } {
       if (next) {
         window.location.hash = next;
       } else {
-        history.replaceState(null, "", window.location.pathname + window.location.search);
+        history.pushState(null, "", window.location.pathname + window.location.search);
       }
       setRoute(parseHash(next));
     }

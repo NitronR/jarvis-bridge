@@ -1,17 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchJSON } from "../api/client";
+import { loadQuickPhrases, saveQuickPhrases } from "../state/quickPhrases";
 import type { DefaultBackendState } from "../api/types";
-
-const KEY = "jarvis.quickPhrases";
-
-function load(): string[] {
-  try { const raw = localStorage.getItem(KEY); if (!raw) return []; const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : []; }
-  catch { return []; }
-}
-function save(phrases: string[]) {
-  localStorage.setItem(KEY, JSON.stringify(phrases));
-  document.dispatchEvent(new CustomEvent("jarvis:quick-phrases-changed", { detail: { phrases } }));
-}
 
 export function SettingsPanel() {
   const [phrases, setPhrases] = useState<string[]>([]);
@@ -19,7 +9,7 @@ export function SettingsPanel() {
   const [backends, setBackends] = useState<DefaultBackendState | null>(null);
   const [backendSaving, setBackendSaving] = useState(false);
 
-  useEffect(() => { setPhrases(load()); }, []);
+  useEffect(() => { setPhrases(loadQuickPhrases()); }, []);
   useEffect(() => {
     void fetchJSON<DefaultBackendState>("/settings/default-backend").then((res) => {
       if (res.ok && res.data) setBackends(res.data);
@@ -42,12 +32,12 @@ export function SettingsPanel() {
   const add = () => {
     if (!draft.trim()) return;
     const next = [...phrases, draft.trim()];
-    setPhrases(next); save(next); setDraft("");
+    setPhrases(next); saveQuickPhrases(next); setDraft("");
   };
 
   const remove = (idx: number) => {
     const next = phrases.filter((_, i) => i !== idx);
-    setPhrases(next); save(next);
+    setPhrases(next); saveQuickPhrases(next);
   };
 
   return (
@@ -73,7 +63,7 @@ export function SettingsPanel() {
         <p style={{ color: "var(--color-text-muted)" }}>Loading…</p>
       )}
       <h3>Quick phrases</h3>
-      <p style={{ color: "var(--color-text-muted)" }}>Click to insert into the composer. Saved locally.</p>
+      <p style={{ color: "var(--color-text-muted)" }}>Available from the ⚡ picker in the composer. Saved locally.</p>
       <ul>
         {phrases.map((p, idx) => (
           <li key={idx}>

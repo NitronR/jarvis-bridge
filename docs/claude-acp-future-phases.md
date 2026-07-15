@@ -15,17 +15,23 @@ and frontend UI to render a task list. Capability-driven: only backends that eve
 `plan` need the frontend to render anything; a backend that never sends it just never
 triggers the UI.
 
-### Real elicitation handling
-Today's `elicitation/create` handler always cancels. Claude actively uses elicitation
-for three things: MCP-server-initiated dialogs, the `AskUserQuestion` tool (form-based,
-single/multi-select + free-text), and a `refusal_fallback_prompt` dialog (opt-in via
-`supportedDialogKinds`, asks whether to retry on a fallback model after a refusal).
-Phase 1's live probe will settle whether `AskUserQuestion` even needs this (it may
-degrade acceptably through the existing permission-request path when elicitation isn't
-advertised at all) — if the probe shows a real gap, build:
-- A generic elicitation-request → UI flow (form rendering, not just a modal), parallel
-  to the existing `routeApprovalToUI` pattern.
-- Explicit opt-in to `refusal_fallback_prompt` once the base flow works.
+### Real elicitation handling — **done** (2026-07-15)
+`elicitation/create` (`mode: "form"`) now routes to the UI instead of auto-cancelling —
+see `docs/agent-claude-code.md` §8 and `docs/archives/2026-07-15-elicitation-support.md`.
+`src/agent/acp/index.ts`'s `routeElicitationToUI` mirrors `routeApprovalToUI`: it parses
+`requestedSchema` into generic `ElicitationField[]` (`src/agent/acp/mapping.ts`'s
+`elicitationSchemaToFields`, protocol-generic — not hardcoded to `AskUserQuestion`'s
+shape), emits an `elicitation-request` `ChatPatch`, and resolves via a new
+`POST /chat/elicitation` route. The frontend renders it with `ElicitationModal.tsx`
+(select / multi-select / free-text fields, Submit → `accept` with content, Skip →
+`decline`).
+
+Still not wired: MCP-server-initiated elicitation dialogs and the opt-in
+`refusal_fallback_prompt` dialog (retry-on-fallback-model after a refusal) — both use
+the same `elicitation/create` request but haven't been probed against a live Claude
+backend. They should degrade the same way (`mode` other than `"form"` still hits the
+defensive `{action:"cancel"}` fallback in the handler) until someone confirms their
+actual shape and builds dedicated UI if needed.
 
 ### Terminal-streaming `_meta` channel
 Bash tool output can stream live via an opt-in `_meta` channel

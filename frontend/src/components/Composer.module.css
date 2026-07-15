@@ -28,3 +28,11 @@
 .row textarea { flex: 1; min-height: 40px; max-height: 200px; }
 .actions { display: flex; flex-direction: row; gap: 4px; }
 .actions button { padding: 6px 12px; min-width: 80px; }
+.contextBar {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 2px 0 0;
+  display: flex;
+  gap: 4px;
+}
+.contextBar .warn { color: var(--color-warning); }

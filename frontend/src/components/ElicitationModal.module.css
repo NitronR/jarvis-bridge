@@ -1,0 +1,62 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  min-width: 360px;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.header h2 { margin: 0; font-size: 14px; }
+.body { padding: 14px; }
+.field {
+  margin-bottom: 14px;
+}
+.fieldTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.fieldDescription {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+}
+.optionDescription {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.textInput {
+  width: 100%;
+  box-sizing: border-box;
+}
+.actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}

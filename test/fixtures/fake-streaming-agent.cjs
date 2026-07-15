@@ -24,6 +24,19 @@
 //                            the real Claude adapter's shape: a generic top-level
 //                            message ("Internal error") with the useful detail nested
 //                            under data.details.
+//   X_FAKE_AGENT_REPLAY_UPDATES — JSON array of session/update `update` bodies (e.g.
+//                            { sessionUpdate: "agent_message_chunk", content: {...} })
+//                            emitted as notifications while session/load is still
+//                            pending, mirroring how a real agent streams history back
+//                            in flight rather than in the session/load response body.
+//   X_FAKE_AGENT_ELICITATION_REQUEST — JSON object: { mode, message, toolCallId,
+//                            requestedSchema } sent as the params of an
+//                            elicitation/create call before the prompt finalizes.
+//                            Mirrors the real Claude adapter's AskUserQuestion shape —
+//                            see docs/agent-claude-code.md §8.
+//   X_FAKE_AGENT_ELICITATION_RESULT_FILE — path to write the client's
+//                            elicitation/create response as JSON, for the test to
+//                            assert against.
 
 const readline = require("node:readline");
 const fs = require("node:fs");
@@ -72,6 +85,23 @@ try {
 } catch {
   sessionDeleteError = null;
 }
+
+let replayUpdates = [];
+try {
+  const raw = process.env.X_FAKE_AGENT_REPLAY_UPDATES;
+  if (raw) replayUpdates = JSON.parse(raw);
+} catch {
+  replayUpdates = [];
+}
+
+let elicitationRequest = null;
+try {
+  const raw = process.env.X_FAKE_AGENT_ELICITATION_REQUEST;
+  if (raw) elicitationRequest = JSON.parse(raw);
+} catch {
+  elicitationRequest = null;
+}
+const elicitationResultFile = process.env.X_FAKE_AGENT_ELICITATION_RESULT_FILE || null;
 
 let nextId = 1;
 let nextSessionId = 1;
@@ -187,6 +217,15 @@ async function handlePrompt(id, params, sessionId) {
       fs.writeFileSync(permissionResultFile, JSON.stringify(result));
     }
   }
+  if (elicitationRequest) {
+    const result = await sendRequestToClient("elicitation/create", {
+      sessionId,
+      ...elicitationRequest,
+    });
+    if (elicitationResultFile) {
+      fs.writeFileSync(elicitationResultFile, JSON.stringify(result));
+    }
+  }
   // usage
   emit({
     jsonrpc: "2.0",
@@ -270,6 +309,13 @@ rl.on("line", async (line) => {
       break;
     case "session/load": {
       const sid = msg.params?.sessionId ?? makeSessionId();
+      for (const update of replayUpdates) {
+        emit({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: sid, update },
+        });
+      }
       reply(msg.id, claudeStyleConfig
         ? {
             sessionId: sid,

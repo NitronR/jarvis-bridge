@@ -4,7 +4,7 @@ import { Transcript } from "./Transcript";
 
 describe("<Transcript>", () => {
   it("renders the empty state when no messages", () => {
-    render(<Transcript entries={[]} onApproval={vi.fn()} onSteerAck={vi.fn()} onImagesSkipped={vi.fn()} />);
+    render(<Transcript entries={[]} onApproval={vi.fn()} onElicitation={vi.fn()} onSteerAck={vi.fn()} onImagesSkipped={vi.fn()} />);
     expect(screen.getByText(/start a conversation/i)).toBeInTheDocument();
   });
 
@@ -16,6 +16,7 @@ describe("<Transcript>", () => {
           { role: "assistant", patches: [{ type: "text-start", index: 0, content: "hello" }] },
         ]}
         onApproval={vi.fn()}
+        onElicitation={vi.fn()}
         onSteerAck={vi.fn()}
         onImagesSkipped={vi.fn()}
       />,

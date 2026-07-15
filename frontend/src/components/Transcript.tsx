@@ -8,6 +8,7 @@ export interface TranscriptProps {
   loading?: boolean;
   follow?: boolean;
   onApproval: (p: ChatPatch & { type: "approval-request" }) => void;
+  onElicitation: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped: (p: ChatPatch & { type: "images-skipped" }) => void;
 }
@@ -44,6 +45,7 @@ export function Transcript(props: TranscriptProps) {
           key={idx}
           entry={entry}
           onApproval={props.onApproval}
+          onElicitation={props.onElicitation}
           onSteerAck={props.onSteerAck}
           onImagesSkipped={props.onImagesSkipped}
         />

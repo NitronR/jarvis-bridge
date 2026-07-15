@@ -28,6 +28,7 @@ const baseInit: ChatInitResponse = {
   customTitle: null,
   pinned: false,
   group: null,
+  lastUsage: null,
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   model: { supported: false, available: [], current: null },
 };

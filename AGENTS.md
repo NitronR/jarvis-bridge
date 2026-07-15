@@ -47,8 +47,10 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   default at startup.
 - Resuming a session (`GET /chat/init?sessionId=...`) always routes to the backend that
   created it (via `registry.findSession()`), never the current default — changing the
-  default backend must not migrate existing sessions. See `docs/acp-notes.md` for the
-  cross-server-restart caveat.
+  default backend must not migrate existing sessions. `findSession()` / `listSessions()` /
+  `getSession()` lazy-spawn every known profile's pool, so the owner is always reachable
+  across server restarts, not just within the lifetime of the eagerly-spawned default
+  pool — see `docs/acp-notes.md`.
 - `GET /chat/init` also accepts `cwd`/`backend`/`model` (no `sessionId`) to create a fresh
   session pinned to a specific workspace/backend/model — used by the "+ New" button's
   cmd/ctrl-click-to-open-in-a-new-tab behavior (`openNewChatInNewTab` in `useChat.ts`).

@@ -8,6 +8,7 @@
 // sibling methods against the same on-disk file.
 
 import fs from "node:fs/promises";
+import type { RateLimitWindow, UsageTotals } from "./types";
 
 export interface SessionMetadata {
   customTitle?: string;
@@ -30,6 +31,8 @@ export interface SessionConfigStore {
   setMetadata(sessionId: string, patch: SessionMetadataPatch): Promise<void>;
   getSessionCwd(sessionId: string): string | undefined;
   setSessionCwd(sessionId: string, cwd: string): Promise<void>;
+  getLastUsage(sessionId: string): UsageTotals | undefined;
+  setLastUsage(sessionId: string, usage: UsageTotals): Promise<void>;
 }
 
 interface PersistedFileShape {
@@ -43,6 +46,51 @@ interface PersistedFileShape {
     group?: unknown;
   }>;
   cwds?: Record<string, string>;
+  usage?: Record<string, unknown>;
+}
+
+function sanitizeUsage(raw: unknown): UsageTotals | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (
+    typeof r.requests !== "number" ||
+    typeof r.input_tokens !== "number" ||
+    typeof r.output_tokens !== "number" ||
+    typeof r.cache_read_tokens !== "number" ||
+    typeof r.cache_write_tokens !== "number"
+  ) {
+    return undefined;
+  }
+  const out: UsageTotals = {
+    requests: r.requests,
+    input_tokens: r.input_tokens,
+    output_tokens: r.output_tokens,
+    cache_read_tokens: r.cache_read_tokens,
+    cache_write_tokens: r.cache_write_tokens,
+  };
+  if (typeof r.context_limit === "number") out.context_limit = r.context_limit;
+  if (typeof r.context_used === "number") out.context_used = r.context_used;
+  if (typeof r.thought_tokens === "number") out.thought_tokens = r.thought_tokens;
+  if (r.cost && typeof r.cost === "object") {
+    const c = r.cost as Record<string, unknown>;
+    if (typeof c.amount === "number" && typeof c.currency === "string") {
+      out.cost = { amount: c.amount, currency: c.currency };
+    }
+  }
+  if (r.rate_limits && typeof r.rate_limits === "object") {
+    const rateLimits: Record<string, RateLimitWindow> = {};
+    for (const [key, w] of Object.entries(r.rate_limits as Record<string, unknown>)) {
+      if (!w || typeof w !== "object") continue;
+      const win = w as Record<string, unknown>;
+      if (typeof win.status !== "string") continue;
+      const window: RateLimitWindow = { status: win.status as RateLimitWindow["status"] };
+      if (typeof win.utilization === "number") window.utilization = win.utilization;
+      if (typeof win.resetsAt === "number") window.resetsAt = win.resetsAt;
+      rateLimits[key] = window;
+    }
+    if (Object.keys(rateLimits).length > 0) out.rate_limits = rateLimits;
+  }
+  return out;
 }
 
 function sanitizeMetadata(raw: unknown): SessionMetadata | undefined {
@@ -84,6 +132,11 @@ export async function createSessionConfigStore(opts: {
   const sessionCwds: Map<string, string> = new Map(
     Object.entries(persisted.cwds ?? {}).filter((e): e is [string, string] => typeof e[1] === "string"),
   );
+  const lastUsage: Map<string, UsageTotals> = new Map();
+  for (const [sid, raw] of Object.entries(persisted.usage ?? {})) {
+    const sanitized = sanitizeUsage(raw);
+    if (sanitized) lastUsage.set(sid, sanitized);
+  }
 
   async function persist(): Promise<void> {
     const data: PersistedFileShape = {
@@ -93,6 +146,7 @@ export async function createSessionConfigStore(opts: {
       },
       metadata: Object.fromEntries(metadata),
       cwds: Object.fromEntries(sessionCwds),
+      usage: Object.fromEntries(lastUsage),
     };
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
   }
@@ -145,6 +199,14 @@ export async function createSessionConfigStore(opts: {
     },
     async setSessionCwd(sessionId: string, cwd: string): Promise<void> {
       sessionCwds.set(sessionId, cwd);
+      await persist();
+    },
+    getLastUsage(sessionId: string): UsageTotals | undefined {
+      const cur = lastUsage.get(sessionId);
+      return cur ? { ...cur } : undefined;
+    },
+    async setLastUsage(sessionId: string, usage: UsageTotals): Promise<void> {
+      lastUsage.set(sessionId, usage);
       await persist();
     },
   };

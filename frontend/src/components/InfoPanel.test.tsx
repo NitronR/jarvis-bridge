@@ -25,6 +25,7 @@ const baseState: ChatState = {
   resumed: false,
   history: [],
   turnCounts: {},
+  lastUsage: null,
 };
 
 const baseProps = {
@@ -78,5 +79,52 @@ describe("<InfoPanel>", () => {
     render(<InfoPanel {...baseProps} onAutoApproveToggle={onToggle} />);
     fireEvent.click(screen.getByTestId("auto-approve-toggle"));
     expect(onToggle).toHaveBeenCalled();
+  });
+
+  it("does not render a Usage card when no usage is passed", () => {
+    render(<InfoPanel {...baseProps} />);
+    expect(screen.queryByText("Usage")).not.toBeInTheDocument();
+  });
+
+  it("renders rate-limit windows and cost under a Usage card", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          cost: { amount: 0.42, currency: "USD" },
+          rate_limits: {
+            // resetsAt is epoch ms (already normalized by the backend from
+            // the SDK's epoch-seconds wire value) — this exercises that the
+            // component renders it on its own line rather than crammed next
+            // to the percentage, which used to wrap awkwardly in the narrow
+            // sidebar.
+            five_hour: { status: "allowed", utilization: 0.12, resetsAt: Date.UTC(2026, 6, 16, 2, 5) },
+            seven_day: { status: "allowed_warning", utilization: 0.86 },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Usage")).toBeInTheDocument();
+    expect(screen.getByText("Session (5h)")).toBeInTheDocument();
+    expect(screen.getByText(/12%/)).toBeInTheDocument();
+    expect(screen.getByText(/resets/)).toBeInTheDocument();
+    expect(screen.getByText("Week")).toBeInTheDocument();
+    expect(screen.getByText(/86%/)).toBeInTheDocument();
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
+  });
+
+  it("falls back to status text when a rate-limit window has no utilization", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { overage: { status: "rejected" } },
+        }}
+      />,
+    );
+    expect(screen.getByText("Overage")).toBeInTheDocument();
+    expect(screen.getByText("rejected")).toBeInTheDocument();
   });
 });
