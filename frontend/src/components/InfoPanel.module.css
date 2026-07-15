@@ -17,6 +17,32 @@
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
 }
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cardHeader h3 { margin: 0 0 6px; }
+.refreshButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  padding: 2px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.refreshButton:hover:not(:disabled) { color: var(--color-text); }
+.refreshButton:disabled { cursor: default; opacity: 0.6; }
+.refreshButton svg { width: 12px; height: 12px; }
+.spinning { animation: infoPanelSpin 0.8s linear infinite; }
+@keyframes infoPanelSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .row {
   display: flex;
   justify-content: space-between;

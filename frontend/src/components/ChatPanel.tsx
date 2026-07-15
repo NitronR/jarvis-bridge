@@ -10,8 +10,24 @@ import { ElicitationModal } from "./ElicitationModal";
 import { ChatsDrawer } from "./ChatsDrawer";
 import { WorkspacesDrawer } from "./WorkspacesDrawer";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
-import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals } from "../api/types";
+import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow } from "../api/types";
 import styles from "./ChatPanel.module.css";
+
+// Per-window field merge (not a wholesale replace) — a manual /chat/usage
+// refresh contributes {utilization, resetsAtText} while the passive
+// rate_limit_event stream contributes {status, resetsAt}; neither channel
+// should blank out fields the other already knows.
+function mergeRateLimits(
+  a: Record<string, RateLimitWindow> | undefined,
+  b: Record<string, RateLimitWindow> | undefined,
+): Record<string, RateLimitWindow> | undefined {
+  if (!a && !b) return undefined;
+  const out: Record<string, RateLimitWindow> = { ...a };
+  for (const [key, w] of Object.entries(b ?? {})) {
+    out[key] = { ...out[key], ...w };
+  }
+  return out;
+}
 
 const FOLLOW_CHAT_STORAGE_KEY = "jarvis.followChat";
 
@@ -58,6 +74,8 @@ function ChatPanelInner() {
   const [pendingElicitation, setPendingElicitation] = useState<(ChatPatch & { type: "elicitation-request" }) | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [pickingFolder, setPickingFolder] = useState(false);
+  const [manualRateLimits, setManualRateLimits] = useState<Record<string, RateLimitWindow> | undefined>();
+  const [refreshingUsage, setRefreshingUsage] = useState(false);
   const queueRef = useRef<string | null>(null);
 
   const latestUsage = useMemo((): UsageTotals | undefined => {
@@ -75,6 +93,42 @@ function ChatPanelInner() {
     // for past turns (see docs/acp-notes.md).
     return ctx.state.lastUsage ?? undefined;
   }, [chat.transcript, ctx.state.lastUsage]);
+
+  // A manual "refresh usage" click (see onRefreshUsage below) layers its
+  // result over whatever the passive stream already produced, rather than
+  // replacing it — see mergeRateLimits.
+  const displayedUsage = useMemo((): UsageTotals | undefined => {
+    if (!manualRateLimits) return latestUsage;
+    return {
+      ...(latestUsage ?? { requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 }),
+      rate_limits: mergeRateLimits(latestUsage?.rate_limits, manualRateLimits),
+    };
+  }, [latestUsage, manualRateLimits]);
+
+  // Manually-refreshed rate limits are account-level, not persisted, and
+  // shouldn't leak from one session's tab into another's.
+  useEffect(() => {
+    setManualRateLimits(undefined);
+  }, [ctx.state.sessionId]);
+
+  const onRefreshUsage = useCallback(async () => {
+    if (!ctx.state.sessionId) return;
+    setRefreshingUsage(true);
+    try {
+      const res = await fetchJSON<{ ok: boolean; rate_limits: Record<string, RateLimitWindow> | null; error?: string }>(
+        `/chat/usage?sessionId=${encodeURIComponent(ctx.state.sessionId)}`,
+      );
+      if (!res.ok) {
+        toast.push("Usage refresh failed: " + (res.data?.error || res.status), "error");
+        return;
+      }
+      if (res.data.rate_limits) setManualRateLimits(res.data.rate_limits);
+    } catch (err) {
+      toast.push("Usage refresh failed: " + (err instanceof Error ? err.message : String(err)), "error");
+    } finally {
+      setRefreshingUsage(false);
+    }
+  }, [ctx.state.sessionId, toast]);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -401,12 +455,15 @@ function ChatPanelInner() {
             title={ctx.state.title}
             group={ctx.state.group}
             pinned={ctx.state.pinned}
-            usage={latestUsage}
+            usage={displayedUsage}
+            usageQuerySupported={!!ctx.state.capabilities?.usageQuery}
+            refreshingUsage={refreshingUsage}
             onRename={onRename}
             onGroup={onGroupChange}
             onPinned={onPinnedChange}
             onModelChange={onModelChange}
             onAutoApproveToggle={onAutoApproveToggle}
+            onRefreshUsage={onRefreshUsage}
           />
         </div>
       </div>

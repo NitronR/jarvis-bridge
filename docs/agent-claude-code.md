@@ -258,14 +258,40 @@ extraction in `mapping.ts`'s `rateLimitFromMeta`/`usageFromAcp`):
   (unconfirmed whether `allowed_warning`/`rejected` always include it). `InfoPanel.tsx` falls back to
   rendering the bare `status` text when `utilization` is absent — that's correct/expected, not a bug.
 
-**Not currently reachable: the richer `get_usage` control API.** The SDK also exposes an
+**Not reachable over ACP: the richer `get_usage` control API.** The SDK also exposes an
 actively-queryable `SDKControlGetUsageRequest`/`SDKControlGetUsageResponse` (`subtype: "get_usage"`, see
 `@anthropic-ai/claude-agent-sdk`'s `sdk.d.ts`) — this is what backs the CLI's own `/usage` command and
 reliably returns `utilization: number | null` per window regardless of status. `claude-agent-acp` never
 calls or forwards it (confirmed by reading its `acp-agent.ts` source, 2026-07-15) — it only wires up the
-passive `rate_limit_event`. There is no ACP-level way to reach `get_usage` today; always-populated
-utilization would require patching the upstream `claude-agent-acp` package to call `query.getUsage()`
-and forward the response — out of scope for jarvis-bridge itself, left as a known gap (see §11).
+passive `rate_limit_event`. There is no ACP-level way to reach `get_usage`, and patching the upstream
+`claude-agent-acp` package to call `query.getUsage()` was deliberately not pursued.
+
+**Workaround shipped instead (2026-07-15): shell out to the `claude` CLI directly, bypassing the ACP
+adapter for this one call.** `claude --print --output-format json "/usage"` runs non-interactively and
+returns the exact same text `/usage` renders interactively, inside `result`:
+```json
+{"type":"result","result":"...\nCurrent session: 82% used · resets Jul 15 at 2pm (Asia/Calcutta)\nCurrent week (all models): 7% used · resets Jul 22 at 2:30am (Asia/Calcutta)\n..."}
+```
+`src/agent/acp/claudeUsage.ts` regex-parses the `Current session:`/`Current week (all models):` lines
+into the same `RateLimitWindow` shape, deriving a `status` from the percentage (80%/100% thresholds —
+the text has no discrete status field, unlike the structured event) and capturing the reset clause
+verbatim into `RateLimitWindow.resetsAtText` (there's no reliable way to parse "Jul 15 at 2pm
+(Asia/Calcutta)" — no year, named timezone region — into an exact epoch value).
+
+This is a **second, independent, short-lived process** spawned per request — not a call over the
+existing ACP JSON-RPC connection. It uses `AcpBackendSpawnOptions.env.CLAUDE_CODE_EXECUTABLE` (falling
+back to `"claude"` on `$PATH`) via `execFile` with an argument array (no shell), so there's no injection
+surface — the args are fixed, nothing from the request reaches the spawned command.
+
+**Wiring:** `AcpAgentBackend.queryUsage()` (only present when `capabilities.usageQuery` is true, which is
+decided from the static `kind === "claude-acp"` config — there's no ACP handshake signal to key this off
+of, unlike every other capability in §3) → `GET /chat/usage?sessionId=...` in `src/server.ts` (404 unknown
+session, 501 if the backend doesn't implement `queryUsage`, 502 if the CLI call itself fails) → a manual
+refresh button in `InfoPanel.tsx`'s "Usage" card. The frontend merges the result into whatever the passive
+`rate_limit_event` stream already produced *per field* (`ChatPanel.tsx`'s `mergeRateLimits`), not a
+wholesale replace, since the two sources contribute different fields (`utilization`/`resetsAtText` from
+the CLI vs. `status`/`resetsAt` from the passive event) and neither should blank out what the other
+already knows. Not persisted across a reload — a fresh click is needed after each restart/resume.
 
 **Final `session/prompt` result** (verbatim, trivial prompt):
 ```json
@@ -421,9 +447,11 @@ Re-run this probe after any adapter or `claude` CLI upgrade before treating this
   whoever runs jarvis-bridge with the Claude backend on Apple Silicon with a Rosetta-built Node — not
   something jarvis-bridge's own code can detect or work around beyond documenting
   `CLAUDE_CODE_EXECUTABLE` as the fix.
-- **Subscription rate-limit `utilization` not always populated (documented, not fixed):** see §6. The
-  passive `rate_limit_event` the adapter forwards can omit `utilization` (only `status`/`resetsAt`); the
-  richer `get_usage` control API that always includes it is not exposed by `claude-agent-acp`. The
-  InfoPanel "Usage" card falls back to showing the bare status text in that case — working as intended.
-  Fixing this for real would mean patching the upstream `claude-agent-acp` package, deliberately not
-  pursued for now (decided 2026-07-15).
+- **Subscription rate-limit `utilization` not always populated via the passive event (mitigated, not
+  fixed at the source):** see §6. The passive `rate_limit_event` the adapter forwards can omit
+  `utilization` (only `status`/`resetsAt`); the richer `get_usage` control API that always includes it is
+  still not exposed by `claude-agent-acp`, and patching that upstream package remains deliberately not
+  pursued. Instead, shipped a manual refresh path (2026-07-15) that shells out to `claude --print
+  "/usage"` directly — see §6's "Workaround shipped instead" — giving on-demand, always-populated
+  percentages without needing the adapter's cooperation. The passive event is still the only source for
+  *unprompted* updates; the CLI shellout only runs when the user clicks refresh.

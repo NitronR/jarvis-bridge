@@ -12,6 +12,10 @@ export interface AgentCapabilities {
   images: boolean;
   sessionDelete: boolean;
   promptQueueing: boolean;
+  // On-demand subscription rate-limit query (see AgentBackend.queryUsage) —
+  // true only for backends that can shell out to a CLI that supports it
+  // (currently just Claude).
+  usageQuery: boolean;
 }
 
 export interface SendMessageOptions {
@@ -91,6 +95,11 @@ export interface AgentBackend {
   setDefaultAutoApprove?(v: boolean): void;
   getSessionAutoApproveOverride?(sessionId: string): boolean | undefined;
   setSessionAutoApprove?(sessionId: string, v: boolean | null): void;
+
+  // On-demand subscription rate-limit query — account-level, not tied to any
+  // particular session. Gated by capabilities.usageQuery; present only when
+  // the backend can actually service it.
+  queryUsage?(): Promise<UsageTotals["rate_limits"] | null>;
 
   shutdown(): Promise<void>;
 }
@@ -182,6 +191,11 @@ export interface RateLimitWindow {
   status: "allowed" | "allowed_warning" | "rejected";
   utilization?: number; // 0-1
   resetsAt?: number; // epoch ms
+  // Human-readable reset time (e.g. "Jul 15 at 2pm (Asia/Calcutta)"), as
+  // produced by `claude --print "/usage"` — used when there's no reliable way
+  // to parse that free text into an exact epoch ms value (no year, named
+  // timezone region). Prefer `resetsAt` when both are present.
+  resetsAtText?: string;
 }
 
 export interface UsageTotals {

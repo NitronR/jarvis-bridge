@@ -9,11 +9,14 @@ export interface InfoPanelProps {
   group: string;
   pinned: boolean;
   usage?: UsageTotals;
+  usageQuerySupported?: boolean;
+  refreshingUsage?: boolean;
   onRename: (t: string) => void;
   onGroup: (g: string) => void;
   onPinned: (p: boolean) => void;
   onModelChange: (modelId: string) => void;
   onAutoApproveToggle: () => void;
+  onRefreshUsage?: () => void;
 }
 
 // Known rate-limit windows, in the order Claude's own `/usage` output shows
@@ -32,14 +35,20 @@ function rateLimitLabel(type: string): string {
   return RATE_LIMIT_LABELS[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatResetsAt(resetsAt: number | undefined): string | null {
-  if (typeof resetsAt !== "number") return null;
-  return new Date(resetsAt).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+// Prefers the exact epoch-ms value; falls back to the human-readable text a
+// manual /chat/usage refresh provides (see RateLimitWindow.resetsAtText —
+// there's no reliable way to parse "Jul 15 at 2pm (Asia/Calcutta)" into an
+// exact timestamp, so it's rendered verbatim instead).
+function formatResetsAt(resetsAt: number | undefined, resetsAtText: string | undefined): string | null {
+  if (typeof resetsAt === "number") {
+    return new Date(resetsAt).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  return resetsAtText ?? null;
 }
 
 function SaveIcon() {
@@ -51,8 +60,23 @@ function SaveIcon() {
   );
 }
 
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
+      className={spinning ? styles.spinning : undefined}
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" strokeLinecap="round" />
+      <path d="M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function InfoPanel(props: InfoPanelProps) {
-  const { state, title, group, pinned, usage, onRename, onGroup, onPinned, onModelChange, onAutoApproveToggle } = props;
+  const {
+    state, title, group, pinned, usage, usageQuerySupported, refreshingUsage,
+    onRename, onGroup, onPinned, onModelChange, onAutoApproveToggle, onRefreshUsage,
+  } = props;
   const [titleDraft, setTitleDraft] = useState(title);
   useEffect(() => setTitleDraft(title), [title]);
   const titleDirty = titleDraft !== title;
@@ -140,13 +164,27 @@ export function InfoPanel(props: InfoPanelProps) {
         </div>
       </div>
 
-      {usage && (usage.rate_limits || usage.cost) && (
+      {(usageQuerySupported || (usage && (usage.rate_limits || usage.cost))) && (
         <div className={styles.card}>
-          <h3>Usage</h3>
-          {usage.rate_limits &&
+          <div className={styles.cardHeader}>
+            <h3>Usage</h3>
+            {usageQuerySupported && (
+              <button
+                type="button"
+                className={styles.refreshButton}
+                aria-label="Refresh usage"
+                title="Refresh usage"
+                disabled={refreshingUsage}
+                onClick={onRefreshUsage}
+              >
+                <RefreshIcon spinning={refreshingUsage} />
+              </button>
+            )}
+          </div>
+          {usage?.rate_limits &&
             Object.entries(usage.rate_limits).map(([type, w]) => {
               const pct = typeof w.utilization === "number" ? Math.round(w.utilization * 100) : null;
-              const resets = formatResetsAt(w.resetsAt);
+              const resets = formatResetsAt(w.resetsAt, w.resetsAtText);
               return (
                 <div key={type}>
                   <div className={styles.row}>
@@ -159,10 +197,16 @@ export function InfoPanel(props: InfoPanelProps) {
                 </div>
               );
             })}
-          {usage.cost && (
+          {usage?.cost && (
             <div className={styles.row}>
               <span className={styles.key}>Session cost</span>
               <span className={styles.val}>${usage.cost.amount.toFixed(2)}</span>
+            </div>
+          )}
+          {usageQuerySupported && !usage?.rate_limits && (
+            <div className={styles.row}>
+              <span className={styles.key}>—</span>
+              <span className={styles.val}>tap refresh</span>
             </div>
           )}
         </div>

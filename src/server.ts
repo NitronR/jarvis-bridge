@@ -10,6 +10,7 @@ import type { AgentBackend, AgentSession, UsageTotals } from "./agent/types";
 import type { BackendRegistry } from "./agent/backendRegistry";
 import type { ToolHandler } from "./types";
 import type { SessionConfigStore, SessionMetadataPatch } from "./agent/sessionConfigStore";
+import { pickFolderNative, type PickFolderFn } from "./pickFolder";
 
 export interface CreateServerOptions {
   workspace: string;
@@ -17,6 +18,7 @@ export interface CreateServerOptions {
   registry: BackendRegistry;
   tools: Map<string, ToolHandler>;
   sessionConfig?: SessionConfigStore;
+  pickFolder?: PickFolderFn;
 }
 
 export function createServer(opts: CreateServerOptions): Express {
@@ -24,6 +26,7 @@ export function createServer(opts: CreateServerOptions): Express {
     workspace,
     registry,
     tools,
+    pickFolder = pickFolderNative,
   } = opts;
 
   const app = express();
@@ -318,6 +321,29 @@ export function createServer(opts: CreateServerOptions): Express {
     }
   }));
 
+  // On-demand subscription rate-limit query — shells out to a one-off `claude
+  // --print "/usage"` CLI invocation (see src/agent/acp/claudeUsage.ts). Only
+  // supported when the resolved session's backend advertises usageQuery.
+  app.get("/chat/usage", smallJson, asyncRoute(async (req, res) => {
+    const q = UsageQuerySchema.parse(req.query);
+    const entry = await resolveSessionEntry(registry, q.sessionId);
+    if (!entry) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    if (!entry.backend.queryUsage) {
+      res.status(501).json({ error: "usage query not supported" });
+      return;
+    }
+    try {
+      const rate_limits = await entry.backend.queryUsage();
+      res.json({ ok: true, rate_limits: rate_limits ?? null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(502).json({ error: message });
+    }
+  }));
+
   // ── Auto-approve ───────────────────────────────────────────────────
   app.get("/chat/auto-approve", smallJson, asyncRoute(async (req, res) => {
     const q = AutoApproveQuerySchema.parse(req.query);
@@ -462,9 +488,20 @@ export function createServer(opts: CreateServerOptions): Express {
   app.get("/workspace/branch", (_req, res) => {
     res.json({ ok: false, branch: null, error: "not a git repo" });
   });
-  app.post("/chat/pick-folder", (_req, res) => {
-    res.status(501).json({ error: "folder picker not supported on this platform" });
-  });
+  app.post("/chat/pick-folder", smallJson, asyncRoute(async (req, res) => {
+    if (process.platform !== "darwin") {
+      res.status(501).json({ ok: false, error: "folder picker not supported on this platform" });
+      return;
+    }
+    const body = PickFolderBodySchema.parse(req.body ?? {});
+    try {
+      const result = await pickFolder(body.initialCwd);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ ok: false, error: message });
+    }
+  }));
   app.post("/chat/worktree", (_req, res) => {
     res.status(501).json({ error: "worktree creation not yet implemented" });
   });
@@ -619,6 +656,7 @@ const SteerBodySchema = z.object({
   sessionId: z.string().optional(),
 });
 const ModelQuerySchema = z.object({ sessionId: z.string().optional() });
+const UsageQuerySchema = z.object({ sessionId: z.string().optional() });
 const ModelPostBodySchema = z.object({
   sessionId: z.string(),
   modelId: z.string(),
@@ -631,6 +669,9 @@ const AutoApprovePostBodySchema = z.object({
 const ForkBodySchema = z.object({
   sessionId: z.string(),
   atMessageIndex: z.number().int().nonnegative().optional(),
+});
+const PickFolderBodySchema = z.object({
+  initialCwd: z.string().optional(),
 });
 const SessionPatchBodySchema = z
   .object({

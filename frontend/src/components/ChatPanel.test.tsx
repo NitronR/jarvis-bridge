@@ -90,6 +90,49 @@ describe("<ChatPanel>", () => {
     });
   });
 
+  describe("manual usage refresh", () => {
+    beforeEach(() => {
+      fetchSpy.mockImplementation(async (url: string) => {
+        if (String(url).startsWith("/chat/usage")) {
+          return {
+            ok: true, status: 200,
+            data: { ok: true, rate_limits: { five_hour: { status: "allowed_warning", utilization: 0.61 } } },
+          };
+        }
+        if (String(url).startsWith("/chat/init")) {
+          return {
+            ok: true, status: 200, data: {
+              ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
+              sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, usageQuery: true },
+              slashCommands: [], history: [], pinned: false, group: null,
+              autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
+              model: { supported: false, available: [], current: null },
+            },
+          };
+        }
+        if (url === "/chat/sessions") return { ok: true, status: 200, data: { sessions: [] } };
+        return { ok: true, status: 200, data: {} };
+      });
+    });
+
+    it("fetches /chat/usage and renders the returned rate_limits when the refresh button is clicked", async () => {
+      render(
+        <ToastProvider>
+          <ChatProvider>
+            <ChatPanel />
+          </ChatProvider>
+        </ToastProvider>,
+      );
+      await waitFor(() => expect(screen.getByLabelText("Refresh usage")).toBeInTheDocument());
+      fireEvent.click(screen.getByLabelText("Refresh usage"));
+      await waitFor(() =>
+        expect(fetchSpy.mock.calls.some(([u]) => String(u).startsWith("/chat/usage?sessionId=sess-1"))).toBe(true),
+      );
+      await waitFor(() => expect(document.body.textContent).toMatch(/61%/));
+    });
+  });
+
   describe("deleting the active session", () => {
     beforeEach(() => {
       fetchSpy.mockImplementation(async (url: string, opts?: { method?: string }) => {

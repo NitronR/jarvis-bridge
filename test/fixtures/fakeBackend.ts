@@ -8,6 +8,7 @@ import type {
   ChatPatch,
   ChatSessionSummary,
   SendMessageOptions,
+  UsageTotals,
 } from "../agent/types";
 
 export class FakeSession implements AgentSession {
@@ -66,6 +67,10 @@ export interface FakeBackendOptions {
   initialSessionPatches?: ChatPatch[];
   listSessions?: ChatSessionSummary[];
   steerSupported?: boolean;
+  // Present (even if it throws) to exercise the supported path; omitted
+  // (default) to exercise the 501-not-supported path, matching how
+  // server.ts gates /chat/usage on method presence, not a capability flag.
+  queryUsage?: () => Promise<UsageTotals["rate_limits"] | null>;
 }
 
 export class FakeBackend implements AgentBackend {
@@ -81,6 +86,7 @@ export class FakeBackend implements AgentBackend {
   public currentModelBySession = new Map<string, string>();
   public autoApproveDefault = false;
   public autoApproveOverrides = new Map<string, boolean>();
+  public queryUsage?: () => Promise<UsageTotals["rate_limits"] | null>;
   constructor(public readonly opts: FakeBackendOptions = {}) {
     this.capabilities = {
       multipleSessions: true,
@@ -93,9 +99,11 @@ export class FakeBackend implements AgentBackend {
       images: false,
       sessionDelete: opts.capabilities?.sessionDelete ?? false,
       promptQueueing: opts.capabilities?.promptQueueing ?? false,
+      usageQuery: opts.capabilities?.usageQuery ?? !!opts.queryUsage,
       ...opts.capabilities,
     };
     this.listSessionsResult = opts.listSessions ?? null;
+    if (opts.queryUsage) this.queryUsage = opts.queryUsage;
     if (opts.initialSessionId && opts.initialSessionPatches) {
       this.sessions.set(
         opts.initialSessionId,

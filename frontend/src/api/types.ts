@@ -9,6 +9,7 @@ export interface AgentCapabilities {
   images: boolean;
   sessionDelete: boolean;
   promptQueueing: boolean;
+  usageQuery: boolean;
 }
 
 export interface SlashCommand { name: string; description?: string; }
@@ -89,6 +90,11 @@ export interface RateLimitWindow {
   status: "allowed" | "allowed_warning" | "rejected";
   utilization?: number; // 0-1
   resetsAt?: number; // epoch ms
+  // Human-readable reset time (e.g. "Jul 15 at 2pm (Asia/Calcutta)"), as
+  // returned by the manual /chat/usage refresh (parsed from `claude --print
+  // "/usage"` text, which has no exact-timestamp field). Prefer `resetsAt`
+  // when both are present.
+  resetsAtText?: string;
 }
 
 export interface UsageTotals {

@@ -21,11 +21,12 @@ async function withServer<T>(
   setup: (workspace: string) => Promise<{
     backend: FakeBackend;
     fn: (url: string) => Promise<T>;
+    pickFolder?: import("./pickFolder").PickFolderFn;
   }>,
 ): Promise<T> {
   const ws = await mkWorkspace();
   try {
-    const { backend, fn } = await setup(ws);
+    const { backend, fn, pickFolder } = await setup(ws);
     // Swap in the caller-supplied FakeBackend as the eagerly-spawned default's
     // pool's default backend, since createBackendRegistry would otherwise try
     // to spawn a real process. Simplest correct approach: bypass
@@ -38,7 +39,7 @@ async function withServer<T>(
       path: path.join(ws, "session_metadata.json"),
       envDefault: false,
     });
-    const app = createServer({ workspace: ws, port: 0, registry: testRegistry, tools, sessionConfig });
+    const app = createServer({ workspace: ws, port: 0, registry: testRegistry, tools, sessionConfig, pickFolder });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.on("listening", () => resolve()));
     const addr = server.address();
@@ -551,6 +552,66 @@ test("GET /chat/model returns model info for the current session", async () => {
   }));
 });
 
+test("GET /chat/usage returns 501 when the backend doesn't support it", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/usage?sessionId=${initBody.sessionId}`);
+      assert.equal(res.status, 501);
+    },
+  }));
+});
+
+test("GET /chat/usage returns rate_limits from a backend that supports queryUsage", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend({
+      queryUsage: async () => ({ five_hour: { status: "allowed_warning", utilization: 0.55 } }),
+    }),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/usage?sessionId=${initBody.sessionId}`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as {
+        ok: boolean;
+        rate_limits: { five_hour?: { status: string; utilization: number } } | null;
+      };
+      assert.equal(body.ok, true);
+      assert.equal(body.rate_limits?.five_hour?.utilization, 0.55);
+    },
+  }));
+});
+
+test("GET /chat/usage returns 502 when queryUsage rejects", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend({
+      queryUsage: async () => {
+        throw new Error("claude ENOENT");
+      },
+    }),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/usage?sessionId=${initBody.sessionId}`);
+      assert.equal(res.status, 502);
+      const body = (await res.json()) as { error: string };
+      assert.match(body.error, /ENOENT/);
+    },
+  }));
+});
+
+test("GET /chat/usage returns 404 for an unknown sessionId", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ queryUsage: async () => null }),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/usage?sessionId=nope`);
+      assert.equal(res.status, 404);
+    },
+  }));
+});
+
 test("POST /chat/auto-approve sets and clears the override", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),
@@ -894,4 +955,82 @@ test("GET /chat/init?sessionId=X reloads on the backend that owns the session, n
     if (registry2) await registry2.shutdown();
     await fs.rm(ws, { recursive: true, force: true });
   }
+});
+
+function withPlatform<T>(platform: NodeJS.Platform, fn: () => Promise<T>): Promise<T> {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { value: platform });
+  return fn().finally(() => Object.defineProperty(process, "platform", original));
+}
+
+test("POST /chat/pick-folder returns 501 on non-darwin platforms without invoking pickFolder", async () => {
+  await withPlatform("linux", async () => {
+    let called = false;
+    await withServer(async () => ({
+      backend: new FakeBackend(),
+      pickFolder: async () => {
+        called = true;
+        return { cancelled: false, cwd: "/should-not-be-used" };
+      },
+      fn: async (url) => {
+        const res = await fetch(`${url}/chat/pick-folder`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        assert.equal(res.status, 501);
+        const body = (await res.json()) as { ok: boolean; error: string };
+        assert.equal(body.ok, false);
+        assert.match(body.error, /not supported on this platform/);
+      },
+    }));
+    assert.equal(called, false);
+  });
+});
+
+test("POST /chat/pick-folder invokes the injected pickFolder and returns its result on darwin", async () => {
+  await withPlatform("darwin", async () => {
+    let receivedInitialCwd: string | undefined;
+    await withServer(async (ws) => ({
+      backend: new FakeBackend(),
+      pickFolder: async (initialCwd) => {
+        receivedInitialCwd = initialCwd;
+        return { cancelled: false, cwd: "/Users/bob/chosen" };
+      },
+      fn: async (url) => {
+        const res = await fetch(`${url}/chat/pick-folder`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ initialCwd: ws }),
+        });
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as { ok: boolean; cancelled: boolean; cwd: string | null };
+        assert.equal(body.ok, true);
+        assert.equal(body.cancelled, false);
+        assert.equal(body.cwd, "/Users/bob/chosen");
+        assert.equal(receivedInitialCwd, ws);
+      },
+    }));
+  });
+});
+
+test("POST /chat/pick-folder returns cancelled=true when the user cancels the dialog", async () => {
+  await withPlatform("darwin", async () => {
+    await withServer(async () => ({
+      backend: new FakeBackend(),
+      pickFolder: async () => ({ cancelled: true, cwd: null }),
+      fn: async (url) => {
+        const res = await fetch(`${url}/chat/pick-folder`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as { ok: boolean; cancelled: boolean; cwd: string | null };
+        assert.equal(body.ok, true);
+        assert.equal(body.cancelled, true);
+        assert.equal(body.cwd, null);
+      },
+    }));
+  });
 });

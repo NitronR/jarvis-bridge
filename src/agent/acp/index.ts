@@ -11,6 +11,7 @@ import {
   type AcpSpawnOptions,
 } from "./jsonrpc";
 import { buildAcpPrompt } from "./prompt-content";
+import { queryClaudeUsageViaCli } from "./claudeUsage";
 import {
   acpUpdateToPatches,
   elicitationSchemaToFields,
@@ -115,6 +116,12 @@ export class AcpAgentBackend implements AgentBackend {
       images: false,
       sessionDelete: false,
       promptQueueing: false,
+      // Not part of the ACP handshake (nothing to negotiate — it's a fact
+      // about shelling out to a second, independent CLI process, not this
+      // connection's protocol capabilities), so this is the one capability
+      // decided from the static `kind` config rather than connect()'s
+      // negotiated response. See claudeUsage.ts for why.
+      usageQuery: this.kind === "claude-acp",
     };
   }
 
@@ -528,6 +535,12 @@ export class AcpAgentBackend implements AgentBackend {
     }
     await this.conn.sendRequest("session/set_model", { sessionId, modelId });
     ctx.currentModelId = modelId;
+  }
+
+  async queryUsage(): Promise<UsageTotals["rate_limits"] | null> {
+    if (!this.capabilities.usageQuery) return null;
+    const executable = this.cfg.env?.CLAUDE_CODE_EXECUTABLE || "claude";
+    return queryClaudeUsageViaCli({ executable, cwd: this.cfg.cwd, env: this.cfg.env });
   }
 
   // ── Healthcheck ──────────────────────────────────────────────────────

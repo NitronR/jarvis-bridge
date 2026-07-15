@@ -11,7 +11,7 @@ const baseState: ChatState = {
   capabilities: {
     multipleSessions: true, customWorkingDirectory: true, cancel: true, steer: true,
     toolApprovals: true, slashCommands: true, canFork: true, images: true,
-    sessionDelete: false, promptQueueing: false,
+    sessionDelete: false, promptQueueing: false, usageQuery: false,
   },
   slashCommands: [{ name: "review" }],
   models: [{ modelId: "m1", name: "Model One" }],
@@ -126,5 +126,44 @@ describe("<InfoPanel>", () => {
     );
     expect(screen.getByText("Overage")).toBeInTheDocument();
     expect(screen.getByText("rejected")).toBeInTheDocument();
+  });
+
+  it("does not render a Usage card or refresh button when usageQuerySupported is false and there's no usage data", () => {
+    render(<InfoPanel {...baseProps} usageQuerySupported={false} />);
+    expect(screen.queryByText("Usage")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Refresh usage")).not.toBeInTheDocument();
+  });
+
+  it("renders a refresh button and a placeholder row when usageQuerySupported is true but no usage data yet", () => {
+    render(<InfoPanel {...baseProps} usageQuerySupported />);
+    expect(screen.getByText("Usage")).toBeInTheDocument();
+    expect(screen.getByLabelText("Refresh usage")).toBeInTheDocument();
+    expect(screen.getByText("tap refresh")).toBeInTheDocument();
+  });
+
+  it("calls onRefreshUsage when the refresh button is clicked, and disables it while refreshing", () => {
+    const onRefreshUsage = vi.fn();
+    const { rerender } = render(
+      <InfoPanel {...baseProps} usageQuerySupported onRefreshUsage={onRefreshUsage} />,
+    );
+    fireEvent.click(screen.getByLabelText("Refresh usage"));
+    expect(onRefreshUsage).toHaveBeenCalledTimes(1);
+
+    rerender(<InfoPanel {...baseProps} usageQuerySupported refreshingUsage onRefreshUsage={onRefreshUsage} />);
+    expect(screen.getByLabelText("Refresh usage")).toBeDisabled();
+  });
+
+  it("prefers numeric resetsAt but falls back to resetsAtText when only the manual-refresh text is present", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usageQuerySupported
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { five_hour: { status: "allowed", utilization: 0.33, resetsAtText: "Jul 16 at 9am (UTC)" } },
+        }}
+      />,
+    );
+    expect(screen.getByText(/Jul 16 at 9am \(UTC\)/)).toBeInTheDocument();
   });
 });

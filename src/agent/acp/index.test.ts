@@ -515,3 +515,58 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
     }
   });
 });
+
+describe("AcpAgentBackend.queryUsage", () => {
+  const FAKE_CLAUDE_USAGE_CLI = path.resolve(process.cwd(), "test/fixtures/fake-claude-usage-cli.cjs");
+
+  test("usageQuery capability is false and queryUsage is a no-op for non-Claude kinds", async () => {
+    const backend = await newBackend();
+    try {
+      assert.equal(backend.capabilities.usageQuery, false);
+      assert.equal(await backend.queryUsage(), null);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("usageQuery capability is true for kind 'claude-acp', and queryUsage shells out to CLAUDE_CODE_EXECUTABLE", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      kind: "claude-acp",
+      env: {
+        ...process.env,
+        CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE_USAGE_CLI,
+        X_FAKE_CLAUDE_USAGE_TEXT: "Current session: 55% used · resets Jul 16 at 9am (UTC)",
+      },
+    });
+    try {
+      assert.equal(backend.capabilities.usageQuery, true);
+      const rateLimits = await backend.queryUsage();
+      assert.equal(rateLimits?.five_hour?.utilization, 0.55);
+      assert.equal(rateLimits?.five_hour?.resetsAtText, "Jul 16 at 9am (UTC)");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("queryUsage rejects when the CLI exits non-zero", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      kind: "claude-acp",
+      env: {
+        ...process.env,
+        CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE_USAGE_CLI,
+        X_FAKE_CLAUDE_USAGE_EXIT_CODE: "1",
+      },
+    });
+    try {
+      await assert.rejects(() => backend.queryUsage());
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
