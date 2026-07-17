@@ -34,6 +34,26 @@
 }
 .toolError { border-color: var(--color-danger); }
 .toolError summary { color: var(--color-danger); }
+.toolInProgress {
+  border-color: var(--color-accent);
+}
+.toolSuccess {
+  border-color: var(--color-success);
+}
+.spinner {
+  display: inline-block;
+  margin-left: 8px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 .ok { color: var(--color-success); }
 .err { color: var(--color-danger); }
 .usage {
