@@ -160,19 +160,31 @@ function renderBubble(b: Bubble, key: number): JSX.Element {
           <div>{b.content}</div>
         </details>
       );
-    case "tool":
+    case "tool": {
+      const status = !b.result ? "in-progress" : b.result.ok ? "success" : "fail";
+      const toolClass = status === "in-progress"
+        ? `${styles.tool} ${styles.toolInProgress}`
+        : status === "success"
+        ? `${styles.tool} ${styles.toolSuccess}`
+        : `${styles.tool} ${styles.toolError}`;
       return (
-        <details key={key} className={b.result && !b.result.ok ? `${styles.tool} ${styles.toolError}` : styles.tool}>
-          <summary>{b.toolName}</summary>
+        <details key={key} className={toolClass}>
+          <summary>
+            {b.toolName}
+            {status === "in-progress" && <span className={styles.spinner} />}
+          </summary>
           {b.argsText && <pre className={styles.toolArgs}>{b.argsText}</pre>}
           {b.result && (
             <div className={styles.toolResult}>
-              <span className={b.result.ok ? styles.ok : styles.err}>{b.result.ok ? "ok" : "error"}</span>{" "}
+              <span className={b.result.ok ? styles.ok : styles.err}>
+                {b.result.ok ? "ok" : "error"}
+              </span>{" "}
               {b.result.text}
             </div>
           )}
         </details>
       );
+    }
   }
 }
 
