@@ -8,6 +8,7 @@ const baseState: ChatState = {
   cwd: "/tmp/ws",
   backendName: "fake",
   loading: false,
+  activeTurn: false,
   capabilities: {
     multipleSessions: true, customWorkingDirectory: true, cancel: true, steer: true,
     toolApprovals: true, slashCommands: true, canFork: true, images: true,

@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "./server";
-import { FakeBackend } from "../test/fixtures/fakeBackend";
+import { FakeBackend, FakeSession } from "../test/fixtures/fakeBackend";
 import { createToolRegistry } from "./tools";
 import { createSessionConfigStore } from "./agent/sessionConfigStore";
 import { createBackendRegistry } from "./agent/backendRegistry";
@@ -157,6 +157,90 @@ test("POST /chat/send streams SSE patches and ends with {type:'done'}", async ()
       assert.equal(first.delta, "hi from fake");
     },
   }));
+});
+
+test("disconnecting mid-stream does not cancel the turn", async () => {
+  const sessionId = "sess-disconnect-1";
+  const backend = new FakeBackend({
+    initialSessionId: sessionId,
+    initialSessionPatches: [
+      { type: "text-delta", index: 0, delta: "a" },
+      { type: "text-delta", index: 0, delta: "b" },
+      { type: "text-delta", index: 0, delta: "c" },
+      { type: "done" },
+    ],
+    patchDelayMs: 40,
+  });
+  await withServer(async (ws) => ({
+    backend,
+    fn: async (url) => {
+      const controller = new AbortController();
+      const sendPromise = fetch(`${url}/chat/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "hi", sessionId }),
+        signal: controller.signal,
+      }).catch(() => null); // the client-side abort itself rejects this fetch
+      await new Promise((r) => setTimeout(r, 20));
+      controller.abort(); // simulate a page refresh mid-stream
+      await sendPromise;
+      // Give the still-running turn time to finish server-side.
+      await new Promise((r) => setTimeout(r, 200));
+      const session = backend.getSession(sessionId) as FakeSession;
+      assert.equal(session.cancelled, 0, "disconnect must not call session.cancel()");
+    },
+  }));
+});
+
+test("GET /chat/stream replays buffered patches then continues live, and 404s once the turn is gone", async () => {
+  const sessionId = "sess-reattach-1";
+  await withServer(async (ws) => {
+    const backend = new FakeBackend({
+      initialSessionId: sessionId,
+      initialSessionPatches: [
+        { type: "text-delta", index: 0, delta: "a" },
+        { type: "text-delta", index: 0, delta: "b" },
+        { type: "text-delta", index: 0, delta: "c" },
+        { type: "done" },
+      ],
+      patchDelayMs: 40,
+    });
+    return {
+      backend,
+      fn: async (url) => {
+        // No active turn yet — 404.
+        const before = await fetch(`${url}/chat/stream?sessionId=${sessionId}`);
+        assert.equal(before.status, 404);
+
+        // A sessionId that was never created — must hit the "session not
+        // found" 404 branch, not the "no active turn" one.
+        const unknownSession = await fetch(`${url}/chat/stream?sessionId=does-not-exist`);
+        assert.equal(unknownSession.status, 404);
+
+        // Start a turn but don't wait for it to finish.
+        const sendPromise = fetch(`${url}/chat/send`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "hi", sessionId }),
+        });
+        await new Promise((r) => setTimeout(r, 60)); // let ~1 patch land
+
+        const streamRes = await fetch(`${url}/chat/stream?sessionId=${sessionId}`);
+        assert.equal(streamRes.status, 200);
+        assert.match(streamRes.headers.get("content-type") ?? "", /text\/event-stream/);
+        const text = await streamRes.text();
+        const events = text.split("\n\n").filter((s) => s.startsWith("data: ")).map((s) => JSON.parse(s.slice(6)));
+        assert.ok(events.length >= 2, "expected buffered + live patches");
+        assert.equal(events[events.length - 1].type, "done");
+
+        await sendPromise; // drain the original request too
+
+        // Turn is over now — a fresh reattach 404s again.
+        const after = await fetch(`${url}/chat/stream?sessionId=${sessionId}`);
+        assert.equal(after.status, 404);
+      },
+    };
+  });
 });
 
 test("GET /chat/init returns lastUsage=null when no turn has happened yet", async () => {
@@ -1011,6 +1095,54 @@ test("POST /chat/pick-folder invokes the injected pickFolder and returns its res
         assert.equal(receivedInitialCwd, ws);
       },
     }));
+  });
+});
+
+test("GET /chat/init returns activeTurn:true and skips loadSession while a turn is streaming", async () => {
+  const sessionId = "sess-init-active-1";
+  await withServer(async (ws) => {
+    const backend = new FakeBackend({
+      initialSessionId: sessionId,
+      initialSessionPatches: [
+        { type: "text-delta", index: 0, delta: "a" },
+        { type: "text-delta", index: 0, delta: "b" },
+        { type: "text-delta", index: 0, delta: "c" },
+        { type: "done" },
+      ],
+      patchDelayMs: 40,
+    });
+    return {
+      backend,
+      fn: async (url) => {
+        const sendPromise = fetch(`${url}/chat/send`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "hi", sessionId }),
+        });
+        await new Promise((r) => setTimeout(r, 60)); // let ~1 patch land
+
+        const initRes = await fetch(`${url}/chat/init?sessionId=${sessionId}`);
+        assert.equal(initRes.status, 200);
+        const body = (await initRes.json()) as {
+          activeTurn: boolean;
+          history: Array<{ kind: string; patches?: unknown[] }>;
+        };
+        assert.equal(body.activeTurn, true);
+        const last = body.history[body.history.length - 1];
+        assert.equal(last?.kind, "assistant");
+        assert.ok((last?.patches?.length ?? 0) >= 1, "in-progress patches should be in history");
+        assert.equal(backend.loadedWithCwd.length, 0, "loadSession must not be called while a turn is live");
+
+        const sendRes = await sendPromise;
+        await sendRes.text(); // consume the response body to ensure full completion
+        await new Promise((r) => setTimeout(r, 50)); // ensure async generator cleanup completes
+
+        const initAfter = await fetch(`${url}/chat/init?sessionId=${sessionId}`);
+        const bodyAfter = (await initAfter.json()) as { activeTurn: boolean };
+        assert.equal(bodyAfter.activeTurn, false);
+        assert.equal(backend.loadedWithCwd.length, 1, "once the turn is over, init falls back to the normal loadSession path");
+      },
+    };
   });
 });
 

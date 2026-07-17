@@ -2,6 +2,7 @@
 // AcpAgentBackend surface that the gateway's HTTP layer actually uses.
 
 import type {
+  ActiveTurnHandle,
   AgentBackend,
   AgentCapabilities,
   AgentSession,
@@ -13,29 +14,55 @@ import type {
 
 export class FakeSession implements AgentSession {
   readonly id: string;
-  private opts: { patches: ChatPatch[] };
+  private opts: { patches: ChatPatch[]; patchDelayMs: number };
   public steerHandler: ((p: string) => Promise<{ accepted: boolean; reason?: string }>) | null = null;
   public cancelled = 0;
   public sentMessages: Array<{ message: string; opts?: SendMessageOptions }> = [];
   public approvals: Array<{ requestId: string; optionId: string }> = [];
   public elicitations: Array<{ requestId: string; action: string; content?: Record<string, unknown> }> = [];
-  constructor(id: string, patches: ChatPatch[]) {
+  private turnActive = false;
+  private activeTurnPatches: ChatPatch[] = [];
+  private activeTurnViewer: ((p: ChatPatch) => void) | null = null;
+  constructor(id: string, patches: ChatPatch[], patchDelayMs = 0) {
     this.id = id;
-    this.opts = { patches };
+    this.opts = { patches, patchDelayMs };
   }
   async *sendMessage(
     message: string,
     opts?: SendMessageOptions,
   ): AsyncIterable<ChatPatch> {
     this.sentMessages.push({ message, opts });
-    for (const p of this.opts.patches) {
-      // Honor abort signal.
-      if (opts?.signal?.aborted) {
-        yield { type: "error", message: "aborted" };
-        return;
+    this.turnActive = true;
+    this.activeTurnPatches = [];
+    try {
+      for (const p of this.opts.patches) {
+        if (opts?.signal?.aborted) {
+          yield { type: "error", message: "aborted" };
+          return;
+        }
+        if (this.opts.patchDelayMs > 0) {
+          await new Promise((r) => setTimeout(r, this.opts.patchDelayMs));
+        }
+        this.activeTurnPatches.push(p);
+        this.activeTurnViewer?.(p);
+        yield p;
       }
-      yield p;
+    } finally {
+      this.turnActive = false;
+      this.activeTurnViewer = null;
     }
+  }
+  getActiveTurn(): ActiveTurnHandle | null {
+    if (!this.turnActive) return null;
+    return {
+      patches: this.activeTurnPatches.slice(),
+      attach: (onPatch) => {
+        this.activeTurnViewer = onPatch;
+        return () => {
+          if (this.activeTurnViewer === onPatch) this.activeTurnViewer = null;
+        };
+      },
+    };
   }
   async cancel(): Promise<void> {
     this.cancelled++;
@@ -67,6 +94,7 @@ export interface FakeBackendOptions {
   initialSessionPatches?: ChatPatch[];
   listSessions?: ChatSessionSummary[];
   steerSupported?: boolean;
+  patchDelayMs?: number;
   // Present (even if it throws) to exercise the supported path; omitted
   // (default) to exercise the 501-not-supported path, matching how
   // server.ts gates /chat/usage on method presence, not a capability flag.
@@ -107,7 +135,7 @@ export class FakeBackend implements AgentBackend {
     if (opts.initialSessionId && opts.initialSessionPatches) {
       this.sessions.set(
         opts.initialSessionId,
-        new FakeSession(opts.initialSessionId, opts.initialSessionPatches),
+        new FakeSession(opts.initialSessionId, opts.initialSessionPatches, opts.patchDelayMs ?? 0),
       );
     }
   }
@@ -116,10 +144,14 @@ export class FakeBackend implements AgentBackend {
   }
   async createSession(opts?: { cwd?: string }) {
     const id = `sess-${Math.random().toString(36).slice(2, 10)}`;
-    const session = new FakeSession(id, this.opts.initialSessionPatches ?? [
-      { type: "text-delta", index: 0, delta: "hi from fake" },
-      { type: "done" } as ChatPatch,
-    ]);
+    const session = new FakeSession(
+      id,
+      this.opts.initialSessionPatches ?? [
+        { type: "text-delta", index: 0, delta: "hi from fake" },
+        { type: "done" } as ChatPatch,
+      ],
+      this.opts.patchDelayMs ?? 0,
+    );
     this.sessions.set(id, session);
     this.createdSessions.push({ sessionId: id });
     this.createdWithCwd.set(id, opts?.cwd);
@@ -141,7 +173,7 @@ export class FakeBackend implements AgentBackend {
   async forkSession(sessionId: string) {
     this.forked.push(sessionId);
     const newId = `fork-${sessionId}-${Math.random().toString(36).slice(2, 6)}`;
-    const s = new FakeSession(newId, []);
+    const s = new FakeSession(newId, [], this.opts.patchDelayMs ?? 0);
     this.sessions.set(newId, s);
     return s;
   }

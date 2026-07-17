@@ -55,6 +55,81 @@ Two related, easy-to-regress details about `GET /chat/init` in `src/server.ts`:
   `setSessionModel` call sites already handled this defensively, only this one didn't. Fixed
   2026-07-15.
 
+## Reconnecting to a streaming response: `activeTurn`, not another `loadSession()` call
+
+A disconnect (page refresh, network blip, tab close) must not cancel an in-flight turn, and
+reconnecting must not corrupt it either. Two mechanisms work together — see
+`docs/superpowers/specs/2026-07-15-agent-stream-reconnect-design.md` for the full design and
+rationale; this section is the "don't regress this" summary.
+
+**`SessionContext.activeTurn` buffers a turn's patches independently of any HTTP consumer.**
+`AcpAgentSession.sendMessage()`'s internal `emit()` helper (the single place every patch —
+message/thought/tool-call deltas, `usage`, `images-skipped`, the terminal `done`/`error`
+sentinel — passes through before being yielded) also pushes each patch onto
+`ctx.activeTurn.patches` and forwards it to `ctx.activeTurn.viewerCallback` if one is
+attached, regardless of whether the original caller (the HTTP request that started the turn)
+is still pulling the generator. This is what makes the turn survive a disconnected `res`:
+`POST /chat/send`'s `req.on("close")` no longer aborts anything (see below), it just stops
+writing to a dead response — the generator keeps running to completion in the background,
+still fed by real `session/update` notifications from the agent.
+
+**Never let `loadSession()` clobber a live `SessionContext`.** `loadSession()` still
+unconditionally builds a fresh `SessionContext` via `makeSessionContext()` and overwrites
+`this.sessions.get(sessionId)` with it — this was already true before `activeTurn` existed,
+and remains true. `handleSessionUpdate()` looks up `ctx` fresh from the map on every
+notification, so calling `loadSession()` on a session with a turn in flight would silently
+sever `ctx.onPatch`/`ctx.activeTurn` from all future notifications, permanently stalling the
+turn (the busy flag would never clear, since the generator's own `finally` block, tied to the
+*old* ctx, never runs again). **The fix is at the call site, not inside `loadSession()`
+itself:** `GET /chat/init` (`src/server.ts`) checks `registry.getSession(sessionId)?.getActiveTurn?.()`
+*before* deciding whether to call `backend.loadSession()` at all, and skips it entirely when
+a turn is live — reusing the resident session as-is. If you ever find another call site that
+might invoke `loadSession()` on a session that could have a turn in flight, it needs the same
+guard; `loadSession()` itself was deliberately left simple rather than made defensive, per the
+design doc's Task 5.
+
+**`GET /chat/init` mid-turn does not replay prior settled history, only the live tail.**
+Skipping `loadSession()` means skipping its replay side-effect too — so `/chat/init`'s
+`history` response, when `activeTurn: true`, contains only `ctx.activeTurn.patches` folded in
+as the trailing assistant entry, not the full conversation. This is an accepted, documented
+limitation (not a bug): the browser already rendered the prior turns before it disconnected,
+and a full re-fetch of settled history mid-turn was out of scope (see the design doc's
+Non-goals). Don't try to "fix" this by making `loadSession()` reentrant against a live
+`ctx.captureReplay` — that path was evaluated and rejected: a concurrent replay window
+could double-count live patches into `ctx.replayHistory`, since `handleSessionUpdate()` feeds
+both `captureReplayUpdate()` and `ctx.onPatch` off the same notification stream.
+
+**`GET /chat/stream` is the reattach endpoint, single viewer only.** It replays
+`session.getActiveTurn().patches` (a snapshot) synchronously — no `await` between reading the
+snapshot and calling `.attach()`, which is what closes the gap a naive
+persist-then-subscribe implementation would otherwise have (JS's single-threaded run-to-
+completion guarantees nothing else can call `emit()` in between). `attach()` always replaces
+whatever viewer was previously registered (single viewer, latest wins — no broadcast to
+multiple tabs watching the same turn). A `sessionId` with no session, or a session with no
+active turn, both 404 — including the harmless race where the turn finishes in the gap
+between `/chat/init` reporting `activeTurn: true` and this request landing; the frontend
+treats that 404 like a normal completed turn and re-syncs via a fresh `/chat/init`.
+
+**The idle-turn reaper is a resource-hygiene backstop, not part of the reconnect UX.**
+`attach(onPatch)` (real callback) and `attach(null)` (the original `/chat/send` request,
+which already gets patches via generator iteration and only needs to participate in
+reaper bookkeeping) both clear any pending reaper timer on attach and arm a new one on
+detach (`JARVIS_BRIDGE_IDLE_TURN_GRACE_MS`, default 5 minutes) via a per-call ownership
+token — not by comparing the callback reference itself, since two different `attach(null)`
+registrations would otherwise be indistinguishable (`null === null`) and a stale detach
+could wrongly re-arm/clear state for a newer registration. If you touch `getActiveTurn()`,
+keep the token-based ownership check; don't regress to reference-equality on `onPatch`.
+
+**Frontend: `ctx.state.busy` no longer means "this tab is sending."** `useChat.ts`'s reattach
+effect also sets `busy: true` while merely watching a reattached (possibly server-initiated-
+elsewhere) turn. Code that used to treat `busy` as "abort and really cancel on navigation"
+(`switchSession`/`startNewChat`/`startNewChatInWorkspace`) now checks a separate
+`sendingRef` (true only for a locally-initiated `sendMessage()`) before escalating to a real
+`POST /chat/cancel` — otherwise it just detaches the local SSE reader. The explicit Stop
+button (`cancel()`) is unaffected and still always sends a real cancel. If you add another
+place that reacts to `ctx.state.busy` by tearing down navigation state, check whether it
+needs the same `sendingRef` distinction.
+
 ## Replay capture must populate patches, not just create placeholder entries
 
 `captureReplayUpdate()` reconstructs `ChatHistoryEntry[]` from the replayed notifications.

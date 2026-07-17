@@ -49,6 +49,7 @@ export interface ChatInitResponse {
   lastUsage: UsageTotals | null;
   autoApprove: AutoApproveState;
   model: { supported: boolean; available: ModelInfo[]; current: string | null };
+  activeTurn: boolean;
 }
 
 export type ChatHistoryEntry =

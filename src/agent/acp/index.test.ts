@@ -374,6 +374,111 @@ describe("AcpAgentSession.cancel", () => {
   });
 });
 
+describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
+  test("activeTurn buffers patches independent of whether the generator is being pulled", async () => {
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    const backend = await newBackend({
+      X_FAKE_AGENT_NEW_TEXT: JSON.stringify(["one", "two", "three"]),
+      X_FAKE_AGENT_DELAY_MS: "10",
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() }) as AcpAgentSession;
+      const iter = session.sendMessage("hi")[Symbol.asyncIterator]();
+      // Pull exactly one patch, then stop pulling entirely — simulating an
+      // HTTP handler that has stopped consuming the generator after a client
+      // disconnect, without ever calling cancel().
+      await iter.next();
+      const handle = session.getActiveTurn();
+      assert.ok(handle, "activeTurn should exist while the turn is still running");
+      // Wait past the fake agent's full send duration without pulling again.
+      await new Promise((r) => setTimeout(r, 200));
+      const handleAfter = session.getActiveTurn();
+      assert.ok(handleAfter, "turn should still be tracked as active — nothing cancelled it");
+      assert.ok(
+        handleAfter!.patches.length >= 2,
+        "patches should keep accumulating via onPatch even though nobody is pulling the generator",
+      );
+      const log = fs.existsSync(eventLogFile)
+        ? fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+        : [];
+      assert.ok(
+        !log.some((e: { method: string }) => e.method === "session/cancel"),
+        "session/cancel must never be sent just because nobody is pulling the generator",
+      );
+    } finally {
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
+
+  test("idle-turn reaper cancels a turn nobody has attached to after the grace period", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "50";
+    const backend = await newBackend({
+      X_FAKE_AGENT_NEW_TEXT: JSON.stringify(["a", "b", "c", "d", "e"]),
+      X_FAKE_AGENT_DELAY_MS: "10",
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() }) as AcpAgentSession;
+      const iter = session.sendMessage("hi")[Symbol.asyncIterator]();
+      await iter.next(); // let the turn actually start (activeTurn now exists)
+      const handle = session.getActiveTurn()!;
+      const detach = handle.attach(() => {}); // attach, then immediately detach — arms the reaper
+      detach();
+      t.mock.timers.tick(60); // past the 50ms grace period
+      // Allow the fire-and-forget cancel() promise chain to settle.
+      await new Promise((r) => setImmediate(r));
+      const log = fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      assert.ok(
+        log.some((e: { method: string }) => e.method === "session/cancel"),
+        "grace period elapsing with nobody attached must cancel the turn",
+      );
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
+
+  test("a reattach before the grace period elapses clears the reaper timer", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "50";
+    const backend = await newBackend({
+      X_FAKE_AGENT_NEW_TEXT: JSON.stringify(["a", "b", "c", "d", "e"]),
+      X_FAKE_AGENT_DELAY_MS: "10",
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() }) as AcpAgentSession;
+      const iter = session.sendMessage("hi")[Symbol.asyncIterator]();
+      await iter.next();
+      const handle = session.getActiveTurn()!;
+      const detach1 = handle.attach(() => {});
+      detach1(); // arms the reaper
+      t.mock.timers.tick(30); // before the 50ms grace period
+      const handle2 = session.getActiveTurn()!;
+      handle2.attach(() => {}); // reattach — must clear the pending reaper timer
+      t.mock.timers.tick(60); // now well past 50ms total, but reaper was cleared
+      await new Promise((r) => setImmediate(r));
+      const log = fs.existsSync(eventLogFile)
+        ? fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+        : [];
+      assert.ok(
+        !log.some((e: { method: string }) => e.method === "session/cancel"),
+        "a reattach before the grace period must clear the reaper, not just delay it",
+      );
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
+});
+
 describe("AcpAgentBackend.deleteSession", () => {
   test("sessionDelete capability is false when the agent does not advertise sessionCapabilities.delete", async () => {
     const backend = await newBackend();

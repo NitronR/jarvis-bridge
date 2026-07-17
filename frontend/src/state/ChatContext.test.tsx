@@ -11,6 +11,7 @@ const baseInit: ChatInitResponse = {
   sessionId: "sess-1",
   cwd: "/tmp/ws",
   resumed: false,
+  activeTurn: false,
   capabilities: {
     multipleSessions: true,
     customWorkingDirectory: false,
@@ -49,6 +50,26 @@ describe("ChatContext", () => {
     expect(result.current.state.sessionId).toBe("sess-1");
     expect(result.current.state.cwd).toBe("/tmp/ws");
     expect(result.current.state.capabilities?.canFork).toBe(true);
+  });
+
+  it("init copies activeTurn from the server response into state", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: { ...baseInit, activeTurn: true } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ChatProvider>{children}</ChatProvider>
+    );
+    const { result } = renderHook(() => useChatContext(), { wrapper });
+    await act(async () => { await result.current.init(); });
+    expect(result.current.state.activeTurn).toBe(true);
+  });
+
+  it("init defaults activeTurn to false when the server omits it", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ChatProvider>{children}</ChatProvider>
+    );
+    const { result } = renderHook(() => useChatContext(), { wrapper });
+    await act(async () => { await result.current.init(); });
+    expect(result.current.state.activeTurn).toBe(false);
   });
 
   it("init restores a persisted customTitle from the server", async () => {

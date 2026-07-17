@@ -48,7 +48,7 @@ export interface SSEHandle {
 
 export function fetchSSE<T = unknown>(
   url: string,
-  body: object,
+  body: object | null,
   handlers: {
     onPatch: (p: T) => void;
     onDone?: () => void;
@@ -59,12 +59,17 @@ export function fetchSSE<T = unknown>(
   let aborted = false;
   const done = (async () => {
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      const res = await fetch(
+        url,
+        body === null
+          ? { signal: controller.signal }
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+              signal: controller.signal,
+            },
+      );
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => String(res.status));
         handlers.onError?.(new Error(`SSE failed: ${res.status} ${errText}`));

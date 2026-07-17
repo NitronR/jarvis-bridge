@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchJSON } from "./client";
+import { fetchJSON, fetchSSE } from "./client";
 
 const originalFetch = global.fetch;
 afterEach(() => {
@@ -46,5 +46,30 @@ describe("fetchJSON", () => {
     global.fetch = vi.fn().mockResolvedValue(new Response("plain text", { status: 200 }));
     const res = await fetchJSON("/text");
     expect(res.data).toBe("plain text");
+  });
+});
+
+describe("fetchSSE", () => {
+  it("sends a plain GET with no body when body is null", async () => {
+    const spy = vi.fn().mockResolvedValue(
+      new Response("data: " + JSON.stringify({ type: "done" }) + "\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+    global.fetch = spy;
+    const patches: unknown[] = [];
+    const handle = fetchSSE("/chat/stream?sessionId=abc", null, {
+      onPatch: (p) => patches.push(p),
+    });
+    await handle.done;
+    expect(spy).toHaveBeenCalledWith(
+      "/chat/stream?sessionId=abc",
+      expect.objectContaining({ signal: expect.anything() }),
+    );
+    const callArgs = spy.mock.calls[0][1];
+    expect(callArgs.method).toBeUndefined();
+    expect(callArgs.body).toBeUndefined();
+    expect(patches).toEqual([{ type: "done" }]);
   });
 });

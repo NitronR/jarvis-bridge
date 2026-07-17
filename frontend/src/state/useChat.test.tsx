@@ -12,6 +12,7 @@ const baseInit: ChatInitResponse = {
   sessionId: "sess-1",
   cwd: "/tmp/ws",
   resumed: false,
+  activeTurn: false,
   capabilities: {
     multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false,
     toolApprovals: true, slashCommands: false, canFork: true, images: false,
@@ -83,5 +84,113 @@ describe("useChat", () => {
     await act(async () => { await result.current.sendMessage("hi"); });
     act(() => result.current.cancel());
     expect(abortFn).toHaveBeenCalled();
+  });
+
+  it("reattaches to a live turn via GET /chat/stream when init reports activeTurn", async () => {
+    fetchJSONSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        ...baseInit,
+        activeTurn: true,
+        history: [
+          { kind: "user", content: "hello" },
+          { kind: "assistant", patches: [{ type: "text-delta", index: 0, delta: "partial" }] },
+        ],
+      },
+    });
+    const patches: ChatPatch[] = [
+      { type: "text-delta", index: 0, delta: "partial" }, // replayed buffer (same as what's already in history)
+      { type: "text-delta", index: 0, delta: " more" },    // new live patch
+      { type: "done" },
+    ];
+    let capturedUrl = "";
+    let capturedBody: unknown;
+    fetchSSESpy = vi.spyOn(client, "fetchSSE").mockImplementation((url, body, handlers) => {
+      capturedUrl = url;
+      capturedBody = body;
+      Promise.resolve().then(() => {
+        for (const p of patches) handlers.onPatch(p);
+        handlers.onDone?.();
+      });
+      return { abort: vi.fn(), done: Promise.resolve() };
+    });
+
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init("sess-1"); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(capturedUrl).toBe("/chat/stream?sessionId=sess-1");
+    expect(capturedBody).toBeNull();
+    expect(result.current.transcript).toHaveLength(2);
+    expect(result.current.transcript[1].role).toBe("assistant");
+    if (result.current.transcript[1].role === "assistant") {
+      expect(result.current.transcript[1].patches).toHaveLength(3); // reset-then-replayed, not additive with history
+    }
+  });
+
+  it("switching sessions while merely watching a reattached background turn does not send a real cancel", async () => {
+    fetchJSONSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...baseInit, activeTurn: true },
+    });
+    const abortFn = vi.fn();
+    fetchSSESpy = vi.spyOn(client, "fetchSSE").mockReturnValue({
+      abort: abortFn,
+      done: new Promise(() => {}),
+    });
+
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init("sess-1"); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.busy).toBe(true); // reattach set busy, but this tab never called sendMessage
+    fetchJSONSpy.mockClear();
+
+    await act(async () => { await result.current.switchSession("sess-2"); });
+
+    expect(abortFn).toHaveBeenCalled();
+    expect(fetchJSONSpy).not.toHaveBeenCalledWith("/chat/cancel", expect.anything());
+  });
+
+  it("switching sessions while a locally-initiated send is in flight still sends a real cancel", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+    const abortFn = vi.fn();
+    fetchSSESpy = vi.spyOn(client, "fetchSSE").mockReturnValue({
+      abort: abortFn,
+      done: new Promise(() => {}),
+    });
+
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init(); });
+    await act(async () => { await result.current.sendMessage("hi"); });
+
+    expect(result.current.busy).toBe(true);
+    fetchJSONSpy.mockClear();
+
+    await act(async () => { await result.current.switchSession("sess-2"); });
+
+    expect(abortFn).toHaveBeenCalled();
+    expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/cancel", { method: "POST", body: { sessionId: "sess-1" } });
+  });
+
+  it("resyncs via /chat/init when the reattach stream errors out (e.g. the turn already finished)", async () => {
+    fetchJSONSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...baseInit, activeTurn: true },
+    });
+    fetchSSESpy = vi.spyOn(client, "fetchSSE").mockImplementation((_url, _body, handlers) => {
+      Promise.resolve().then(() => { handlers.onError?.(new Error("404")); });
+      return { abort: vi.fn(), done: Promise.resolve() };
+    });
+
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init("sess-1"); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.busy).toBe(false);
+    expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/init?sessionId=sess-1");
   });
 });

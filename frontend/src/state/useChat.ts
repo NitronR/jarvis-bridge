@@ -44,10 +44,63 @@ export function useChat(): UseChatResult {
   const ctx = useChatContext();
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const sseRef = useRef<ReturnType<typeof fetchSSE> | null>(null);
+  // True only while this tab is actively driving a sendMessage()-initiated
+  // turn (as opposed to merely watching a reattached background turn via the
+  // reattach effect below). Used to distinguish a real in-flight send from a
+  // reattach-watch when deciding whether navigating away should really
+  // cancel the backend turn (see switchSession/startNewChat/
+  // startNewChatInWorkspace) — only the former should.
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     if (ctx.state.sessionId) setTranscript(historyToTranscript(ctx.state.history));
   }, [ctx.state.sessionId, ctx.state.history]);
+
+  useEffect(() => {
+    if (!ctx.state.sessionId || !ctx.state.activeTurn) return;
+    ctx.setBusy(true);
+    // /chat/stream always replays this turn's complete buffered patch list as
+    // its first batch (see src/server.ts's GET /chat/stream), and the
+    // transcript's trailing entry was already seeded from history with that
+    // same buffered content — clear it here so the replay doesn't double up.
+    setTranscript((cur) => {
+      const next = cur.slice();
+      const last = next[next.length - 1];
+      if (last && last.role === "assistant") next[next.length - 1] = { role: "assistant", patches: [] };
+      return next;
+    });
+    sseRef.current?.abort();
+    sseRef.current = fetchSSE<ChatPatch>(
+      `/chat/stream?sessionId=${encodeURIComponent(ctx.state.sessionId)}`,
+      null,
+      {
+        onPatch: (patch) => {
+          setTranscript((cur) => {
+            const next = cur.slice();
+            const last = next[next.length - 1];
+            if (!last || last.role !== "assistant") return cur;
+            next[next.length - 1] = { role: "assistant", patches: [...last.patches, patch] };
+            if (patch.type === "slash-commands") ctx.setSlashCommands(patch.commands);
+            return next;
+          });
+        },
+        onDone: () => { ctx.setBusy(false); sseRef.current = null; },
+        onError: () => {
+          ctx.setBusy(false);
+          sseRef.current = null;
+          // The turn may have finished in the window between /chat/init
+          // reporting activeTurn: true and this /chat/stream request
+          // landing (a 404 surfaces here as onError). We already cleared
+          // the trailing assistant entry above expecting the stream to
+          // repopulate it, so without a resync the user is left staring at
+          // a blanked-out entry even though the real (now-settled) history
+          // still exists on the backend. Re-init to fetch and render it.
+          if (ctx.state.sessionId) void ctx.init(ctx.state.sessionId, undefined, undefined, undefined, { push: false });
+        },
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.state.sessionId, ctx.state.activeTurn]);
 
   const sendMessage = useCallback(
     async (text: string, images: ImageAttachment[] = []) => {
@@ -57,6 +110,7 @@ export function useChat(): UseChatResult {
       const assistantEntry: TranscriptEntry = { role: "assistant", patches: [] };
       setTranscript((cur) => [...cur, userEntry, assistantEntry]);
       ctx.setBusy(true);
+      sendingRef.current = true;
 
       sseRef.current?.abort();
       sseRef.current = fetchSSE<ChatPatch>(
@@ -73,7 +127,7 @@ export function useChat(): UseChatResult {
               return next;
             });
           },
-          onDone: () => { ctx.setBusy(false); ctx.setUnread(true); sseRef.current = null; },
+          onDone: () => { ctx.setBusy(false); sendingRef.current = false; ctx.setUnread(true); sseRef.current = null; },
           onError: (err) => {
             setTranscript((cur) => {
               const next = cur.slice();
@@ -86,6 +140,7 @@ export function useChat(): UseChatResult {
               return next;
             });
             ctx.setBusy(false);
+            sendingRef.current = false;
             sseRef.current = null;
           },
         },
@@ -101,6 +156,15 @@ export function useChat(): UseChatResult {
     if (ctx.state.sessionId) {
       void fetchJSON("/chat/cancel", { method: "POST", body: { sessionId: ctx.state.sessionId } });
     }
+  }, [ctx]);
+
+  // Detaches the local stream without sending a real /chat/cancel — used
+  // when navigating away while merely watching a reattached background turn
+  // (not one this tab actively initiated), so the backend turn keeps running.
+  const detachOnly = useCallback(() => {
+    sseRef.current?.abort();
+    sseRef.current = null;
+    ctx.setBusy(false);
   }, [ctx]);
 
   const sendSteer = useCallback(async (text: string) => {
@@ -126,12 +190,12 @@ export function useChat(): UseChatResult {
   );
 
   const startNewChatInWorkspace = useCallback(async (cwd: string) => {
-    if (ctx.state.busy) cancel();
+    if (ctx.state.busy) { if (sendingRef.current) cancel(); else detachOnly(); }
     setTranscript([]);
     await ctx.init(null, cwd);
     const base = cwd.split("/").filter(Boolean).pop() ?? cwd;
     ctx.setTitle(`Chat: ${base}`);
-  }, [ctx, cancel]);
+  }, [ctx, cancel, detachOnly]);
 
   const openSessionInNewTab = useCallback((sessionId: string) => {
     const params = new URLSearchParams();
@@ -157,10 +221,10 @@ export function useChat(): UseChatResult {
   }, [ctx.state.cwd, ctx.state.backendName, ctx.state.currentModel]);
 
   const switchSession = useCallback(async (sessionId: string) => {
-    if (ctx.state.busy) cancel();
+    if (ctx.state.busy) { if (sendingRef.current) cancel(); else detachOnly(); }
     setTranscript([]);
     await ctx.init(sessionId);
-  }, [ctx, cancel]);
+  }, [ctx, cancel, detachOnly]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     await fetchJSON(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
@@ -184,11 +248,11 @@ export function useChat(): UseChatResult {
       await forkCurrent();
       return;
     }
-    if (ctx.state.busy) cancel();
+    if (ctx.state.busy) { if (sendingRef.current) cancel(); else detachOnly(); }
     setTranscript([]);
     await ctx.init(null, ctx.state.cwd ?? undefined, ctx.state.backendName ?? undefined);
     ctx.setTitle("New chat");
-  }, [ctx, cancel, forkCurrent]);
+  }, [ctx, cancel, detachOnly, forkCurrent]);
 
   const setModel = useCallback(async (modelId: string) => {
     if (!ctx.state.sessionId) return;

@@ -103,6 +103,12 @@ try {
 }
 const elicitationResultFile = process.env.X_FAKE_AGENT_ELICITATION_RESULT_FILE || null;
 
+const eventLogFile = process.env.X_FAKE_AGENT_EVENT_LOG_FILE || null;
+function logEvent(method) {
+  if (!eventLogFile) return;
+  fs.appendFileSync(eventLogFile, JSON.stringify({ method, t: Date.now() }) + "\n");
+}
+
 let nextId = 1;
 let nextSessionId = 1;
 let nextAgentRequestId = 1;
@@ -270,6 +276,7 @@ rl.on("line", async (line) => {
     return;
   }
 
+  logEvent(msg.method);
   switch (msg.method) {
     case "initialize":
       reply(msg.id, {

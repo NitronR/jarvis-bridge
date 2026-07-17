@@ -23,6 +23,19 @@ export interface SendMessageOptions {
   images?: PromptImageAttachment[];
 }
 
+export interface ActiveTurnHandle {
+  // Patches produced by this turn so far, oldest first (snapshot at call time).
+  patches: ChatPatch[];
+  // Register to receive patches emitted after this call, replacing any
+  // previous registration (single viewer, latest wins). Pass null to mark
+  // this caller as a connected-but-passive viewer (e.g. the original
+  // /chat/send request, which already receives patches by iterating the
+  // generator directly and doesn't need a push callback) — this still
+  // participates in the idle-turn grace-period bookkeeping. Returns a
+  // detach function to call when this viewer disconnects.
+  attach(onPatch: ((patch: ChatPatch) => void) | null): () => void;
+}
+
 export type ChatHistoryEntry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; patches: ChatPatch[] };
@@ -43,6 +56,7 @@ export interface AgentSession {
   ): boolean;
   getSlashCommands?(): Array<{ name: string; description?: string }>;
   consumeReplayHistory?(): ChatHistoryEntry[];
+  getActiveTurn?(): ActiveTurnHandle | null;
   close(): Promise<void>;
 }
 

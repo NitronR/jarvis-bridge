@@ -6,7 +6,7 @@ import express, { type Express, type Request, type Response } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { AgentBackend, AgentSession, UsageTotals } from "./agent/types";
+import type { AgentBackend, AgentSession, ChatPatch, UsageTotals } from "./agent/types";
 import type { BackendRegistry } from "./agent/backendRegistry";
 import type { ToolHandler } from "./types";
 import type { SessionConfigStore, SessionMetadataPatch } from "./agent/sessionConfigStore";
@@ -66,26 +66,22 @@ export function createServer(opts: CreateServerOptions): Express {
     let resumed = false;
     let effectiveCwd: string;
     if (q.sessionId) {
-      // The browser only sends `cwd` for a one-shot new-tab handoff — a plain
-      // reload sends just `sessionId`. Fall back to the cwd persisted at
-      // session-creation time so resuming a session rooted in a non-default
-      // workspace doesn't silently reload it against `workspace` (or, worse,
-      // the agent process's own launch directory).
       effectiveCwd = requestedCwd ?? opts.sessionConfig?.getSessionCwd(q.sessionId) ?? workspace;
-      // Route to the backend that created this session (never the current
-      // default) so changing the default backend can't migrate existing
-      // sessions. findSession() lazy-spawns every known profile's pool
-      // (see backendRegistry.ts) so the owner is always reachable, not
-      // just within the lifetime of the eagerly-spawned default pool.
       const owner = await registry.findSession(q.sessionId);
       backend = owner ? owner.backend : await registry.getDefaultBackend(effectiveCwd);
       backendName = owner ? owner.backendName : registry.getDefaultBackendName();
-      // Always go through loadSession (when supported) rather than reusing an
-      // in-memory resident session — loadSession is what triggers the agent
-      // to replay its persisted history, which we capture below. Reusing a
-      // resident session (e.g. reloading the tab you're already in) would
-      // otherwise silently skip the replay and return no history.
-      if (backend.loadSession) {
+      const resident = owner ? await registry.getSession(q.sessionId) : null;
+      const liveTurn = resident?.getActiveTurn?.() ?? null;
+      if (liveTurn) {
+        // A turn is still streaming in this process — reuse the resident
+        // session as-is. Calling loadSession() here would replace its
+        // SessionContext and orphan the in-flight turn's patch pump (see
+        // docs/acp-notes.md). History is limited to this turn's buffered
+        // tail in this branch; prior settled turns aren't replayed here —
+        // they were already shown before this reload.
+        session = resident!;
+        resumed = true;
+      } else if (backend.loadSession) {
         session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd });
         resumed = true;
       } else {
@@ -131,6 +127,10 @@ export function createServer(opts: CreateServerOptions): Express {
     const storedOverride = opts.sessionConfig?.getAutoApproveOverride(session.id);
     if (storedOverride !== undefined) backend.setSessionAutoApprove?.(session.id, storedOverride);
     const history = session.consumeReplayHistory?.() ?? [];
+    const liveTurnForResponse = session.getActiveTurn?.() ?? null;
+    if (liveTurnForResponse && liveTurnForResponse.patches.length > 0) {
+      history.push({ kind: "assistant", patches: liveTurnForResponse.patches });
+    }
     const models = backend.getSessionModels?.(session.id) ?? null;
     const slashCommands = session.getSlashCommands
       ? session.getSlashCommands()
@@ -149,6 +149,7 @@ export function createServer(opts: CreateServerOptions): Express {
       cwd: effectiveCwd,
       resumed,
       history,
+      activeTurn: liveTurnForResponse != null,
       customTitle: opts.sessionConfig?.getMetadata(session.id)?.customTitle ?? null,
       pinned: opts.sessionConfig?.getMetadata(session.id)?.pinned ?? false,
       group: opts.sessionConfig?.getMetadata(session.id)?.group ?? null,
@@ -193,41 +194,88 @@ export function createServer(opts: CreateServerOptions): Express {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    const signal = new AbortController();
-    req.on("close", () => signal.abort());
+    const writePatch = (patch: ChatPatch) => {
+      if (res.writableEnded || res.destroyed) return;
+      res.write(`data: ${JSON.stringify(patch)}\n\n`);
+      const pt = (patch as { type?: string }).type;
+      if (pt === "usage") {
+        opts.sessionConfig
+          ?.setLastUsage(sessionId, (patch as { usage: UsageTotals }).usage)
+          .catch(() => {});
+      }
+    };
+    // A disconnect (refresh, network blip, tab close) must not cancel the
+    // turn — only an explicit /chat/cancel does. This handler keeps
+    // iterating the generator to completion regardless of `res`'s state, so
+    // the turn (and its activeTurn buffering — see AcpAgentSession) keeps
+    // running; a reconnecting tab catches up via GET /chat/stream. `detach`
+    // marks this connection as no longer watching, arming the idle-turn
+    // grace-period reaper if nobody else attaches (see index.ts's
+    // getIdleTurnGraceMs()).
+    let detach: (() => void) | null = null;
+    let attached = false;
+    req.on("close", () => detach?.());
+
     try {
-      for await (const patch of session.sendMessage(body.message ?? "", {
-        signal: signal.signal,
+      const gen = session.sendMessage(body.message ?? "", {
         images: (body.images ?? []).map((i) => ({
           data: i.data,
           mimeType: i.mimeType,
           filename: i.filename,
         })),
-      })) {
-        const line = `data: ${JSON.stringify(patch)}\n\n`;
-        res.write(line);
-        const pt = (patch as { type?: string }).type;
-        if (pt === "usage") {
-          // Best-effort cache so the context-usage indicator survives a page
-          // reload — Claude's own session/load replay doesn't re-emit
-          // usage_update for past turns (see docs/acp-notes.md), so this is
-          // the only way stale-but-still-useful usage data outlives the
-          // live SSE stream. Fire-and-forget: must not slow the stream, and
-          // losing a cache write is harmless (just a stale/missing bar).
-          opts.sessionConfig
-            ?.setLastUsage(sessionId, (patch as { usage: UsageTotals }).usage)
-            .catch(() => {});
+      });
+      for await (const patch of gen) {
+        if (!attached) {
+          attached = true;
+          detach = session.getActiveTurn?.()?.attach(null) ?? null;
         }
+        writePatch(patch);
+        const pt = (patch as { type?: string }).type;
         if (pt === "done" || pt === "error") break;
       }
-      // Guarantee the SSE terminator.
-      res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
-      res.end();
+      if (!res.writableEnded) res.end();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      res.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
-      res.end();
+      writePatch({ type: "error", message } as ChatPatch);
+      if (!res.writableEnded) res.end();
     }
+  }));
+
+  // ── GET /chat/stream (reattach to an in-flight turn) ──────────────
+  app.get("/chat/stream", smallJson, asyncRoute(async (req, res) => {
+    const q = StreamQuerySchema.parse(req.query);
+    const session = await registry.getSession(q.sessionId);
+    if (!session) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    const handle = session.getActiveTurn?.();
+    if (!handle) {
+      res.status(404).json({ error: "no active turn" });
+      return;
+    }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const writePatch = (patch: ChatPatch) => {
+      if (res.writableEnded || res.destroyed) return;
+      res.write(`data: ${JSON.stringify(patch)}\n\n`);
+      const pt = (patch as { type?: string }).type;
+      if (pt === "usage") {
+        opts.sessionConfig
+          ?.setLastUsage(q.sessionId, (patch as { usage: UsageTotals }).usage)
+          .catch(() => {});
+      }
+      if ((pt === "done" || pt === "error") && !res.writableEnded) res.end();
+    };
+    // No await between the snapshot and attach() below — single-threaded JS
+    // guarantees no patch can arrive and be missed in that gap.
+    for (const p of handle.patches) writePatch(p);
+    const detach = handle.attach(writePatch);
+    req.on("close", () => detach());
   }));
 
   app.post("/chat/cancel", smallJson, asyncRoute(async (req, res) => {
@@ -690,4 +738,6 @@ const ToolsBodySchema = z.object({
 });
 
 const SetDefaultBackendBodySchema = z.object({ name: z.string().min(1) });
+
+const StreamQuerySchema = z.object({ sessionId: z.string() });
 

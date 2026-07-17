@@ -22,6 +22,7 @@ import {
   type AcpUpdate,
 } from "./mapping";
 import type {
+  ActiveTurnHandle,
   AgentBackend,
   AgentCapabilities,
   AgentSession,
@@ -78,6 +79,14 @@ interface SessionContext {
   modes?: { currentModeId?: string; availableModes?: Array<{ id: string; name?: string }> };
   // Pump plumbing
   wakeWaiter: (() => void) | null;
+  // In-flight turn state, buffered independent of any HTTP consumer — see
+  // docs/acp-notes.md and docs/superpowers/specs/2026-07-15-agent-stream-reconnect-design.md.
+  activeTurn: {
+    patches: ChatPatch[];
+    viewerCallback: ((patch: ChatPatch) => void) | null;
+    viewerToken: unknown;
+    idleTimer: NodeJS.Timeout | null;
+  } | null;
 }
 
 // ── Backend ──────────────────────────────────────────────────────────────
@@ -685,6 +694,7 @@ export class AcpAgentBackend implements AgentBackend {
       availableModels: undefined,
       currentModelId: undefined,
       wakeWaiter: null,
+      activeTurn: null,
     };
   }
 
@@ -727,6 +737,12 @@ function parseSessionConfig(res: SessionConfigResponse | undefined): {
       }
     : undefined;
   return { models, rawConfigOptions, modes: modesOut };
+}
+
+function getIdleTurnGraceMs(): number {
+  const raw = process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 5 * 60 * 1000;
 }
 
 function extractText(content: unknown): string {
@@ -781,7 +797,6 @@ export class AcpAgentSession implements AgentSession {
         yield { type: "error", message: "session is busy" };
         return;
       }
-      // Queue behind the in-flight turn; wait for our turn.
       await new Promise<void>((resolve) => this.turnQueue.push(resolve));
       if (this.closed) {
         yield { type: "error", message: "session is closed" };
@@ -791,20 +806,15 @@ export class AcpAgentSession implements AgentSession {
     this.ctx.busy = true;
     this.ctx.cancelRequested = false;
     resetTurnState(this.ctx.state);
+    this.ctx.activeTurn = { patches: [], viewerCallback: null, viewerToken: null, idleTimer: null };
 
     try {
-      // Build prompt blocks.
       const promptResult = buildAcpPrompt(message, opts?.images ?? [], {});
       if (!promptResult.ok) {
         yield { type: "error", message: promptResult.error };
         return;
       }
-      if (promptResult.skipped.length > 0) {
-        yield { type: "images-skipped", skipped: promptResult.skipped };
-      }
-      const blocks = promptResult.blocks;
 
-      // Set up pump bridge.
       const queue: ChatPatch[] = [];
       let wakeResolver: (() => void) | null = null;
       const makeWaiter = (): Promise<void> =>
@@ -812,11 +822,25 @@ export class AcpAgentSession implements AgentSession {
           wakeResolver = resolve;
         });
       let waiter = makeWaiter();
-      this.ctx.onPatch = (patches) => {
-        for (const p of patches) queue.push(p);
+      // Every patch destined for the client flows through here: buffered
+      // onto activeTurn (so a later reattach can catch up) and forwarded
+      // live to whichever viewer is currently attached, independent of
+      // whether the original caller is still pulling this generator.
+      const emit = (p: ChatPatch) => {
+        queue.push(p);
+        this.ctx.activeTurn?.patches.push(p);
+        this.ctx.activeTurn?.viewerCallback?.(p);
         const w = wakeResolver;
         wakeResolver = null;
         w?.();
+      };
+      if (promptResult.skipped.length > 0) {
+        emit({ type: "images-skipped", skipped: promptResult.skipped });
+      }
+      const blocks = promptResult.blocks;
+
+      this.ctx.onPatch = (patches) => {
+        for (const p of patches) emit(p);
       };
       let turnDone = false;
       const onAbort = () => {
@@ -828,34 +852,30 @@ export class AcpAgentSession implements AgentSession {
         else signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      // Issue the prompt.
       const promptPromise = this.backend
         .getConnection()
         .sendRequest("session/prompt", { sessionId: this.id, prompt: blocks })
         .then((result) => {
           const usagePatch = patchFromPromptResult(result as never, this.ctx.state);
-          if (usagePatch) queue.push(usagePatch);
+          if (usagePatch) emit(usagePatch);
         })
         .catch((err: unknown) => {
           if (err instanceof AcpRequestError) {
-            queue.push({ type: "error", message: err.message });
+            emit({ type: "error", message: err.message });
           } else if (err instanceof AcpConnectionClosedError) {
-            queue.push({ type: "error", message: "agent connection closed" });
+            emit({ type: "error", message: "agent connection closed" });
           } else if (this.ctx.cancelRequested) {
             // suppress cancellation-noise
           } else {
             const msg = err instanceof Error ? err.message : String(err);
-            queue.push({ type: "error", message: msg });
+            emit({ type: "error", message: msg });
           }
         })
         .finally(() => {
           turnDone = true;
-          const w = wakeResolver;
-          wakeResolver = null;
-          w?.();
+          emit({ type: "done" } as unknown as ChatPatch);
         });
 
-      // Drain loop.
       while (true) {
         while (queue.length > 0) {
           const p = queue.shift()!;
@@ -866,9 +886,6 @@ export class AcpAgentSession implements AgentSession {
         await waiter;
       }
 
-      // Always end with a sentinel `done` (the gateway layer surfaces this).
-      yield { type: "done" } as unknown as ChatPatch;
-
       await promptPromise.catch(() => {
         /* already handled */
       });
@@ -877,9 +894,36 @@ export class AcpAgentSession implements AgentSession {
     } finally {
       this.ctx.busy = false;
       this.ctx.onPatch = null;
+      if (this.ctx.activeTurn?.idleTimer) clearTimeout(this.ctx.activeTurn.idleTimer);
+      this.ctx.activeTurn = null;
       const next = this.turnQueue.shift();
       if (next) next();
     }
+  }
+
+  getActiveTurn(): ActiveTurnHandle | null {
+    const at = this.ctx.activeTurn;
+    if (!at) return null;
+    return {
+      patches: at.patches.slice(),
+      attach: (onPatch) => {
+        if (at.idleTimer) {
+          clearTimeout(at.idleTimer);
+          at.idleTimer = null;
+        }
+        const token = {};
+        at.viewerCallback = onPatch;
+        at.viewerToken = token;
+        return () => {
+          if (at.viewerToken !== token) return;
+          at.viewerCallback = null;
+          at.viewerToken = null;
+          at.idleTimer = setTimeout(() => {
+            void this.cancel();
+          }, getIdleTurnGraceMs());
+        };
+      },
+    };
   }
 
   async cancel(): Promise<void> {

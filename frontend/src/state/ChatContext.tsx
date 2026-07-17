@@ -24,6 +24,7 @@ export interface ChatState {
   pinned: boolean;
   group: string;
   resumed: boolean;
+  activeTurn: boolean;
   history: ChatHistoryEntry[];
   turnCounts: Record<string, number>;
   lastUsage: UsageTotals | null;
@@ -45,6 +46,7 @@ const INITIAL: ChatState = {
   pinned: false,
   group: "",
   resumed: false,
+  activeTurn: false,
   history: [],
   turnCounts: {},
   lastUsage: null,
@@ -173,6 +175,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           currentModel: d.model?.current || null,
           autoApprove: d.autoApprove,
           resumed: d.resumed,
+          activeTurn: d.activeTurn ?? false,
           history: d.history || [],
           title: d.customTitle || "New chat",
           pinned: d.pinned ?? false,
