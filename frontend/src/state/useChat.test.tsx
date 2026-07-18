@@ -175,6 +175,43 @@ describe("useChat", () => {
     expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/cancel", { method: "POST", body: { sessionId: "sess-1" } });
   });
 
+  it("cancel() resets sendingRef so a later reattach-only switch does not send a real cancel", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+    const abortFn1 = vi.fn();
+    fetchSSESpy = vi.spyOn(client, "fetchSSE").mockReturnValue({
+      abort: abortFn1,
+      done: new Promise(() => {}),
+    });
+
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init(); });
+    await act(async () => { await result.current.sendMessage("hi"); });
+    expect(result.current.busy).toBe(true);
+
+    // Stop button: aborts the send this tab initiated.
+    act(() => result.current.cancel());
+    fetchJSONSpy.mockClear();
+
+    // Reattach to a different session's background turn (busy set purely from watching).
+    fetchJSONSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...baseInit, sessionId: "sess-2", activeTurn: true },
+    });
+    const abortFn2 = vi.fn();
+    fetchSSESpy.mockReturnValue({ abort: abortFn2, done: new Promise(() => {}) });
+    await act(async () => { await result.current.switchSession("sess-2"); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.busy).toBe(true);
+    fetchJSONSpy.mockClear();
+
+    // Navigating away again must not issue a real /chat/cancel for a turn this tab never started.
+    await act(async () => { await result.current.switchSession("sess-3"); });
+
+    expect(abortFn2).toHaveBeenCalled();
+    expect(fetchJSONSpy).not.toHaveBeenCalledWith("/chat/cancel", expect.anything());
+  });
+
   it("resyncs via /chat/init when the reattach stream errors out (e.g. the turn already finished)", async () => {
     fetchJSONSpy.mockResolvedValue({
       ok: true,

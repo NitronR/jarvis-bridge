@@ -843,14 +843,6 @@ export class AcpAgentSession implements AgentSession {
         for (const p of patches) emit(p);
       };
       let turnDone = false;
-      const onAbort = () => {
-        void this.cancel();
-      };
-      const signal = opts?.signal;
-      if (signal) {
-        if (signal.aborted) onAbort();
-        else signal.addEventListener("abort", onAbort, { once: true });
-      }
 
       const promptPromise = this.backend
         .getConnection()
@@ -889,8 +881,6 @@ export class AcpAgentSession implements AgentSession {
       await promptPromise.catch(() => {
         /* already handled */
       });
-
-      if (signal) signal.removeEventListener("abort", onAbort);
     } finally {
       this.ctx.busy = false;
       this.ctx.onPatch = null;

@@ -36,10 +36,6 @@ export class FakeSession implements AgentSession {
     this.activeTurnPatches = [];
     try {
       for (const p of this.opts.patches) {
-        if (opts?.signal?.aborted) {
-          yield { type: "error", message: "aborted" };
-          return;
-        }
         if (this.opts.patchDelayMs > 0) {
           await new Promise((r) => setTimeout(r, this.opts.patchDelayMs));
         }

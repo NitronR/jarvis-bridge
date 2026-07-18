@@ -19,7 +19,6 @@ export interface AgentCapabilities {
 }
 
 export interface SendMessageOptions {
-  signal?: AbortSignal;
   images?: PromptImageAttachment[];
 }
 

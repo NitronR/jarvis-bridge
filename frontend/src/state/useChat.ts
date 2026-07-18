@@ -153,6 +153,7 @@ export function useChat(): UseChatResult {
     sseRef.current?.abort();
     sseRef.current = null;
     ctx.setBusy(false);
+    sendingRef.current = false;
     if (ctx.state.sessionId) {
       void fetchJSON("/chat/cancel", { method: "POST", body: { sessionId: ctx.state.sessionId } });
     }
