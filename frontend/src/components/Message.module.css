@@ -1,25 +1,49 @@
-.message { display: flex; flex-direction: column; gap: 6px; }
-.user { align-items: flex-end; }
-.role {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+}
+.message.user {
+  flex-direction: row-reverse;
+}
+/* Kept for test compatibility and as a future hook — the visual error treatment now
+   lives in Timeline's .errorMsg (danger-tinted box), since there's no single wrapping
+   bubble left around an assistant turn to tint. */
+.message.error {
+}
+.avatarSpacer {
+  width: 28px; /* keep in sync with ui/Avatar.module.css's .avatar width */
+  height: 28px;
+  flex-shrink: 0;
+}
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 76%;
+  min-width: 0;
+}
+.message.user .column {
+  align-items: flex-end;
 }
 .bubble {
-  max-width: 80%;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 8px 12px;
+  border-radius: var(--radius-bubble);
+  padding: var(--space-5) var(--space-7);
+  font-size: var(--font-size-5);
+  line-height: 1.45;
   word-wrap: break-word;
 }
-.user .bubble {
+.message.user .bubble {
   background: var(--color-accent-tint);
-  border-color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-bottom-right-radius: var(--radius-md);
 }
-.error .bubble { border-color: var(--color-danger); color: var(--color-danger); }
-.attachments { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.attachments {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
 .attachments img {
   max-width: 120px;
   max-height: 120px;

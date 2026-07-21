@@ -32,4 +32,16 @@ describe("<Message>", () => {
     );
     expect(container.firstElementChild?.className).toMatch(/error/);
   });
+
+  it("shows the avatar by default", () => {
+    const { getByLabelText } = render(<Message entry={{ role: "user", text: "hi" }} />);
+    expect(getByLabelText("You")).toBeInTheDocument();
+  });
+
+  it("hides the avatar when showAvatar is false", () => {
+    const { queryByLabelText } = render(
+      <Message entry={{ role: "user", text: "hi" }} showAvatar={false} />,
+    );
+    expect(queryByLabelText("You")).not.toBeInTheDocument();
+  });
 });
