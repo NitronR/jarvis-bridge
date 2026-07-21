@@ -7,6 +7,7 @@ import path from "node:path";
 export interface AppConfig {
   port: number;
   workspace: string;
+  systemDir: string;
   agentsConfigPath: string;
   defaultBackendEnv?: string;
   autoApprove: boolean;
@@ -30,11 +31,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const workspace = expandHome(
     env.JARVIS_BRIDGE_WORKSPACE ?? "~/.jarvis-bridge",
   );
+  // Sibling to `workspace`, never nested under it — deliberately outside
+  // pathGuard's boundary so agents.json/settings.json/session_metadata.json
+  // (backend spawn commands, potential secrets in agents.json's `env`) are
+  // never reachable through the agent's own sandboxed file tools.
+  const systemDir = expandHome(
+    env.JARVIS_BRIDGE_SYSTEM_DIR ?? "~/.jarvis-bridge-system",
+  );
   const port = Number(env.PORT ?? 3001);
-  const agentsConfigPath = env.JARVIS_BRIDGE_AGENTS_CONFIG ?? "./agents.json";
+  const agentsConfigPath =
+    env.JARVIS_BRIDGE_AGENTS_CONFIG ?? path.join(systemDir, "config", "agents.json");
   return {
     port,
     workspace,
+    systemDir,
     agentsConfigPath,
     defaultBackendEnv: env.JARVIS_BRIDGE_DEFAULT_BACKEND?.trim() || undefined,
     autoApprove: boolOpt(env.AGENT_AUTO_APPROVE),

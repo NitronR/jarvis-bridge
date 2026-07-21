@@ -25,22 +25,26 @@ import { attachTerminalServer } from "./terminal";
 async function main(): Promise<void> {
   const cfg = loadConfig();
 
-  // 1. Ensure workspace dir exists (agent cwd + tools realpath root).
+  // 1. Ensure workspace + system dirs exist. `workspace` is the agent cwd +
+  // tools realpath root; `systemDir/config` holds agents.json and friends,
+  // kept outside the agent's sandbox (see src/config.ts).
   await fs.mkdir(cfg.workspace, { recursive: true });
+  await fs.mkdir(path.join(cfg.systemDir, "config"), { recursive: true });
   console.log(`[jarvis-bridge] workspace ${cfg.workspace}`);
 
   // 2. Load backend profiles + the runtime default-backend setting.
   const profiles = await loadBackendProfiles(cfg.agentsConfigPath);
   const settings = await createSettingsStore({
-    path: path.join(cfg.workspace, "settings.json"),
+    path: path.join(cfg.systemDir, "settings.json"),
     envDefault: cfg.defaultBackendEnv ?? profiles[0].name,
     validNames: profiles.map((p) => p.name),
   });
 
   // 3a. Session-scoped config (auto-approve default/overrides, session
-  // metadata) — persisted to the workspace dir so it survives restarts.
+  // metadata) — persisted to the system dir so it survives restarts and
+  // stays out of the agent's own sandboxed file tools.
   const sessionConfig = await createSessionConfigStore({
-    path: path.join(cfg.workspace, "session_metadata.json"),
+    path: path.join(cfg.systemDir, "session_metadata.json"),
     envDefault: cfg.autoApprove,
   });
 

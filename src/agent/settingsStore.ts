@@ -1,5 +1,5 @@
 // Small runtime-mutable settings file (currently just the default backend
-// name) living in the workspace dir. Mirrors the existing auto-approve
+// name) living in the system dir. Mirrors the existing auto-approve
 // pattern: an env var seeds the initial value, the runtime can override it
 // without a restart.
 

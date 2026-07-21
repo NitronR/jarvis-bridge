@@ -1,6 +1,6 @@
 // Session-scoped configuration store. Mirrors the runtime-mutable pattern
 // of settingsStore (env seeds the initial value, the runtime can override
-// without a restart, persists to the workspace dir so overrides survive
+// without a restart, persists to the system dir so overrides survive
 // page refreshes / gateway restarts).
 //
 // v1 surface is auto-approve-shaped (the only consumer today). Future
