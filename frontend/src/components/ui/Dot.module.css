@@ -1,0 +1,19 @@
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.idle { background: var(--dot-idle); }
+.ok { background: var(--dot-ok); }
+.bad { background: var(--dot-bad); }
+.progress {
+  background: transparent;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--dot-progress);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

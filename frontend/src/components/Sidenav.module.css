@@ -55,15 +55,6 @@
   font-size: 15px;
   white-space: nowrap;
 }
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-}
-.dot.ok { background: var(--color-success); }
-.dot.bad { background: var(--color-danger); }
 .groupLabel {
   padding: 10px 16px 4px;
   font-size: 11px;

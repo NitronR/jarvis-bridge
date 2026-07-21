@@ -1,5 +1,6 @@
 import type { Route } from "../routes";
 import styles from "./Sidenav.module.css";
+import { Dot } from "./ui/Dot";
 
 export interface SidenavProps {
   current: Route;
@@ -10,15 +11,12 @@ export interface SidenavProps {
 }
 
 export function Sidenav({ current, onNavigate, healthOk, collapsed, onToggleCollapsed }: SidenavProps) {
-  const dotClass =
-    healthOk === null ? styles.dot
-    : healthOk ? `${styles.dot} ${styles.ok}`
-    : `${styles.dot} ${styles.bad}`;
+  const healthStatus = healthOk === null ? "idle" : healthOk ? "ok" : "bad";
 
   return (
     <aside className={collapsed ? `${styles.sidenav} ${styles.collapsed}` : styles.sidenav}>
       <div className={styles.topRow}>
-        <span data-testid="health-dot" className={dotClass} />
+        <Dot status={healthStatus} data-testid="health-dot" />
         <button
           type="button"
           className={styles.collapseToggle}
