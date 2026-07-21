@@ -6,14 +6,54 @@
   display: flex;
   flex-direction: column;
   padding: 12px 0;
+  overflow: hidden;
+  transition: width 200ms ease;
+}
+.sidenav.collapsed {
+  width: 40px;
+}
+.topRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 12px;
+  flex-shrink: 0;
+}
+.collapseToggle {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.collapseToggle:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.navBody {
+  display: flex;
+  flex-direction: column;
+  min-width: calc(var(--sidenav-w) - 1px);
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+.sidenav.collapsed .navBody {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidenav, .navBody { transition: none; }
 }
 .brand {
   padding: 4px 16px 12px;
   font-weight: 700;
   font-size: 15px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  white-space: nowrap;
 }
 .dot {
   display: inline-block;

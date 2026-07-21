@@ -12,6 +12,24 @@ import { ChatProvider, useChatContext } from "./state/ChatContext";
 import { useHashRoute } from "./useHashRoute";
 import { useFavicon } from "./useFavicon";
 
+const SIDENAV_COLLAPSED_STORAGE_KEY = "jarvis.sidenavCollapsed";
+
+function safeGetStoredSidenavCollapsed(): boolean {
+  try {
+    return window.localStorage?.getItem(SIDENAV_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function safeSetStoredSidenavCollapsed(value: boolean): void {
+  try {
+    window.localStorage?.setItem(SIDENAV_COLLAPSED_STORAGE_KEY, String(value));
+  } catch {
+    // ignore (storage may be unavailable)
+  }
+}
+
 export function App() {
   return (
     <ChatProvider>
@@ -23,6 +41,14 @@ export function App() {
 function AppInner() {
   const { route, navigate } = useHashRoute();
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
+  const [sidenavCollapsed, setSidenavCollapsedState] = useState(() => safeGetStoredSidenavCollapsed());
+  const setSidenavCollapsed = useCallback((value: boolean | ((v: boolean) => boolean)) => {
+    setSidenavCollapsedState((prev) => {
+      const next = typeof value === "function" ? (value as (v: boolean) => boolean)(prev) : value;
+      safeSetStoredSidenavCollapsed(next);
+      return next;
+    });
+  }, []);
   const [cwd, setCwd] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
@@ -66,7 +92,13 @@ function AppInner() {
     <ToastProvider>
       <HealthDot onUpdate={onHealthUpdate} />
       <div style={{ display: "flex", height: "100vh" }}>
-        <Sidenav current={route} onNavigate={navigate} healthOk={healthOk} />
+        <Sidenav
+          current={route}
+          onNavigate={navigate}
+          healthOk={healthOk}
+          collapsed={sidenavCollapsed}
+          onToggleCollapsed={() => setSidenavCollapsed((v) => !v)}
+        />
         <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
           {route === "chat" && <ChatPanel />}
           {route === "status" && <StatusPanel active={true} />}
