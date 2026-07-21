@@ -51,6 +51,10 @@ describe("tokens.css", () => {
       expect(tokensCss).toContain(`${token}:`);
     }
   });
+
+  it("defines --radius-bubble for message bubbles and tool pills", () => {
+    expect(tokensCss).toContain("--radius-bubble: 16px");
+  });
 });
 
 describe("global.css token wiring", () => {
