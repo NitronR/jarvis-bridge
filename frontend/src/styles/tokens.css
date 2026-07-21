@@ -10,16 +10,76 @@
   --color-accent: #4ea3ff;
   --color-accent-strong: #2d8cff;
   --color-accent-tint: rgba(78, 163, 255, 0.15);
+  --color-accent-fg: #001020;
   --color-success: #3fb950;
+  --color-success-tint: rgba(63, 185, 80, 0.15);
   --color-warning: #d29922;
   --color-danger: #f85149;
+  --color-danger-tint: rgba(248, 81, 73, 0.15);
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --font-size-1: 10px;
+  --font-size-2: 11px;
+  --font-size-3: 12px;
+  --font-size-4: 13px;
+  --font-size-5: 14px;
+  --font-size-6: 15px;
+  --font-size-7: 16px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 14px;
+  --space-8: 16px;
+  --space-9: 20px;
+  --space-10: 24px;
+
   --radius-sm: 2px;
   --radius-md: 4px;
   --radius-lg: 6px;
+  --radius-full: 999px;
+
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+
   --sidenav-w: 220px;
   --chat-composer-h: 96px;
   --header-h: 44px;
+
+  --button-primary-bg: var(--color-accent);
+  --button-primary-bg-hover: var(--color-accent-strong);
+  --button-primary-border: var(--color-accent-strong);
+  --button-primary-fg: var(--color-accent-fg);
+  --button-danger-border: var(--color-danger);
+  --button-danger-fg: var(--color-danger);
+
+  --pill-neutral-bg: var(--color-surface-1);
+  --pill-neutral-fg: var(--color-text-muted);
+  --pill-accent-bg: var(--color-accent-tint);
+  --pill-accent-fg: var(--color-accent);
+  --pill-success-bg: var(--color-success-tint);
+  --pill-success-fg: var(--color-success);
+  --pill-danger-bg: var(--color-danger-tint);
+  --pill-danger-fg: var(--color-danger);
+
+  --dot-idle: var(--color-text-muted);
+  --dot-ok: var(--color-success);
+  --dot-bad: var(--color-danger);
+  --dot-progress: var(--color-accent);
+
+  --avatar-user-bg: var(--color-accent-tint);
+  --avatar-user-border: var(--color-accent);
+  --avatar-user-fg: var(--color-accent);
+  --avatar-assistant-bg: var(--color-surface-3);
+  --avatar-assistant-border: var(--color-border-strong);
+  --avatar-assistant-fg: var(--color-text);
 }
