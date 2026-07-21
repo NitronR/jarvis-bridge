@@ -44,6 +44,7 @@ export function Transcript(props: TranscriptProps) {
         <Message
           key={idx}
           entry={entry}
+          showAvatar={idx === 0 || props.entries[idx - 1].role !== entry.role}
           onApproval={props.onApproval}
           onElicitation={props.onElicitation}
           onSteerAck={props.onSteerAck}

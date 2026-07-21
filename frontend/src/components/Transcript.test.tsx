@@ -24,4 +24,37 @@ describe("<Transcript>", () => {
     expect(screen.getByText("hi")).toBeInTheDocument();
     expect(screen.getByText("hello")).toBeInTheDocument();
   });
+
+  it("shows the avatar only on the first message of a consecutive same-role run", () => {
+    render(
+      <Transcript
+        entries={[
+          { role: "assistant", patches: [{ type: "text-start", index: 0, content: "first" }] },
+          { role: "assistant", patches: [{ type: "text-start", index: 0, content: "second" }] },
+        ]}
+        onApproval={vi.fn()}
+        onElicitation={vi.fn()}
+        onSteerAck={vi.fn()}
+        onImagesSkipped={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByLabelText("Assistant")).toHaveLength(1);
+  });
+
+  it("shows an avatar on each message when roles alternate", () => {
+    render(
+      <Transcript
+        entries={[
+          { role: "user", text: "hi" },
+          { role: "assistant", patches: [{ type: "text-start", index: 0, content: "hello" }] },
+        ]}
+        onApproval={vi.fn()}
+        onElicitation={vi.fn()}
+        onSteerAck={vi.fn()}
+        onImagesSkipped={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByLabelText("You")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Assistant")).toHaveLength(1);
+  });
 });
