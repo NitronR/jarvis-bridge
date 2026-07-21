@@ -1,0 +1,22 @@
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-2);
+  font-weight: var(--font-weight-semibold);
+  border: 1px solid transparent;
+}
+.user {
+  background: var(--avatar-user-bg);
+  border-color: var(--avatar-user-border);
+  color: var(--avatar-user-fg);
+}
+.assistant {
+  background: var(--avatar-assistant-bg);
+  border-color: var(--avatar-assistant-border);
+  color: var(--avatar-assistant-fg);
+}
