@@ -59,6 +59,25 @@ describe("<Composer>", () => {
     expect(onRemove).toHaveBeenCalledWith(0);
   });
 
+  it("attaches dropped image files", () => {
+    const onAttachFiles = vi.fn();
+    render(<Composer {...baseProps} onAttachFiles={onAttachFiles} />);
+    const form = screen.getByPlaceholderText(/type a message/i).closest("form")!;
+    const imageFile = new File(["data"], "photo.png", { type: "image/png" });
+    const textFile = new File(["data"], "notes.txt", { type: "text/plain" });
+    fireEvent.drop(form, { dataTransfer: { files: [imageFile, textFile], types: ["Files"] } });
+    expect(onAttachFiles).toHaveBeenCalledWith([imageFile]);
+  });
+
+  it("does not attach dropped files when images are unsupported", () => {
+    const onAttachFiles = vi.fn();
+    render(<Composer {...baseProps} imagesSupported={false} onAttachFiles={onAttachFiles} />);
+    const form = screen.getByPlaceholderText(/type a message/i).closest("form")!;
+    const imageFile = new File(["data"], "photo.png", { type: "image/png" });
+    fireEvent.drop(form, { dataTransfer: { files: [imageFile], types: ["Files"] } });
+    expect(onAttachFiles).not.toHaveBeenCalled();
+  });
+
   it("renders no quick-phrase pills when none are saved", () => {
     render(<Composer {...baseProps} />);
     expect(screen.queryByRole("button", { name: "run the tests" })).not.toBeInTheDocument();

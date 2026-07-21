@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type DragEvent, type FormEvent } from "react";
 import type { ImageAttachment, UsageTotals } from "../api/types";
 import { loadQuickPhrases, saveQuickPhrases } from "../state/quickPhrases";
 import { QuickPhrasesRow } from "./QuickPhrasesRow";
@@ -31,6 +31,8 @@ export function Composer(props: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [phrases, setPhrases] = useState<string[]>(() => loadQuickPhrases());
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
 
   const dispatch = (trimmed: string) => {
     if (steerEnabled) void onSteer(trimmed);
@@ -67,8 +69,47 @@ export function Composer(props: ComposerProps) {
     setText("");
   };
 
+  const hasFiles = (ev: DragEvent) => Array.from(ev.dataTransfer.types).includes("Files");
+
+  const onDragEnter = (ev: DragEvent) => {
+    if (!imagesSupported || !hasFiles(ev)) return;
+    ev.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  };
+
+  const onDragOver = (ev: DragEvent) => {
+    if (!imagesSupported || !hasFiles(ev)) return;
+    ev.preventDefault();
+  };
+
+  const onDragLeave = (ev: DragEvent) => {
+    if (!imagesSupported || !hasFiles(ev)) return;
+    ev.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+
+  const onDrop = (ev: DragEvent) => {
+    if (!imagesSupported) return;
+    ev.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const files = Array.from(ev.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (files.length > 0) onAttachFiles(files);
+  };
+
   return (
-    <form className={styles.form} onSubmit={submit} autoComplete="off">
+    <form
+      className={dragging ? `${styles.form} ${styles.dragging}` : styles.form}
+      onSubmit={submit}
+      autoComplete="off"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragging && <div className={styles.dropOverlay}>Drop images to attach</div>}
       <div className={styles.attachments}>
         {attachments.map((img, idx) => (
           <div key={idx} className={styles.attachment}>

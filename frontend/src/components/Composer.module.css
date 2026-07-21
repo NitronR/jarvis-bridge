@@ -1,4 +1,5 @@
 .form {
+  position: relative;
   border-top: 1px solid var(--color-border);
   background: var(--color-surface-1);
   padding: 8px 12px;
@@ -6,6 +7,23 @@
   flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
+}
+.form.dragging {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -2px;
+}
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-1);
+  opacity: 0.92;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  pointer-events: none;
 }
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; }
 .attachment {

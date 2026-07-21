@@ -48,6 +48,24 @@ function safeSetStoredFollowChat(value: boolean): void {
   }
 }
 
+const INFO_HIDDEN_STORAGE_KEY = "jarvis.infoHidden";
+
+function safeGetStoredInfoHidden(): boolean {
+  try {
+    return window.localStorage?.getItem(INFO_HIDDEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function safeSetStoredInfoHidden(value: boolean): void {
+  try {
+    window.localStorage?.setItem(INFO_HIDDEN_STORAGE_KEY, String(value));
+  } catch {
+    // ignore (storage may be unavailable)
+  }
+}
+
 export function ChatPanel() {
   return <ChatPanelInner />;
 }
@@ -56,7 +74,14 @@ function ChatPanelInner() {
   const chat = useChat();
   const toast = useToast();
   const ctx = chat.context;
-  const [infoHidden, setInfoHidden] = useState(false);
+  const [infoHidden, setInfoHiddenState] = useState(() => safeGetStoredInfoHidden());
+  const setInfoHidden = useCallback((value: boolean | ((v: boolean) => boolean)) => {
+    setInfoHiddenState((prev) => {
+      const next = typeof value === "function" ? (value as (v: boolean) => boolean)(prev) : value;
+      safeSetStoredInfoHidden(next);
+      return next;
+    });
+  }, []);
   const [followChat, setFollowChatState] = useState(() => safeGetStoredFollowChat());
   const setFollowChat = useCallback((value: boolean | ((v: boolean) => boolean)) => {
     setFollowChatState((prev) => {
@@ -449,7 +474,7 @@ function ChatPanelInner() {
             onToggleSteer={() => setSteerEnabled((v) => !v)}
           />
         </div>
-        <div className={infoHidden ? styles.infoHidden : ""}>
+        <div className={infoHidden ? `${styles.infoWrap} ${styles.infoHidden}` : styles.infoWrap} aria-hidden={infoHidden}>
           <InfoPanel
             state={ctx.state}
             title={ctx.state.title}

@@ -1,7 +1,16 @@
 .panel { display: flex; flex: 1; flex-direction: column; overflow: hidden; }
-.stage { display: grid; grid-template-columns: 1fr 280px; flex: 1; overflow: hidden; }
-.main { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--color-border); }
-.infoHidden { display: none; }
+.stage { display: flex; flex: 1; overflow: hidden; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--color-border); }
+.infoWrap {
+  width: 280px;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 200ms ease;
+}
+.infoWrap.infoHidden { width: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .infoWrap { transition: none; }
+}
 .header {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   height: var(--header-h); border-bottom: 1px solid var(--color-border);
