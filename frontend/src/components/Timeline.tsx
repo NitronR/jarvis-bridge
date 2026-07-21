@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import { Markdown } from "../markdown";
 import type { ChatPatch, UsageTotals } from "../api/types";
+import { Pill } from "./ui/Pill";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
@@ -208,7 +209,7 @@ export function Timeline({ patches, onApproval, onElicitation, onSteerAck, onIma
       {state.bubbles.map((b, i) => renderBubble(b, i))}
       {state.usage && (
         <div className={styles.usage}>
-          {usagePills(state.usage).map((s, i) => <span key={i}>{s}</span>)}
+          {usagePills(state.usage).map((s, i) => <Pill key={i} tone="neutral">{s}</Pill>)}
         </div>
       )}
       {state.error && <div className={styles.errorMsg}>{state.error}</div>}

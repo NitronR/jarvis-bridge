@@ -58,15 +58,8 @@
 .err { color: var(--color-danger); }
 .usage {
   display: flex;
-  gap: 6px;
-  font-size: 11px;
+  gap: var(--space-3);
   color: var(--color-text-muted);
-}
-.usage span {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 1px 8px;
 }
 .errorMsg {
   color: var(--color-danger);
