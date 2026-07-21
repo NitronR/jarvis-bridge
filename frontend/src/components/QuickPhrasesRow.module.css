@@ -2,7 +2,7 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   overflow: hidden;
   position: relative;
 }
@@ -15,20 +15,20 @@
   height: 22px;
   min-width: 0;
   padding: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   background: var(--color-surface-2);
   color: var(--color-text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-5);
   line-height: 1;
   cursor: pointer;
 }
 .addInput {
   height: 22px;
   min-width: 140px;
-  font-size: 12px;
-  padding: 0 8px;
-  border-radius: 999px;
+  font-size: var(--font-size-3);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface-2);
   color: var(--color-text);
@@ -36,12 +36,12 @@
 .pill {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-1);
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 2px 4px 2px 10px;
-  font-size: 12px;
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-5);
+  font-size: var(--font-size-3);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -50,7 +50,7 @@
   border: none;
   padding: 0;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-3);
   color: var(--color-text);
   cursor: pointer;
   max-width: 220px;
@@ -60,10 +60,10 @@
 .delete {
   background: none;
   border: none;
-  padding: 0 4px;
+  padding: 0 var(--space-2);
   min-width: 0;
   line-height: 1;
-  font-size: 13px;
+  font-size: var(--font-size-4);
   color: var(--color-danger);
   cursor: pointer;
 }
@@ -73,9 +73,9 @@
   align-items: center;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 12px;
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--font-size-3);
   flex-shrink: 0;
   color: var(--color-text-muted);
 }
@@ -83,14 +83,14 @@
   position: absolute;
   bottom: 100%;
   right: 0;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2);
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: 6px;
+  padding: var(--space-3);
   z-index: 10;
   min-width: 160px;
 }
@@ -101,7 +101,7 @@
   height: 0;
   overflow: hidden;
   display: flex;
-  gap: 4px;
+  gap: var(--space-2);
   white-space: nowrap;
   pointer-events: none;
   top: 0;
