@@ -319,7 +319,7 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/steer", smallJson, asyncRoute(async (req, res) => {
     const body = SteerBodySchema.parse(req.body ?? {});
-    const entry = await resolveSessionEntry(registry, body.sessionId);
+    const entry = await resolveSessionEntry(registry, body.sessionId, opts.sessionConfig);
     if (!entry?.summary || !entry.backend.capabilities.steer) {
       res.json({ ok: true, accepted: false, reason: "unsupported" });
       return;
@@ -336,7 +336,7 @@ export function createServer(opts: CreateServerOptions): Express {
   // ── Models ────────────────────────────────────────────────────────
   app.get("/chat/model", smallJson, asyncRoute(async (req, res) => {
     const q = ModelQuerySchema.parse(req.query);
-    const entry = await resolveSessionEntry(registry, q.sessionId);
+    const entry = await resolveSessionEntry(registry, q.sessionId, opts.sessionConfig);
     if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
@@ -351,7 +351,7 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/model", smallJson, asyncRoute(async (req, res) => {
     const body = ModelPostBodySchema.parse(req.body ?? {});
-    const entry = await resolveSessionEntry(registry, body.sessionId);
+    const entry = await resolveSessionEntry(registry, body.sessionId, opts.sessionConfig);
     if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
@@ -374,7 +374,7 @@ export function createServer(opts: CreateServerOptions): Express {
   // supported when the resolved session's backend advertises usageQuery.
   app.get("/chat/usage", smallJson, asyncRoute(async (req, res) => {
     const q = UsageQuerySchema.parse(req.query);
-    const entry = await resolveSessionEntry(registry, q.sessionId);
+    const entry = await resolveSessionEntry(registry, q.sessionId, opts.sessionConfig);
     if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
@@ -401,7 +401,7 @@ export function createServer(opts: CreateServerOptions): Express {
       res.json({ ok: true, supported: true, default: def, override: null, effective: def, enabled: def });
       return;
     }
-    const entry = await resolveSessionEntry(registry, q.sessionId);
+    const entry = await resolveSessionEntry(registry, q.sessionId, opts.sessionConfig);
     if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
@@ -421,7 +421,7 @@ export function createServer(opts: CreateServerOptions): Express {
       res.json({ ok: true, supported: true, default: def, override: null, effective: def, enabled: def });
       return;
     }
-    const entry = await resolveSessionEntry(registry, body.sessionId);
+    const entry = await resolveSessionEntry(registry, body.sessionId, opts.sessionConfig);
     if (!entry) {
       res.status(404).json({ error: "session not found" });
       return;
@@ -456,7 +456,7 @@ export function createServer(opts: CreateServerOptions): Express {
 
   app.post("/chat/sessions/fork", smallJson, asyncRoute(async (req, res) => {
     const body = ForkBodySchema.parse(req.body ?? {});
-    const entry = await resolveSessionEntry(registry, body.sessionId);
+    const entry = await resolveSessionEntry(registry, body.sessionId, opts.sessionConfig);
     if (!entry) {
       res.status(404).json({ error: "source session not found" });
       return;
@@ -632,9 +632,29 @@ export function createServer(opts: CreateServerOptions): Express {
 async function resolveSessionEntry(
   registry: BackendRegistry,
   sessionId: string | undefined,
+  sessionConfig?: SessionConfigStore,
 ): Promise<import("./agent/backendRegistry").RegistrySessionEntry | null> {
   if (!sessionId) return null;
-  return registry.findSession(sessionId);
+  const owner = await registry.findSession(sessionId);
+  if (owner) return owner;
+  // findSession()'s ownership index is cwd-based: each resolved backend
+  // instance's session/list is filtered to its own spawn cwd (see
+  // AcpAgentBackend.listSessions()). That misses a session whose cwd (per
+  // the underlying agent) has drifted from the cwd it was created with in
+  // Jarvis Bridge — e.g. the agent used EnterWorktree mid-conversation.
+  // /chat/init works around exactly this by resuming via the persisted cwd
+  // on the default backend, which looks the session up by ID rather than by
+  // cwd match; mirror that fallback here so usage/model/auto-approve don't
+  // 404 for sessions that are otherwise still perfectly resumable.
+  const cwd = sessionConfig?.getSessionCwd(sessionId);
+  if (!cwd) return null;
+  const backend = await registry.getDefaultBackend(cwd);
+  return {
+    backend,
+    backendName: registry.getDefaultBackendName(),
+    cwd,
+    summary: { sessionId, cwd },
+  };
 }
 
 async function defaultSessionId(registry: BackendRegistry): Promise<string | null> {

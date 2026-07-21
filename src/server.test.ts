@@ -696,6 +696,66 @@ test("GET /chat/usage returns 404 for an unknown sessionId", async () => {
   }));
 });
 
+test("GET /chat/usage falls back to the persisted session cwd when findSession's cwd-based index misses the session", async () => {
+  // Regression: findSession() locates a session's owner via each backend
+  // instance's session/list filtered to its own spawn cwd (see
+  // AcpAgentBackend.listSessions()). If the underlying agent's own record
+  // of a session's cwd drifts from what Jarvis Bridge persisted at creation
+  // time (e.g. the agent entered a git worktree mid-conversation via
+  // EnterWorktree), findSession no longer finds it — even though the
+  // session is otherwise perfectly resumable, since session/load looks a
+  // session up by ID, not by cwd (see /chat/init). resolveSessionEntry must
+  // fall back to the persisted cwd + default backend in that case, same as
+  // /chat/init already does.
+  const ws = await mkWorkspace();
+  let server: import("node:http").Server | undefined;
+  try {
+    const backend = new FakeBackend({
+      queryUsage: async () => ({ five_hour: { status: "allowed_warning", utilization: 0.4 } }),
+    });
+    const sessionConfig = await createSessionConfigStore({
+      path: path.join(ws, "session_metadata.json"),
+      envDefault: false,
+    });
+    const registry: import("./agent/backendRegistry").BackendRegistry = {
+      getDefaultBackendName: () => "fake",
+      setDefaultBackendName: async () => {},
+      listBackendNames: () => ["fake"],
+      getDefaultBackend: async () => backend,
+      getBackend: async () => backend,
+      listSessions: async () => [],
+      // Simulates the cwd-index miss: the session exists on this backend,
+      // but findSession's cwd-filtered lookup can no longer see it.
+      findSession: async () => null,
+      getSession: async (sessionId: string) => backend.getSession(sessionId),
+      deleteSession: async () => {},
+      shutdown: async () => {},
+    };
+    const tools = createToolRegistry(ws);
+    const app = createServer({ workspace: ws, port: 0, registry, tools, sessionConfig });
+    server = app.listen(0);
+    await new Promise<void>((resolve) => server!.on("listening", () => resolve()));
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no port");
+    const url = `http://127.0.0.1:${addr.port}`;
+
+    const created = await backend.createSession({ cwd: ws });
+    await sessionConfig.setSessionCwd(created.id, ws);
+
+    const res = await fetch(`${url}/chat/usage?sessionId=${created.id}`);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      rate_limits: { five_hour?: { utilization: number } } | null;
+    };
+    assert.equal(body.ok, true);
+    assert.equal(body.rate_limits?.five_hour?.utilization, 0.4);
+  } finally {
+    if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
 test("POST /chat/auto-approve sets and clears the override", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),
