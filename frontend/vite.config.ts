@@ -16,6 +16,7 @@ export default defineConfig({
       "/analytics": "http://localhost:3001",
       "/tools": "http://localhost:3001",
       "/settings": "http://localhost:3001",
+      "/terminal": { target: "ws://localhost:3001", ws: true },
     },
   },
   test: { environment: "jsdom", globals: true, setupFiles: ["./src/test-setup.ts"] },

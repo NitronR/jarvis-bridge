@@ -23,6 +23,14 @@ npm run test:web        # vitest --run
 ```
 Run a single frontend test: `cd frontend && npx vitest run src/path/to/File.test.tsx`
 
+`frontend/vite.config.ts`'s dev-server `proxy` block must list every backend route the
+frontend calls, or `npm run dev:web` (port 5173) will silently fail to reach it while
+the production build (served straight from the backend, one HTTP server, no proxy) works
+fine. WebSocket routes (e.g. `/terminal`) need the object form with `ws: true` — the
+string-shorthand form other routes use does not proxy upgrades, so an unproxied WS
+route hangs at "connecting" forever instead of failing fast (see
+`docs/archives/2026-07-18-terminal-ws-proxy-fix.md`).
+
 ## Backend configuration
 
 Multiple named agent backends can run side by side — `opencode` and Claude (via
@@ -60,11 +68,11 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   resolution, auth model, known wire-shape gotchas confirmed via live probe) and
   `docs/claude-acp-future-phases.md` for what's intentionally deferred.
 - Per-session API (JSON-RPC) traffic logging (`.logs/<sessionId>.log`, one JSONL entry
-  per request/response/notification) is hooked in generically at `AcpConnection` in
-  `src/agent/acp/jsonrpc.ts` (see `src/agent/acp/apiLog.ts`) rather than at individual
-  call sites, so it can't miss a method. Controlled by `JARVIS_BRIDGE_API_LOGS` (default
-  on) / `JARVIS_BRIDGE_API_LOGS_DIR` (default `.logs`, gitignored). Traffic that can't be
-  attributed to a sessionId (e.g. `initialize`) goes to `.logs/_unscoped.log`.
+  per request/response/notification) is **planned but not wired up**: `ApiSessionLogWriter`
+  exists in `src/agent/acp/apiLog.ts` but is never instantiated, `JARVIS_BRIDGE_API_LOGS` /
+  `JARVIS_BRIDGE_API_LOGS_DIR` are read nowhere in `src/`, and `logsDir` isn't threaded
+  through `backendPool.ts`'s `getOrCreate`. Don't assume traffic logs exist until this is
+  actually hooked into `AcpConnection` in `src/agent/acp/jsonrpc.ts`.
 
 ## Code style
 
@@ -87,9 +95,10 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   paths outside it as untrusted targets.
 - Ask first before adding a new external integration surface (new HTTP route class, new token
   type) — these expand the gateway's attack surface beyond the current chat/terminal/Slack set.
-- `.logs/*.log` (per-session API traffic logs) contain raw request/response payloads —
-  prompt text, file contents, tool args/output. Treat them like `.env`: never commit,
-  never paste into issues/PRs, and be careful before sharing them for debugging.
+- `.logs/*.log` (per-session API traffic logs) would contain raw request/response payloads —
+  prompt text, file contents, tool args/output — once wired up (see Backend configuration
+  above; currently dead code). Treat them like `.env` when that lands: never commit, never
+  paste into issues/PRs, and be careful before sharing them for debugging.
 
 ## Commit guidelines
 
