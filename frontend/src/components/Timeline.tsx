@@ -2,6 +2,7 @@ import { useMemo, useRef } from "react";
 import { Markdown } from "../markdown";
 import type { ChatPatch, UsageTotals } from "../api/types";
 import { Pill } from "./ui/Pill";
+import { Dot, type DotStatus } from "./ui/Dot";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
@@ -162,17 +163,12 @@ function renderBubble(b: Bubble, key: number): JSX.Element {
         </details>
       );
     case "tool": {
-      const status = !b.result ? "in-progress" : b.result.ok ? "success" : "fail";
-      const toolClass = status === "in-progress"
-        ? `${styles.tool} ${styles.toolInProgress}`
-        : status === "success"
-        ? `${styles.tool} ${styles.toolSuccess}`
-        : `${styles.tool} ${styles.toolError}`;
+      const status: DotStatus = !b.result ? "progress" : b.result.ok ? "ok" : "bad";
       return (
-        <details key={key} className={toolClass}>
+        <details key={key} className={styles.tool}>
           <summary>
-            {b.toolName}
-            {status === "in-progress" && <span className={styles.spinner} />}
+            <Dot status={status} />
+            <span className={styles.toolName}>{b.toolName}</span>
           </summary>
           {b.argsText && <pre className={styles.toolArgs}>{b.argsText}</pre>}
           {b.result && (

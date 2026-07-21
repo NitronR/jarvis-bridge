@@ -1,5 +1,17 @@
-.timeline { display: flex; flex-direction: column; gap: 8px; }
-.text { word-wrap: break-word; }
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.text {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-bubble);
+  border-bottom-left-radius: var(--radius-md);
+  padding: var(--space-5) var(--space-7);
+  font-size: var(--font-size-5);
+  line-height: 1.45;
+  word-wrap: break-word;
+}
 .text a, .text a:visited {
   color: var(--color-accent);
   text-decoration: none;
@@ -8,51 +20,38 @@
 .thought {
   font-style: italic;
   color: var(--color-text-muted);
-  border-left: 2px solid var(--color-border);
-  padding-left: 10px;
+  font-size: var(--font-size-3);
 }
-.thought summary { cursor: pointer; user-select: none; font-weight: 600; }
+.thought summary { cursor: pointer; user-select: none; font-weight: var(--font-weight-semibold); }
 .tool {
   background: var(--color-surface-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  font-size: 13px;
+  border-radius: var(--radius-bubble);
+  padding: var(--space-4) var(--space-6);
+  font-size: var(--font-size-3);
 }
-.tool summary { cursor: pointer; user-select: none; font-weight: 600; }
+.tool summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  user-select: none;
+}
+.toolName {
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
 .toolArgs {
-  margin: 4px 0 0;
+  margin: var(--space-3) 0 0;
   color: var(--color-text-muted);
   white-space: pre-wrap;
   word-break: break-all;
-  font-size: 12px;
+  font-size: var(--font-size-2);
 }
 .toolResult {
-  margin-top: 6px;
-  padding-top: 6px;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--color-border);
-}
-.toolError { border-color: var(--color-danger); }
-.toolError summary { color: var(--color-danger); }
-.toolInProgress {
-  border-color: var(--color-accent);
-}
-.toolSuccess {
-  border-color: var(--color-success);
-}
-.spinner {
-  display: inline-block;
-  margin-left: 8px;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  vertical-align: middle;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 .ok { color: var(--color-success); }
 .err { color: var(--color-danger); }
@@ -62,8 +61,10 @@
   color: var(--color-text-muted);
 }
 .errorMsg {
+  background: var(--color-danger-tint);
   color: var(--color-danger);
   border: 1px solid var(--color-danger);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  border-radius: var(--radius-bubble);
+  border-bottom-left-radius: var(--radius-md);
+  padding: var(--space-5) var(--space-7);
 }
