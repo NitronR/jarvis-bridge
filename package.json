@@ -2,13 +2,19 @@
   "name": "jarvis-bridge",
   "version": "0.1.0",
   "private": true,
+  "workspaces": ["frontend"],
   "main": "dist/index.js",
+  "bin": {
+    "jarvis-bridge": "./bin/jarvis-bridge.js"
+  },
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test 'src/**/*.test.ts'",
+    "test": "TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test 'src/**/*.test.ts' 'scripts/**/*.test.js'",
+    "setup": "node scripts/setup.js",
+    "postinstall": "node scripts/setup.js",
     "dev:web": "cd frontend && npm run dev",
     "build:web": "cd frontend && npm run build",
     "preview:web": "cd frontend && npm run preview",

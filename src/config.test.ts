@@ -13,7 +13,11 @@ test("loadConfig applies defaults when no env provided", () => {
   const cfg = loadConfig(env({}));
   assert.equal(cfg.port, 3001);
   assert.equal(cfg.workspace, path.join(os.homedir(), ".jarvis-bridge"));
-  assert.equal(cfg.agentsConfigPath, "./agents.json");
+  assert.equal(cfg.systemDir, path.join(os.homedir(), ".jarvis-bridge-system"));
+  assert.equal(
+    cfg.agentsConfigPath,
+    path.join(os.homedir(), ".jarvis-bridge-system", "config", "agents.json"),
+  );
   assert.equal(cfg.defaultBackendEnv, undefined);
   assert.equal(cfg.autoApprove, false);
   assert.equal(cfg.shell, true);
@@ -61,4 +65,26 @@ test("ensureWorkspace creates the workspace dir if missing", async () => {
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
+});
+
+test("loadConfig applies ~/.jarvis-bridge-system default for systemDir and derives agentsConfigPath from it", () => {
+  const cfg = loadConfig(env({}));
+  assert.equal(cfg.systemDir, path.join(os.homedir(), ".jarvis-bridge-system"));
+  assert.equal(
+    cfg.agentsConfigPath,
+    path.join(os.homedir(), ".jarvis-bridge-system", "config", "agents.json"),
+  );
+});
+
+test("loadConfig respects JARVIS_BRIDGE_SYSTEM_DIR (with ~ expansion)", () => {
+  const cfg = loadConfig(env({ JARVIS_BRIDGE_SYSTEM_DIR: "~/my-sys" }));
+  assert.equal(cfg.systemDir, path.join(os.homedir(), "my-sys"));
+  assert.equal(cfg.agentsConfigPath, path.join(os.homedir(), "my-sys", "config", "agents.json"));
+});
+
+test("loadConfig: explicit JARVIS_BRIDGE_AGENTS_CONFIG still overrides the systemDir-derived default", () => {
+  const cfg = loadConfig(
+    env({ JARVIS_BRIDGE_SYSTEM_DIR: "~/my-sys", JARVIS_BRIDGE_AGENTS_CONFIG: "./custom-agents.json" }),
+  );
+  assert.equal(cfg.agentsConfigPath, "./custom-agents.json");
 });

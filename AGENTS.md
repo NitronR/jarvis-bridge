@@ -11,11 +11,11 @@ Backend (repo root):
 npm run dev          # ts-node src/index.ts
 npm run build         # tsc -> dist/
 npm run typecheck     # tsc --noEmit
-npm test              # node --test over src/**/*.test.ts (TS_NODE_TRANSPILE_ONLY=true)
+npm test              # node --test over src/**/*.test.ts + scripts/**/*.test.js (TS_NODE_TRANSPILE_ONLY=true)
 ```
 Run a single backend test file: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test src/agent/acp/index.test.ts`
 
-Frontend (`frontend/`, separate npm workspace — not an npm workspaces link, just a subdir with its own `package.json`):
+Frontend (`frontend/`, an npm workspace — root `npm install` installs its dependencies too):
 ```
 npm run dev:web        # or: cd frontend && npm run dev
 npm run build:web
@@ -38,11 +38,13 @@ Multiple named agent backends can run side by side — `opencode` and Claude (vi
 capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcoded
 `kind` branch in shared code (`src/server.ts`, `src/agent/acp/mapping.ts`).
 
-- `agents.json` (copy from `agents.json.example`; gitignored) lists named backend
-  profiles: `{ name, kind, command, args, env }`. `src/agent/backendConfig.ts` loads it.
-- `settings.json` (gitignored, runtime-writable) holds the user's default-backend
-  override, settable via `GET/PUT /settings/default-backend`.
-- `session_metadata.json` (gitignored, in the workspace dir) persists auto-approve
+- `agents.json` (default `~/.jarvis-bridge-system/config/agents.json`, scaffolded by
+  `scripts/setup.js` — see below) lists named backend profiles:
+  `{ name, kind, command, args, env }`. `src/agent/backendConfig.ts` loads it.
+- `settings.json` (default `~/.jarvis-bridge-system/settings.json`, runtime-writable)
+  holds the user's default-backend override, settable via `GET/PUT /settings/default-backend`.
+- `session_metadata.json` (default `~/.jarvis-bridge-system/session_metadata.json`)
+  persists auto-approve
   state (backend-wide default + per-session overrides) and session metadata
   (`customTitle`/`pinned`/`group`) via `src/agent/sessionConfigStore.ts`
   (`createSessionConfigStore`). It must be constructed in `src/index.ts` and passed
@@ -67,6 +69,14 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
 - See `docs/agent-claude-code.md` for the Claude-specific binding profile (spawn
   resolution, auth model, known wire-shape gotchas confirmed via live probe) and
   `docs/claude-acp-future-phases.md` for what's intentionally deferred.
+- `~/.jarvis-bridge-system/` (default; override via `JARVIS_BRIDGE_SYSTEM_DIR`) is a
+  sibling of the agent's sandboxed workspace (`~/.jarvis-bridge`, `JARVIS_BRIDGE_WORKSPACE`),
+  never nested under it — this keeps `agents.json`'s backend spawn commands/env (which can
+  carry secrets) and `settings.json`/`session_metadata.json` outside what the agent's own
+  `readFile`/`writeFile` tools can reach via `pathGuard`. `scripts/setup.js` migrates
+  pre-existing files from the old locations (repo-root `agents.json`, workspace-nested
+  `settings.json`/`session_metadata.json`) into the new layout on first run — see
+  `docs/superpowers/specs/2026-07-21-setup-simplification-design.md`.
 - Per-session API (JSON-RPC) traffic logging (`.logs/<sessionId>.log`, one JSONL entry
   per request/response/notification) is **planned but not wired up**: `ApiSessionLogWriter`
   exists in `src/agent/acp/apiLog.ts` but is never instantiated, `JARVIS_BRIDGE_API_LOGS` /
@@ -85,8 +95,11 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
 ## Security / boundaries
 
 - **Never** commit `.env` or log its contents — see `.env.example` for the documented variable
-  list (`JARVIS_BRIDGE_DEFAULT_BACKEND`, `SLACK_BOT_TOKEN`, etc.). `.env*` and `agents.json`/
-  `settings.json` are gitignored except the `.example` templates.
+  list (`JARVIS_BRIDGE_DEFAULT_BACKEND`, `SLACK_BOT_TOKEN`, etc.). `.env*` is repo-relative and
+  gitignored except the `.example` template. `agents.json`/`settings.json`/`session_metadata.json`
+  default to `~/.jarvis-bridge-system/` (outside the repo entirely — see Backend configuration
+  above), so they're not repo files by default; `agents.json` still has a `.gitignore` entry for
+  the rare case `JARVIS_BRIDGE_AGENTS_CONFIG` is pointed back at a repo-relative path.
 - File tools (`src/tools/readFile.ts`, `writeFile.ts`) are sandboxed to the workspace root via
   `src/tools/pathGuard.ts`, which resolves symlinks before checking containment. **Don't**
   weaken or bypass this guard when adding new file-touching tools — add the new tool through
