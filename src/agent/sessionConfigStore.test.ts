@@ -255,3 +255,68 @@ test("setMetadata ignores non-string customTitle / non-boolean pinned / non-stri
   assert.equal(store.getMetadata("sess-A"), undefined);
   assert.deepEqual(store.getMetadata("sess-B"), { customTitle: "ok", pinned: true, group: "ok" });
 });
+
+test("getGroups returns empty array when no groups exist", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(store.getGroups(), []);
+});
+
+test("addGroup adds a group and persists across reload", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  const groups = await store.addGroup("bugfix");
+  assert.deepEqual(groups, ["bugfix"]);
+  assert.deepEqual(store.getGroups(), ["bugfix"]);
+
+  const reloaded = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(reloaded.getGroups(), ["bugfix"]);
+});
+
+test("addGroup deduplicates case-insensitively", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  await store.addGroup("Bugfix");
+  const groups = await store.addGroup("bugfix");
+  assert.deepEqual(groups, ["Bugfix"]);
+  assert.equal(store.getGroups().length, 1);
+});
+
+test("addGroup rejects empty and whitespace-only names", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  await assert.rejects(() => store.addGroup(""), /non-empty/);
+  await assert.rejects(() => store.addGroup("   "), /non-empty/);
+  assert.deepEqual(store.getGroups(), []);
+});
+
+test("addGroup maintains insertion order", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  await store.addGroup("feature");
+  await store.addGroup("bugfix");
+  await store.addGroup("research");
+  assert.deepEqual(store.getGroups(), ["feature", "bugfix", "research"]);
+});
+
+test("sanitizes malformed groups on load", async () => {
+  const p = await tmpPath();
+  await fs.writeFile(
+    p,
+    JSON.stringify({ groups: ["ok", 42, null, "also-ok"] }),
+    "utf8",
+  );
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(store.getGroups(), ["ok", "also-ok"]);
+});
+
+test("ignores non-array groups on load", async () => {
+  const p = await tmpPath();
+  await fs.writeFile(
+    p,
+    JSON.stringify({ groups: "not-an-array" }),
+    "utf8",
+  );
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(store.getGroups(), []);
+});

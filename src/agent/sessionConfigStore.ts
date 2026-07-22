@@ -33,6 +33,8 @@ export interface SessionConfigStore {
   setSessionCwd(sessionId: string, cwd: string): Promise<void>;
   getLastUsage(sessionId: string): UsageTotals | undefined;
   setLastUsage(sessionId: string, usage: UsageTotals): Promise<void>;
+  getGroups(): string[];
+  addGroup(name: string): Promise<string[]>;
 }
 
 interface PersistedFileShape {
@@ -47,6 +49,7 @@ interface PersistedFileShape {
   }>;
   cwds?: Record<string, string>;
   usage?: Record<string, unknown>;
+  groups?: unknown;
 }
 
 function sanitizeUsage(raw: unknown): UsageTotals | undefined {
@@ -103,6 +106,11 @@ function sanitizeMetadata(raw: unknown): SessionMetadata | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function sanitizeGroups(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((g): g is string => typeof g === "string" && g.trim().length > 0);
+}
+
 export async function createSessionConfigStore(opts: {
   path: string;
   envDefault: boolean;
@@ -137,6 +145,7 @@ export async function createSessionConfigStore(opts: {
     const sanitized = sanitizeUsage(raw);
     if (sanitized) lastUsage.set(sid, sanitized);
   }
+  const groups: string[] = sanitizeGroups(persisted.groups);
 
   async function persist(): Promise<void> {
     const data: PersistedFileShape = {
@@ -147,6 +156,7 @@ export async function createSessionConfigStore(opts: {
       metadata: Object.fromEntries(metadata),
       cwds: Object.fromEntries(sessionCwds),
       usage: Object.fromEntries(lastUsage),
+      groups,
     };
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
   }
@@ -208,6 +218,19 @@ export async function createSessionConfigStore(opts: {
     async setLastUsage(sessionId: string, usage: UsageTotals): Promise<void> {
       lastUsage.set(sessionId, usage);
       await persist();
+    },
+    getGroups(): string[] {
+      return [...groups];
+    },
+    async addGroup(name: string): Promise<string[]> {
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error("group name must be non-empty");
+      const existing = groups.find((g) => g.toLowerCase() === trimmed.toLowerCase());
+      if (!existing) {
+        groups.push(trimmed);
+        await persist();
+      }
+      return [...groups];
     },
   };
 }
