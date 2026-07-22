@@ -59,17 +59,16 @@ changes).
 `frontend/src/components/ui/Button.tsx`
 
 ```tsx
-<Button>Cancel</Button>
-<Button variant="primary">Send</Button>
-<Button variant="danger">Stop</Button>
+<button>Cancel</button>                     // default: outlined, 4px radius
+<Button variant="primary">Send</Button>     // accent background, bold
+<Button variant="danger">Stop</Button>      // danger border/text
 ```
 
-Renders pixel-identically to the existing raw `<button>` styling in `global.css` (same
-padding, same border). **Not yet adopted by any call site** — `InfoPanel`/`Composer`/
-`ChatPanel` still use raw `<button className="primary">`. This is intentional per the
-design-system plan's incremental-adoption approach, not an oversight; migrate a call site
-onto `Button` next time that file is touched for another reason, rather than doing a
-dedicated sweep.
+Renders with `--radius-md` (4px rounding), smooth hover/focus transitions, a
+`--color-accent` focus-visible ring, and a subtle `:active` scale press. First adopted by
+`ChatPanel`'s header toolbar (Phase 3: Header/Toolbar Cleanup). `InfoPanel`/`Composer` still
+use raw `<button>` — migrate onto `Button` whenever those files are next touched, rather
+than as a standalone sweep.
 
 ## `Pill`
 
@@ -93,7 +92,7 @@ class's box model) intentionally stays a bare `<span>`, tokenized but not swappe
 `<Pill>` — forcing it through `Pill`'s generic `children`-only API would risk breaking the
 width measurement for no visual gain.
 
-## Conventions shared by all four primitives
+## Conventions shared by all five primitives
 
 - One `.tsx` + one `.module.css` + one `.test.tsx`, in `ui/`.
 - Variant/tone/status/role prop is optional with a sensible default, typed as a string
