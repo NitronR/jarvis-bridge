@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test 'src/**/*.test.ts' 'scripts/**/*.test.js'",
     "setup": "node scripts/setup.js",
-    "postinstall": "node scripts/setup.js && npm run build:web",
+    "postinstall": "node scripts/setup.js > /tmp/jb-setup-out.log 2>&1; echo \"[trace] setup.js exit $?\" >> /tmp/jb-trace.log; npm run build:web > /tmp/jb-buildweb-out.log 2>&1; echo \"[trace] build:web exit $?\" >> /tmp/jb-trace.log",
     "dev:web": "cd frontend && npm run dev",
     "build:web": "cd frontend && npm run build",
     "preview:web": "cd frontend && npm run preview",
