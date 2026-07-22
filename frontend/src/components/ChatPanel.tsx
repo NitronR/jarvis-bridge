@@ -12,6 +12,7 @@ import { WorkspacesDrawer } from "./WorkspacesDrawer";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
 import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow } from "../api/types";
 import styles from "./ChatPanel.module.css";
+import { Button } from "./ui/Button";
 
 // Per-window field merge (not a wholesale replace) — a manual /chat/usage
 // refresh contributes {utilization, resetsAtText} while the passive
@@ -408,33 +409,41 @@ function ChatPanelInner() {
         <div className={styles.main}>
           <div className={styles.header}>
             <h1>{ctx.state.title || "New chat"}</h1>
-            <button onClick={() => setInfoHidden((v) => !v)}>Info</button>
-            <button
+            {/* Primary group */}
+            <Button variant="primary" onClick={onNewChat}>＋ New</Button>
+            <Button
+              variant={followChat ? "primary" : "default"}
               onClick={() => setFollowChat((v) => !v)}
-              className={followChat ? "primary" : ""}
               title={followChat ? "Following chat — click to stop auto-scrolling" : "Not following — click to auto-scroll to latest"}
             >
-              Follow
-            </button>
-            <button onClick={openPastChats}>Chats</button>
-            <button onClick={onNewChat}>+ New</button>
-            <button
+              ↓ Follow
+            </Button>
+            <Button variant="primary" onClick={openPastChats}>☰ Chats</Button>
+            {/* Divider */}
+            <span className={styles.divider} />
+            {/* Secondary group */}
+            <Button onClick={() => setInfoHidden((v) => !v)}>Info</Button>
+            <Button
               onClick={onNewChatInWorkspace}
               disabled={!ctx.state.capabilities?.customWorkingDirectory || pickingFolder}
             >
               + New in...
-            </button>
-            <button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork || chat.busy}>Fork</button>
-            <button
+            </Button>
+            <Button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork || chat.busy}>Fork</Button>
+            <Button
+              variant={steerEnabled ? "primary" : "default"}
               onClick={() => setSteerEnabled((v) => !v)}
               disabled={!ctx.state.capabilities?.steer}
-              className={steerEnabled ? "primary" : ""}
             >
               Steer
-            </button>
-            <button onClick={() => void chat.setAutoApprove(!ctx.state.autoApprove.effective)} disabled={!ctx.state.capabilities?.toolApprovals}>
-              {ctx.state.autoApprove.effective ? "AA✓" : "AA"}
-            </button>
+            </Button>
+            <Button
+              variant={ctx.state.autoApprove.effective ? "primary" : "default"}
+              onClick={onAutoApproveToggle}
+              disabled={!ctx.state.capabilities?.toolApprovals}
+            >
+              {ctx.state.autoApprove.effective ? "✓ Auto-approve" : "Auto-approve"}
+            </Button>
           </div>
           <ChatsDrawer open={pastChatsOpen} sessions={sessions} recentWorkspaces={recentWorkspaces} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onOpenInNewTab={onOpenSessionInNewTab} onDelete={onDeleteSession} canDelete={!!ctx.state.capabilities?.sessionDelete} getTurnCount={ctx.getTurnCount} />
           <WorkspacesDrawer
@@ -453,6 +462,7 @@ function ChatPanelInner() {
             entries={chat.transcript}
             loading={ctx.state.loading}
             follow={followChat}
+            backendKind={ctx.state.backendKind}
             onApproval={onApproval}
             onElicitation={onElicitation}
             onSteerAck={onSteerAck}

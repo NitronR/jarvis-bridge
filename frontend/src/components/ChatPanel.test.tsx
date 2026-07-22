@@ -154,7 +154,7 @@ describe("<ChatPanel>", () => {
       await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
       const initCallsBefore = fetchSpy.mock.calls.filter(([u]) => String(u).startsWith("/chat/init")).length;
 
-      fireEvent.click(screen.getByText("Chats"));
+      fireEvent.click(screen.getByText("☰ Chats"));
       await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument());
       fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -162,6 +162,55 @@ describe("<ChatPanel>", () => {
         const initCallsAfter = fetchSpy.mock.calls.filter(([u]) => String(u).startsWith("/chat/init")).length;
         expect(initCallsAfter).toBeGreaterThan(initCallsBefore);
       });
+    });
+  });
+
+  describe("header toolbar", () => {
+    it("renders 8 buttons with a divider separating primary and secondary groups", async () => {
+      render(
+        <ToastProvider>
+          <ChatProvider>
+            <ChatPanel />
+          </ChatProvider>
+        </ToastProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+
+      // Primary group: New, Follow, Chats
+      expect(screen.getByText("＋ New")).toBeInTheDocument();
+      expect(screen.getByText("↓ Follow")).toBeInTheDocument();
+      expect(screen.getByText("☰ Chats")).toBeInTheDocument();
+
+      // Divider
+      expect(document.querySelector('[class*="divider"]')).toBeInTheDocument();
+
+      // Secondary group: Info, New in..., Fork, Steer, Auto-approve
+      expect(screen.getByText("Info")).toBeInTheDocument();
+      expect(screen.getByText("+ New in...")).toBeInTheDocument();
+      expect(screen.getByText("Fork")).toBeInTheDocument();
+      expect(screen.getByText("Steer")).toBeInTheDocument();
+      expect(screen.getByText("Auto-approve")).toBeInTheDocument();
+    });
+
+    it("toggles auto-approve button variant on click", async () => {
+      render(
+        <ToastProvider>
+          <ChatProvider>
+            <ChatPanel />
+          </ChatProvider>
+        </ToastProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+
+      const aaButton = screen.getByText("Auto-approve");
+      // Initially off — should not have primary variant class
+      expect(aaButton.className).not.toMatch(/primary/);
+
+      fireEvent.click(aaButton);
+      // After click — should show "✓ Auto-approve" and have primary variant
+      await waitFor(() => expect(screen.getByText("✓ Auto-approve")).toBeInTheDocument());
+      const toggledButton = screen.getByText("✓ Auto-approve");
+      expect(toggledButton.className).toMatch(/primary/);
     });
   });
 });

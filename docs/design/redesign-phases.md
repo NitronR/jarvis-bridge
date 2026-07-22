@@ -31,16 +31,14 @@ consecutive-same-role grouping, double-box removal, `Dot`-based tool-call status
 - Plan: `docs/superpowers/plans/2026-07-21-transcript-redesign.md`
 - Archive: `docs/archives/2026-07-21-design-system-transcript-redesign.md`
 
-## Phase 3: Header/Toolbar Cleanup — Not started
+## Phase 3: Header/Toolbar Cleanup — Done (2026-07-21)
 
-`ChatPanel.tsx`'s header row: 9 flat buttons with no grouping, and a cryptic "AA✓"
-auto-approve label. Flagged as a real pain point during Phase 2's discovery stage but
-deferred to its own spec rather than bundled in, per that phase's Non-goals.
+Regrouped `ChatPanel.tsx`'s header from 8 flat buttons into primary/secondary groups with a
+divider, migrated onto `Button` primitive, replaced cryptic "AA✓" with self-explanatory
+"Auto-approve" toggle. Unicode icons on primary buttons (＋, ↓, ☰).
 
-- Needs: a `superpowers:brainstorming` session → written spec (with Non-goals and Edge
-  Cases sections, per `docs/design/philosophy.md`) → implementation plan.
-- Starting point per the transcript redesign spec's Follow-up note: regroup the 9 buttons
-  into primary/secondary groups with icons, replace "AA✓" with something self-explanatory.
+- Spec: `docs/superpowers/specs/2026-07-21-header-toolbar-cleanup-design.md`
+- Plan: `docs/superpowers/plans/2026-07-21-header-toolbar-cleanup.md`
 
 ## Phase 4: Composer + Info Panel Audit — Not started
 
@@ -55,8 +53,8 @@ Minor findings surfaced during Phase 1/2 review, explicitly deferred rather than
 Revisit opportunistically — when a listed file is next touched for another reason, or when
 one of these visibly matters (e.g., a new `Pill` tone is added).
 
-- **`Button` has zero call sites migrated.** `InfoPanel`, `Composer`, and `ChatPanel` still
-  use raw `<button>` elements. Migrate onto `Button` whenever one of those files is next
+- **`Button` call sites: `ChatPanel` migrated (Phase 3); `InfoPanel` and `Composer` still
+  use raw `<button>` elements.** Migrate onto `Button` whenever one of those files is next
   touched, rather than as a standalone migration pass.
 - **`Pill`'s `.neutral` tone is ~2px larger than other tones** — it has a border the other
   tones don't (`Pill.module.css`, added during Phase 1's Task 5 fix), no `box-sizing` offset.
