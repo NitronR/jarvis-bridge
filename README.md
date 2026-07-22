@@ -32,7 +32,7 @@ installing a new backend CLI).
 No local clone? Try it directly:
 
 ```bash
-npx github:bhanu-mac/jarvis_bridge
+npx github:NitronR/jarvis-bridge
 ```
 
 The gateway listens on `http://localhost:3001` by default.

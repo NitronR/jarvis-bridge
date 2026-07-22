@@ -173,5 +173,10 @@ module.exports = {
 };
 
 if (require.main === module) {
-  runSetup();
+  try {
+    runSetup();
+  } catch (err) {
+    process.stderr.write(`[jarvis-bridge setup] failed: ${err && err.stack ? err.stack : err}\n`);
+    process.exit(1);
+  }
 }
