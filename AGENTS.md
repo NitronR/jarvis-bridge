@@ -60,6 +60,14 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   and `PATCH /chat/sessions/:id` still work for the life of the process but silently
   stop persisting across gateway restarts (this happened for one release; see
   `docs/archives/2026-07-13-auto-approve-persistence-fix.md`).
+- The same `session_metadata.json` also persists a top-level, backend-wide **registered
+  groups list** (`string[]`, distinct from the per-session `group` field above — that field
+  holds a session's assigned group *name*, this list is the set of names a session can be
+  assigned to) via `getGroups()`/`addGroup()` on `SessionConfigStore`, exposed as
+  `GET`/`POST /chat/groups`. `addGroup` dedupes case-insensitively and persists; the frontend
+  fetches it into `ChatContext`'s `groups` state on `init()` and surfaces it via the
+  `InfoPanel` group dropdown ("+ Add Group…" dialog) and the `ChatsDrawer` Groups tab
+  (collapsible accordion, `jarvis.lastChatsTab` in `localStorage`).
 - `src/agent/backendRegistry.ts` composes one `BackendPool` (`src/agent/backendPool.ts`)
   per profile — lazy-spawns non-default backends on first use, eagerly spawns the
   default at startup.
@@ -85,6 +93,18 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   pre-existing files from the old locations (repo-root `agents.json`, workspace-nested
   `settings.json`/`session_metadata.json`) into the new layout on first run — see
   `docs/superpowers/specs/2026-07-21-setup-simplification-design.md`.
+- `npx github:NitronR/jarvis-bridge` (zero-clone trial, via `bin/jarvis-bridge.js`) installs
+  `jarvis-bridge` **as a dependency** of a synthetic npx wrapper package, not as the
+  top-level project — under that model npm skips `devDependencies` entirely and never
+  resolves `"workspaces": ["frontend"]`, so `frontend/node_modules` never gets created.
+  Any package the frontend build needs (`vite`, `@vitejs/plugin-react`, `typescript`,
+  `@types/*`, and runtime deps the production bundle imports like `@xterm/xterm`) must
+  live in **root** `package.json`'s `dependencies` — never `devDependencies`, and never
+  only in `frontend/package.json` — or the npx path silently breaks the next time a
+  frontend dependency is added. Verify with a fast local proxy before a real npx round
+  trip: `git archive HEAD | tar -x -C <scratch-dir>` then `npm install --omit=dev
+  --no-workspaces` in that scratch dir reproduces the exact same conditions. See
+  `docs/archives/2026-07-22-npx-zero-clone-install-fix.md` for the full debugging story.
 - Per-session API (JSON-RPC) traffic logging (`.logs/<sessionId>.log`, one JSONL entry
   per request/response/notification) is **planned but not wired up**: `ApiSessionLogWriter`
   exists in `src/agent/acp/apiLog.ts` but is never instantiated, `JARVIS_BRIDGE_API_LOGS` /
