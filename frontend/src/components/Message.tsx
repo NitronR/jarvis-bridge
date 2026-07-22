@@ -10,6 +10,7 @@ export type MessageEntry =
 export function Message({
   entry,
   showAvatar = true,
+  backendKind,
   onApproval,
   onElicitation,
   onSteerAck,
@@ -17,6 +18,7 @@ export function Message({
 }: {
   entry: MessageEntry;
   showAvatar?: boolean;
+  backendKind?: string | null;
   onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
   onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
@@ -60,6 +62,7 @@ export function Message({
       <div className={styles.column}>
         <Timeline
           patches={entry.patches}
+          backendKind={backendKind}
           onApproval={onApproval}
           onElicitation={onElicitation}
           onSteerAck={onSteerAck}

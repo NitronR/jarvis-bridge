@@ -55,6 +55,29 @@ Two related, easy-to-regress details about `GET /chat/init` in `src/server.ts`:
   `setSessionModel` call sites already handled this defensively, only this one didn't. Fixed
   2026-07-15.
 
+## `resolveSessionEntry` (usage/model/auto-approve/steer/fork) needs the same cwd fallback `/chat/init` has
+
+`registry.findSession(sessionId)` locates a session's owning backend by asking each already-
+resolved backend instance for `session/list`, then filtering results to **an exact match**
+against that instance's own spawn cwd (`AcpAgentBackend.listSessions()`,
+`src/agent/acp/index.ts`). That filter assumes a session's cwd is immutable for its lifetime.
+It isn't: if the agent uses a worktree-entering tool (e.g. `EnterWorktree`) mid-conversation,
+the underlying agent's own record of that session's cwd changes to the worktree path, while
+Jarvis Bridge's `session_metadata.json` still has whatever cwd the session was created with.
+After that, `findSession` can no longer see the session at all — even though it's still
+perfectly resumable, because `session/load` (used by `/chat/init`) looks a session up **by
+ID**, not by cwd.
+
+`GET /chat/init` already tolerates this: when `findSession` misses, it falls back to
+`opts.sessionConfig?.getSessionCwd(sessionId)` + the default backend, and `loadSession` finds
+the session anyway. But `resolveSessionEntry` — the same-purpose helper backing `/chat/usage`,
+`/chat/model` (GET+POST), `/chat/auto-approve` (GET+POST), `/chat/steer`, and
+`/chat/sessions/fork` — used to just return `registry.findSession(sessionId)` directly, with no
+such fallback, so all of those 404'd with "session not found" for a session whose cwd had
+drifted this way (symptom: chat loads fine, but the "refresh usage" button errors). Fixed
+2026-07-21 by giving `resolveSessionEntry` the identical persisted-cwd-plus-default-backend
+fallback — see `docs/archives/2026-07-21-usage-refresh-cwd-drift-fix.md`.
+
 ## Reconnecting to a streaming response: `activeTurn`, not another `loadSession()` call
 
 A disconnect (page refresh, network blip, tab close) must not cancel an in-flight turn, and
@@ -228,6 +251,28 @@ Both backends send `usage_update` at multiple points:
 - Mid-stream during `message_start`/`message_delta` (claude only)
 - On `rate_limit_event` (claude only)
 - After context compaction (claude only)
+
+## `_meta` on `session/update` now flows into tool-call patches
+
+In addition to the `rate_limit_event` path (see above), `_meta` from ACP `session/update`
+notifications is threaded into the `tool-call-start` and `tool-call-finalized` `ChatPatch`
+variants. This is done in `acpUpdateToPatches()` (`src/agent/acp/mapping.ts`), which copies
+`update._meta` into the patch's `meta` field for both the `tool_call` and `tool_call_update`
+cases.
+
+The `meta` field is optional (`meta?: Record<string, unknown>`) on both backend and frontend
+`ChatPatch` types. It is carried through `Bubble.meta` in `Timeline.tsx` and is available for
+backend-specific rendering in `renderBubble` — currently unused (prefixed `_backendKind` in
+the function signature), but the plumbing is in place.
+
+Known `_meta` content by backend:
+- **Claude**: `tool_call_update` carries `_meta.claudeCode.toolName` (the tool's display
+  name) and `_meta.claudeCode.locations` (file locations touched by the tool).
+- **opencode**: tool-call `_meta` is not populated by the current opencode ACP agent.
+
+Any new `ChatPatch` variant that needs backend-specific context from `_meta` should follow
+the same pattern: add `meta?: Record<string, unknown>` to the variant, copy `update._meta`
+in `acpUpdateToPatches`, and thread it into the frontend Bubble/patch type.
 
 ## `rate_limit_event` carries subscription quota via `usage_update._meta`
 

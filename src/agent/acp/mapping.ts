@@ -91,10 +91,18 @@ function extractText(content: AcpContent | AcpContent[] | undefined): string {
   return typeof content.text === "string" ? content.text : "";
 }
 
+function isEmptyRawInput(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) return true;
+  if (Array.isArray(v) && v.length === 0) return true;
+  return false;
+}
+
 function extractToolInput(update: AcpUpdate): unknown {
-  if (update.rawInput !== undefined) return update.rawInput;
-  if (update.toolCall?.rawInput !== undefined) return update.toolCall.rawInput;
-  if (update.toolCall?.input !== undefined) return update.toolCall.input;
+  if (!isEmptyRawInput(update.rawInput)) return update.rawInput;
+  const nested = update.toolCall;
+  if (nested && !isEmptyRawInput(nested.rawInput)) return nested.rawInput;
+  if (nested && !isEmptyRawInput(nested.input)) return nested.input;
   return undefined;
 }
 
@@ -163,6 +171,7 @@ export function acpUpdateToPatches(
         toolCallId,
         toolName,
         argsInitial: "",
+        meta: update._meta,
       });
       const finalArgs = extractToolInput(update);
       if (finalArgs !== undefined) {
@@ -171,6 +180,7 @@ export function acpUpdateToPatches(
           index: idx,
           toolCallId,
           args: finalArgs,
+          meta: update._meta,
         });
         state.finalizedToolCalls.add(toolCallId ?? `idx-${idx}`);
       }
@@ -191,6 +201,7 @@ export function acpUpdateToPatches(
             index: idx,
             toolCallId,
             args: finalArgs,
+            meta: update._meta,
           });
           state.finalizedToolCalls.add(key);
         }

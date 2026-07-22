@@ -3,10 +3,12 @@ import { Markdown } from "../markdown";
 import type { ChatPatch, UsageTotals } from "../api/types";
 import { Pill } from "./ui/Pill";
 import { Dot, type DotStatus } from "./ui/Dot";
+import { JsonView } from "./ui/JsonView";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
   patches: ChatPatch[];
+  backendKind?: string | null;
   onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
   onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
@@ -16,7 +18,7 @@ export interface TimelineProps {
 type Bubble =
   | { kind: "text"; content: string }
   | { kind: "thought"; content: string }
-  | { kind: "tool"; toolName: string; argsText: string; result?: { ok: boolean; text: string } };
+  | { kind: "tool"; toolName: string; argsText: string; argsRaw?: unknown; result?: { ok: boolean; text: string; raw?: unknown }; meta?: Record<string, unknown> };
 
 interface TimelineState {
   bubbles: Bubble[];
@@ -75,7 +77,7 @@ function buildTimelineState(
       }
       case "tool-call-start": {
         const args = p.argsInitial || "";
-        bubbles.push({ kind: "tool", toolName: p.toolName, argsText: args });
+        bubbles.push({ kind: "tool", toolName: p.toolName, argsText: args, meta: p.meta });
         if (p.toolCallId) toolsByCallId.set(p.toolCallId, bubbles.length - 1);
         currentText = null;
         break;
@@ -87,7 +89,9 @@ function buildTimelineState(
           target.argsText = p.args !== undefined
             ? JSON.stringify(p.args, null, 2)
             : (p.argsRaw ?? target.argsText);
+          if (p.args !== undefined) target.argsRaw = p.args;
           if (p.intent) target.toolName = p.intent;
+          if (p.meta) target.meta = { ...target.meta, ...p.meta };
         }
         break;
       }
@@ -99,6 +103,7 @@ function buildTimelineState(
           target.result = {
             ok: p.type === "tool-return",
             text: typeof p.content === "string" ? p.content : JSON.stringify(p.content, null, 2),
+            raw: p.content,
           };
         }
         break;
@@ -111,6 +116,7 @@ function buildTimelineState(
           result: {
             ok: true,
             text: typeof p.content === "string" ? p.content : JSON.stringify(p.content, null, 2),
+            raw: p.content,
           },
         });
         break;
@@ -151,7 +157,7 @@ function buildTimelineState(
   return { bubbles, usage, error };
 }
 
-function renderBubble(b: Bubble, key: number): JSX.Element {
+function renderBubble(b: Bubble, key: number, _backendKind?: string | null): JSX.Element {
   switch (b.kind) {
     case "text":
       return <div key={key} className={styles.text}><Markdown source={b.content} /></div>;
@@ -164,19 +170,20 @@ function renderBubble(b: Bubble, key: number): JSX.Element {
       );
     case "tool": {
       const status: DotStatus = !b.result ? "progress" : b.result.ok ? "ok" : "bad";
+      const argsContent = b.argsRaw !== undefined ? b.argsRaw : (b.argsText || null);
       return (
         <details key={key} className={styles.tool}>
           <summary>
             <Dot status={status} />
             <span className={styles.toolName}>{b.toolName}</span>
           </summary>
-          {b.argsText && <pre className={styles.toolArgs}>{b.argsText}</pre>}
+          {argsContent !== null && <JsonView content={argsContent} maxHeight={240} />}
           {b.result && (
             <div className={styles.toolResult}>
               <span className={b.result.ok ? styles.ok : styles.err}>
                 {b.result.ok ? "ok" : "error"}
-              </span>{" "}
-              {b.result.text}
+              </span>
+              <JsonView content={b.result.raw ?? b.result.text} maxHeight={320} copyButton />
             </div>
           )}
         </details>
@@ -194,7 +201,7 @@ function usagePills(u: UsageTotals): string[] {
   return out;
 }
 
-export function Timeline({ patches, onApproval, onElicitation, onSteerAck, onImagesSkipped }: TimelineProps) {
+export function Timeline({ patches, backendKind, onApproval, onElicitation, onSteerAck, onImagesSkipped }: TimelineProps) {
   const emittedRef = useRef<Set<ChatPatch>>(new Set());
   const state = useMemo(
     () => buildTimelineState(patches, { onApproval, onElicitation, onSteerAck, onImagesSkipped }, emittedRef.current),
@@ -202,7 +209,7 @@ export function Timeline({ patches, onApproval, onElicitation, onSteerAck, onIma
   );
   return (
     <div className={styles.timeline}>
-      {state.bubbles.map((b, i) => renderBubble(b, i))}
+      {state.bubbles.map((b, i) => renderBubble(b, i, backendKind))}
       {state.usage && (
         <div className={styles.usage}>
           {usagePills(state.usage).map((s, i) => <Pill key={i} tone="neutral">{s}</Pill>)}

@@ -92,6 +92,46 @@ class's box model) intentionally stays a bare `<span>`, tokenized but not swappe
 `<Pill>` — forcing it through `Pill`'s generic `children`-only API would risk breaking the
 width measurement for no visual gain.
 
+## `JsonView` — syntax-highlighted JSON renderer
+
+`frontend/src/components/ui/JsonView.tsx`
+
+```tsx
+<JsonView content={someObject} />
+<JsonView content={someObject} maxHeight={240} />
+<JsonView content={someObject} maxHeight={320} copyButton />
+```
+
+Zero-dependency recursive JSON renderer with syntax coloring and depth limiting.
+Consumed by `Timeline.tsx` for tool call args and results.
+
+- **Props**: `content: unknown` (raw value or string), `maxHeight?: number` (scrollable
+  overflow, default 320), `copyButton?: boolean` (shows a hover-visible copy-to-clipboard
+  button), `className?: string`.
+- **Depth limit**: objects/arrays beyond depth 3 collapse to `…N keys` / `…N items`.
+  Trivial values (strings, empty objects/arrays) render as plain `<span>` without
+  `JsonNode` recursion.
+- **Syntax tokens** use design-system CSS custom properties: `styles.str` (strings — blue),
+  `styles.num` (numbers — light blue), `styles.bool` (booleans — red), `styles.key` (object
+  keys — green), `styles.brace`/`styles.punc` (structural — muted), `styles.null`
+  (null/undefined/depth-collapsed — muted).
+- **Layout**: `.block` wraps content with padding, `.scrollable` enables overflow when
+  `maxHeight > 0`. The copy button (`.copyBtn`) is positioned top-right, visible on hover.
+- **Not a JSON tree viewer**: does not support expand/collapse per-node — intentionally
+  kept flat-rendered for simplicity and zero dependencies. If collapsible trees are needed
+  in the future, extend `JsonNode` rather than replacing with a library, since this
+  component is already the single point of control for tool rendering.
+- **Test**: `JsonView.test.tsx` is a follow-up task — no test exists yet.
+
+## `backendKind` threading
+
+`ChatState.backendKind` (set from `ChatInitResponse.backend.kind` during `GET /chat/init`)
+flows through `ChatContext` → `ChatPanel` → `Transcript` → `Message` → `Timeline`. The
+`TimelineProps.backendKind` prop is passed to `renderBubble` (currently as `_backendKind`,
+unused but available). This plumbing enables backend-specific rendering in `renderBubble`
+without further prop-threading — e.g., showing `_meta.claudeCode.toolName` for Claude or
+`locations[]` for opencode.
+
 ## Conventions shared by all five primitives
 
 - One `.tsx` + one `.module.css` + one `.test.tsx`, in `ui/`.

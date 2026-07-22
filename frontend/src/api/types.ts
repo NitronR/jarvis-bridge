@@ -71,10 +71,10 @@ export type ChatPatch =
   | { type: "text-delta"; index: number; delta: string }
   | { type: "thought-start"; index: number; content: string }
   | { type: "thought-delta"; index: number; delta: string }
-  | { type: "tool-call-start"; index: number; toolCallId: string | null; toolName: string; argsInitial: string }
+  | { type: "tool-call-start"; index: number; toolCallId: string | null; toolName: string; argsInitial: string; meta?: Record<string, unknown> }
   | { type: "tool-call-name-delta"; index: number; delta: string }
   | { type: "tool-call-args-delta"; index: number; delta: string }
-  | { type: "tool-call-finalized"; index: number; toolCallId: string | null; args: unknown; argsRaw?: string; intent?: string }
+  | { type: "tool-call-finalized"; index: number; toolCallId: string | null; args: unknown; argsRaw?: string; intent?: string; meta?: Record<string, unknown> }
   | { type: "tool-return"; toolCallId: string | null; content: unknown }
   | { type: "tool-error"; toolCallId: string | null; content: string }
   | { type: "tool-return-orphan"; toolName?: string; content: unknown }

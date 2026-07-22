@@ -7,6 +7,7 @@ export interface TranscriptProps {
   entries: MessageEntry[];
   loading?: boolean;
   follow?: boolean;
+  backendKind?: string | null;
   onApproval: (p: ChatPatch & { type: "approval-request" }) => void;
   onElicitation: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck: (p: ChatPatch & { type: "steer-ack" }) => void;
@@ -45,6 +46,7 @@ export function Transcript(props: TranscriptProps) {
           key={idx}
           entry={entry}
           showAvatar={idx === 0 || props.entries[idx - 1].role !== entry.role}
+          backendKind={props.backendKind}
           onApproval={props.onApproval}
           onElicitation={props.onElicitation}
           onSteerAck={props.onSteerAck}

@@ -282,6 +282,19 @@ function ChatPanelInner() {
     [ctx],
   );
 
+  const onAddGroup = useCallback(
+    async (name: string) => {
+      const res = await fetchJSON<{ groups: string[] }>("/chat/groups", {
+        method: "POST",
+        body: { name },
+      });
+      if (res.ok && Array.isArray(res.data?.groups)) {
+        ctx.setGroups(res.data.groups);
+      }
+    },
+    [ctx],
+  );
+
   const onModelChange = useCallback(
     (modelId: string) => {
       void chat.setModel(modelId);
@@ -329,6 +342,20 @@ function ChatPanelInner() {
       setSessions((cur) => cur.filter((s) => s.sessionId !== sessionId));
     },
     [chat],
+  );
+
+  const onToggleSessionPin = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      setSessions((cur) => cur.map((s) => (s.sessionId === sessionId ? { ...s, pinned } : s)));
+      if (sessionId === ctx.state.sessionId) {
+        ctx.setPinned(pinned);
+      }
+      await fetchJSON(`/chat/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "PATCH",
+        body: { pinned },
+      });
+    },
+    [ctx],
   );
 
   const onOpenSessionInNewTab = useCallback(
@@ -445,7 +472,7 @@ function ChatPanelInner() {
               {ctx.state.autoApprove.effective ? "✓ Auto-approve" : "Auto-approve"}
             </Button>
           </div>
-          <ChatsDrawer open={pastChatsOpen} sessions={sessions} recentWorkspaces={recentWorkspaces} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onOpenInNewTab={onOpenSessionInNewTab} onDelete={onDeleteSession} canDelete={!!ctx.state.capabilities?.sessionDelete} getTurnCount={ctx.getTurnCount} />
+          <ChatsDrawer open={pastChatsOpen} sessions={sessions} groups={ctx.state.groups} recentWorkspaces={recentWorkspaces} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onOpenInNewTab={onOpenSessionInNewTab} onDelete={onDeleteSession} onTogglePin={onToggleSessionPin} canDelete={!!ctx.state.capabilities?.sessionDelete} getTurnCount={ctx.getTurnCount} />
           <WorkspacesDrawer
             open={workspacesOpen}
             recentWorkspaces={recentWorkspaces}
@@ -489,12 +516,14 @@ function ChatPanelInner() {
             state={ctx.state}
             title={ctx.state.title}
             group={ctx.state.group}
+            groups={ctx.state.groups}
             pinned={ctx.state.pinned}
             usage={displayedUsage}
             usageQuerySupported={!!ctx.state.capabilities?.usageQuery}
             refreshingUsage={refreshingUsage}
             onRename={onRename}
             onGroup={onGroupChange}
+            onAddGroup={onAddGroup}
             onPinned={onPinnedChange}
             onModelChange={onModelChange}
             onAutoApproveToggle={onAutoApproveToggle}

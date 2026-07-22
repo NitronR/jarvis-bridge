@@ -150,6 +150,7 @@ export type ChatPatch =
       toolCallId: string | null;
       toolName: string;
       argsInitial: string;
+      meta?: Record<string, unknown>;
     }
   | { type: "tool-call-name-delta"; index: number; delta: string }
   | { type: "tool-call-args-delta"; index: number; delta: string }
@@ -160,6 +161,7 @@ export type ChatPatch =
       args: unknown;
       argsRaw?: string;
       intent?: string;
+      meta?: Record<string, unknown>;
     }
   | { type: "tool-return"; toolCallId: string | null; content: unknown }
   | { type: "tool-error"; toolCallId: string | null; content: string }

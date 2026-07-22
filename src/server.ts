@@ -775,7 +775,7 @@ const ToolsBodySchema = z.object({
 
 const SetDefaultBackendBodySchema = z.object({ name: z.string().min(1) });
 
-const CreateGroupBodySchema = z.object({ name: z.string().min(1).max(100) });
+const CreateGroupBodySchema = z.object({ name: z.string().trim().min(1).max(100) });
 
 const StreamQuerySchema = z.object({ sessionId: z.string() });
 

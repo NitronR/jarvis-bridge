@@ -5,11 +5,13 @@ import styles from "./ChatsDrawer.module.css";
 export interface ChatsDrawerProps {
   open: boolean;
   sessions: SessionSummary[];
+  groups?: string[];
   recentWorkspaces?: string[];
   onClose: () => void;
   onSwitch: (sessionId: string) => void;
   onOpenInNewTab?: (sessionId: string) => void;
   onDelete?: (sessionId: string) => void;
+  onTogglePin?: (sessionId: string, pinned: boolean) => void;
   canDelete?: boolean;
   getTurnCount?: (sessionId: string) => number | undefined;
 }
@@ -17,6 +19,7 @@ export interface ChatsDrawerProps {
 const FILTER_ALL = "__all__";
 const FILTER_STORAGE_KEY = "jarvis.lastChatsFilter";
 const BACKEND_FILTER_STORAGE_KEY = "jarvis.lastChatsBackendFilter";
+const TAB_STORAGE_KEY = "jarvis.lastChatsTab";
 
 function formatRelative(updatedAt: string | null | undefined): string {
   if (!updatedAt) return "";
@@ -72,6 +75,22 @@ function safeSetStoredBackendFilter(value: string): void {
   }
 }
 
+function safeGetStoredTab(): string {
+  try {
+    return window.localStorage?.getItem(TAB_STORAGE_KEY) ?? "chats";
+  } catch {
+    return "chats";
+  }
+}
+
+function safeSetStoredTab(value: string): void {
+  try {
+    window.localStorage?.setItem(TAB_STORAGE_KEY, value);
+  } catch {
+    // ignore (storage may be unavailable)
+  }
+}
+
 function PinIcon() {
   return (
     <svg
@@ -88,17 +107,21 @@ function PinIcon() {
 export function ChatsDrawer({
   open,
   sessions,
+  groups,
   recentWorkspaces,
   onClose,
   onSwitch,
   onOpenInNewTab,
   onDelete,
+  onTogglePin,
   canDelete,
   getTurnCount,
 }: ChatsDrawerProps) {
   const [filter, setFilter] = useState<string>(() => safeGetStoredFilter());
   const [backendFilter, setBackendFilter] = useState<string>(() => safeGetStoredBackendFilter());
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<string>(() => safeGetStoredTab());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -159,6 +182,32 @@ export function ChatsDrawer({
     });
   }, [sessions, filter, backendFilter, searchQuery]);
 
+  const groupSections = useMemo(() => {
+    const byUpdatedAtDesc = (a: SessionSummary, b: SessionSummary) => {
+      const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return tb - ta;
+    };
+    const groupMap = new Map<string, SessionSummary[]>();
+    for (const g of groups ?? []) groupMap.set(g, []);
+    const ungrouped: SessionSummary[] = [];
+    for (const s of sessions) {
+      if (s.group && groupMap.has(s.group)) {
+        groupMap.get(s.group)!.push(s);
+      } else {
+        ungrouped.push(s);
+      }
+    }
+    const sections: Array<{ key: string; label: string; sessions: SessionSummary[] }> = [];
+    for (const [g, ss] of groupMap) {
+      sections.push({ key: g, label: g, sessions: [...ss].sort(byUpdatedAtDesc) });
+    }
+    if (ungrouped.length > 0) {
+      sections.push({ key: "__ungrouped__", label: "Ungrouped", sessions: [...ungrouped].sort(byUpdatedAtDesc) });
+    }
+    return sections;
+  }, [sessions, groups]);
+
   if (!open) return null;
 
   const handleFilterChange = (next: string) => {
@@ -169,6 +218,20 @@ export function ChatsDrawer({
   const handleBackendFilterChange = (next: string) => {
     setBackendFilter(next);
     safeSetStoredBackendFilter(next);
+  };
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    safeSetStoredTab(tab);
+  };
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
   };
 
   return (
@@ -186,118 +249,213 @@ export function ChatsDrawer({
         aria-label="Past chats"
       >
         <header className={styles.header}>
-          <h2 className={styles.headerTitle}>Chats</h2>
-          {workspaces.length > 0 && (
-            <select
-              className={styles.filterSelect}
-              aria-label="Workspace"
-              value={filter}
-              onChange={(e) => handleFilterChange(e.target.value)}
-            >
-              <option value={FILTER_ALL}>All workspaces</option>
-              {workspaces.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          )}
-          {backends.length > 1 && (
-            <select
-              className={styles.filterSelect}
-              aria-label="Backend"
-              value={backendFilter}
-              onChange={(e) => handleBackendFilterChange(e.target.value)}
-            >
-              <option value={FILTER_ALL}>All backends</option>
-              {backends.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
-          )}
-          <button type="button" className={styles.closeButton} onClick={onClose}>
-            Close
-          </button>
-        </header>
-        <div className={styles.searchBar}>
-          <input
-            type="text"
-            className={styles.searchInput}
-            placeholder="Search by session ID…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          {searchQuery && (
+          <div className={styles.headerTop}>
+            <h2 className={styles.headerTitle}>Chats</h2>
+            <button type="button" className={styles.closeButton} onClick={onClose}>
+              Close
+            </button>
+          </div>
+          <div className={styles.tabBar}>
             <button
               type="button"
-              className={styles.searchClear}
-              onClick={() => setSearchQuery("")}
-              aria-label="Clear search"
+              className={`${styles.tab} ${activeTab === "chats" ? styles.tabActive : ""}`}
+              onClick={() => handleTabChange("chats")}
             >
-              ×
+              Chats
             </button>
-          )}
-        </div>
-        {sessions.length === 0 ? (
-          <div className={styles.empty}>(no past chats yet)</div>
-        ) : filteredSessions.length === 0 ? (
-          <div className={styles.empty}>
-            {searchQuery.trim() ? "No sessions match that ID." : "No chats in this workspace."}
+            <button
+              type="button"
+              className={`${styles.tab} ${activeTab === "groups" ? styles.tabActive : ""}`}
+              onClick={() => handleTabChange("groups")}
+            >
+              Groups
+            </button>
           </div>
-        ) : (
-          <ul className={styles.list}>
-            {filteredSessions.map((s) => {
-              const title = s.customTitle || s.title || s.sessionId.slice(0, 12);
-              const turnCount = getTurnCount?.(s.sessionId);
-              return (
-                <li
-                  key={s.sessionId}
-                  className={`${styles.card} ${s.active ? styles.cardActive : ""}`}
-                  onClick={(e: MouseEvent<HTMLLIElement>) => {
-                    if ((e.metaKey || e.ctrlKey) && onOpenInNewTab) {
-                      onOpenInNewTab(s.sessionId);
-                      return;
-                    }
-                    onSwitch(s.sessionId);
-                  }}
+          {activeTab === "chats" && (
+            <div className={styles.filterRow}>
+              {workspaces.length > 0 && (
+                <select
+                  className={styles.filterSelect}
+                  aria-label="Workspace"
+                  value={filter}
+                  onChange={(e) => handleFilterChange(e.target.value)}
                 >
-                  <div className={styles.cardTop}>
-                    <div className={styles.cardTitle}>{title}</div>
-                    {s.updatedAt && (
-                      <div className={styles.cardTime}>{formatRelative(s.updatedAt)}</div>
-                    )}
-                  </div>
-                  <div className={styles.cardMeta}>
-                    <span className={styles.sessionId}>{s.sessionId.slice(0, 12)}</span>
-                    {s.backendName && <span className={styles.badge}>{s.backendName}</span>}
-                    {s.cwd && <span className={styles.workspace}>{basename(s.cwd)}</span>}
-                    {s.group && <span className={styles.group}>{s.group}</span>}
-                    {!!turnCount && (
-                      <span className={styles.turnCount}>{turnCount} msgs</span>
-                    )}
-                    {s.pinned && (
-                      <span className={styles.pinPill} aria-label="Pinned">
-                        <PinIcon />
-                        Pinned
-                      </span>
-                    )}
-                  </div>
-                  {canDelete && (
-                    <div className={styles.cardActions}>
-                      <button
-                        type="button"
-                        className={styles.deleteButton}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete?.(s.sessionId);
-                        }}
-                      >
-                        Delete
-                      </button>
+                  <option value={FILTER_ALL}>All workspaces</option>
+                  {workspaces.map((w) => (
+                    <option key={w} value={w}>{w}</option>
+                  ))}
+                </select>
+              )}
+              {backends.length > 1 && (
+                <select
+                  className={styles.filterSelect}
+                  aria-label="Backend"
+                  value={backendFilter}
+                  onChange={(e) => handleBackendFilterChange(e.target.value)}
+                >
+                  <option value={FILTER_ALL}>All backends</option>
+                  {backends.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+        </header>
+        {activeTab === "chats" && (
+          <>
+            <div className={styles.searchBar}>
+              <input
+                type="text"
+                className={styles.searchInput}
+                placeholder="Search by session ID…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className={styles.searchClear}
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {sessions.length === 0 ? (
+              <div className={styles.empty}>(no past chats yet)</div>
+            ) : filteredSessions.length === 0 ? (
+              <div className={styles.empty}>
+                {searchQuery.trim() ? "No sessions match that ID." : "No chats in this workspace."}
+              </div>
+            ) : (
+              <ul className={styles.list}>
+                {filteredSessions.map((s) => {
+                  const title = s.customTitle || s.title || s.sessionId.slice(0, 12);
+                  const turnCount = getTurnCount?.(s.sessionId);
+                  return (
+                    <li
+                      key={s.sessionId}
+                      className={`${styles.card} ${s.active ? styles.cardActive : ""}`}
+                      onClick={(e: MouseEvent<HTMLLIElement>) => {
+                        if ((e.metaKey || e.ctrlKey) && onOpenInNewTab) {
+                          onOpenInNewTab(s.sessionId);
+                          return;
+                        }
+                        onSwitch(s.sessionId);
+                      }}
+                    >
+                      <div className={styles.cardTop}>
+                        <div className={styles.cardTitle}>{title}</div>
+                        {s.updatedAt && (
+                          <div className={styles.cardTime}>{formatRelative(s.updatedAt)}</div>
+                        )}
+                      </div>
+                      <div className={styles.cardMeta}>
+                        <span className={styles.sessionId}>{s.sessionId.slice(0, 12)}</span>
+                        {s.backendName && <span className={styles.badge}>{s.backendName}</span>}
+                        {s.cwd && <span className={styles.workspace}>{basename(s.cwd)}</span>}
+                        {s.group && <span className={styles.group}>{s.group}</span>}
+                        {!!turnCount && (
+                          <span className={styles.turnCount}>{turnCount} msgs</span>
+                        )}
+                        {s.pinned && (
+                          <span className={styles.pinPill} aria-label="Pinned">
+                            <PinIcon />
+                            Pinned
+                          </span>
+                        )}
+                      </div>
+                      {(canDelete || onTogglePin) && (
+                        <div className={styles.cardActions}>
+                          {onTogglePin && (
+                            <button
+                              type="button"
+                              className={`${styles.pinToggleButton} ${s.pinned ? styles.pinToggleButtonActive : ""}`}
+                              aria-label={s.pinned ? "Unpin chat" : "Pin chat"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onTogglePin(s.sessionId, !s.pinned);
+                              }}
+                            >
+                              <PinIcon />
+                              {s.pinned ? "Unpin" : "Pin"}
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              className={styles.deleteButton}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete?.(s.sessionId);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
+        )}
+        {activeTab === "groups" && (
+          <div className={styles.groupsList}>
+            {groupSections.length === 0 ? (
+              <div className={styles.empty}>No groups yet.</div>
+            ) : (
+              groupSections.map((sec) => (
+                <div key={sec.key} className={styles.groupSection}>
+                  <button
+                    type="button"
+                    className={`${styles.groupHeader} ${expandedGroups.has(sec.key) ? styles.groupHeaderExpanded : ""}`}
+                    onClick={() => toggleGroup(sec.key)}
+                    aria-expanded={expandedGroups.has(sec.key)}
+                  >
+                    <span className={`${styles.chevron} ${expandedGroups.has(sec.key) ? styles.chevronOpen : ""}`}>▶</span>
+                    <span className={styles.groupName}>{sec.label}</span>
+                    <span className={styles.groupCount}>{sec.sessions.length}</span>
+                  </button>
+                  {expandedGroups.has(sec.key) && (
+                    <div className={styles.groupSessions}>
+                      {sec.sessions.length === 0 ? (
+                        <div className={styles.empty}>No sessions</div>
+                      ) : (
+                        sec.sessions.map((s) => {
+                          const title = s.customTitle || s.title || s.sessionId.slice(0, 12);
+                          return (
+                            <div
+                              key={s.sessionId}
+                              className={`${styles.card} ${s.active ? styles.cardActive : ""}`}
+                              onClick={(e: MouseEvent<HTMLDivElement>) => {
+                                if ((e.metaKey || e.ctrlKey) && onOpenInNewTab) {
+                                  onOpenInNewTab(s.sessionId);
+                                  return;
+                                }
+                                onSwitch(s.sessionId);
+                              }}
+                            >
+                              <div className={styles.cardTop}>
+                                <div className={styles.cardTitle}>{title}</div>
+                                {s.updatedAt && (
+                                  <div className={styles.cardTime}>{formatRelative(s.updatedAt)}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   )}
-                </li>
-              );
-            })}
-          </ul>
+                </div>
+              ))
+            )}
+          </div>
         )}
       </aside>
     </div>

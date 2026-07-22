@@ -7,12 +7,14 @@ export interface InfoPanelProps {
   state: ChatState;
   title: string;
   group: string;
+  groups: string[];
   pinned: boolean;
   usage?: UsageTotals;
   usageQuerySupported?: boolean;
   refreshingUsage?: boolean;
   onRename: (t: string) => void;
   onGroup: (g: string) => void;
+  onAddGroup: (name: string) => Promise<void>;
   onPinned: (p: boolean) => void;
   onModelChange: (modelId: string) => void;
   onAutoApproveToggle: () => void;
@@ -74,13 +76,33 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
 
 export function InfoPanel(props: InfoPanelProps) {
   const {
-    state, title, group, pinned, usage, usageQuerySupported, refreshingUsage,
-    onRename, onGroup, onPinned, onModelChange, onAutoApproveToggle, onRefreshUsage,
+    state, title, group, groups, pinned, usage, usageQuerySupported, refreshingUsage,
+    onRename, onGroup, onAddGroup, onPinned, onModelChange, onAutoApproveToggle, onRefreshUsage,
   } = props;
   const [titleDraft, setTitleDraft] = useState(title);
   useEffect(() => setTitleDraft(title), [title]);
   const titleDirty = titleDraft !== title;
   const saveTitle = () => { if (titleDirty) onRename(titleDraft); };
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+
+  const handleGroupChange = (value: string) => {
+    if (value === "__add_group__") {
+      setAddGroupOpen(true);
+      setNewGroupName("");
+      return;
+    }
+    onGroup(value);
+  };
+
+  const handleCreateGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    await onAddGroup(name);
+    onGroup(name);
+    setAddGroupOpen(false);
+    setNewGroupName("");
+  };
   return (
     <aside className={styles.panel}>
       <div className={styles.card}>
@@ -107,8 +129,18 @@ export function InfoPanel(props: InfoPanelProps) {
           </div>
         </div>
         <div className={styles.row}>
-          <span className={styles.key}>Group</span>
-          <input value={group} onChange={(e) => onGroup(e.target.value)} />
+          <label className={styles.key} htmlFor="group-select">Group</label>
+          <select
+            id="group-select"
+            value={group || ""}
+            onChange={(e) => handleGroupChange(e.target.value)}
+          >
+            <option value="">None</option>
+            {groups.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+            <option value="__add_group__">+ Add Group…</option>
+          </select>
         </div>
         <div className={styles.row}>
           <span className={styles.key}>Pinned</span>
@@ -209,6 +241,24 @@ export function InfoPanel(props: InfoPanelProps) {
               <span className={styles.val}>tap refresh</span>
             </div>
           )}
+        </div>
+      )}
+      {addGroupOpen && (
+        <div className={styles.dialogBackdrop} onClick={() => setAddGroupOpen(false)}>
+          <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
+            <h4>Add Group</h4>
+            <input
+              placeholder="Group name"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); }}
+              autoFocus
+            />
+            <div className={styles.dialogActions}>
+              <button type="button" onClick={() => setAddGroupOpen(false)}>Cancel</button>
+              <button type="button" onClick={handleCreateGroup}>Create</button>
+            </div>
+          </div>
         </div>
       )}
     </aside>

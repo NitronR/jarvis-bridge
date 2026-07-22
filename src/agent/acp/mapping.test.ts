@@ -234,6 +234,34 @@ describe("acpUpdateToPatches — tool calls", () => {
     assert.match(e.content, /ENOENT/);
   });
 
+  test("tool_call with rawInput: {} defers finalized until real args arrive on tool_call_update", () => {
+    const state = freshState();
+    const startPatches = acpUpdateToPatches(
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-1",
+        toolCall: { toolCallId: "tc-1", title: "read", kind: "fs.read", rawInput: {} },
+      },
+      state,
+    );
+    assert.equal(startPatches.length, 1);
+    assert.equal(startPatches[0]!.type, "tool-call-start");
+    assert.equal(state.finalizedToolCalls.has("tc-1"), false);
+
+    const updatePatches = acpUpdateToPatches(
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-1",
+        rawInput: { path: "package.json" },
+      },
+      state,
+    );
+    assert.equal(updatePatches.length, 1);
+    assert.equal(updatePatches[0]!.type, "tool-call-finalized");
+    const f = updatePatches[0] as Extract<typeof updatePatches[0], { type: "tool-call-finalized" }>;
+    assert.deepEqual(f.args, { path: "package.json" });
+  });
+
   test("tool_call_update in_progress emits no patches", () => {
     const state = freshState();
     const patches = acpUpdateToPatches(
