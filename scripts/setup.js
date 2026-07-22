@@ -12,20 +12,6 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-// TEMP DIAGNOSTIC: pinpointing a silent npx-only postinstall failure
-// (exit 1, zero stdout/stderr, not reproducible via manual git clone).
-// Writes straight to disk so a trace survives even if the process gets
-// killed before stdout/stderr would normally flush. Remove once resolved.
-const TRACE_FILE = path.join(os.tmpdir(), "jarvis-bridge-setup-trace.log");
-function trace(msg) {
-  try {
-    fs.appendFileSync(TRACE_FILE, `${new Date().toISOString()} ${msg}\n`);
-  } catch {
-    // tracing must never itself crash setup
-  }
-}
-trace("setup.js module loaded");
-
 const REPO_ROOT = path.join(__dirname, "..");
 
 function expandHome(p) {
@@ -153,21 +139,15 @@ function ensureEnvFile(repoRoot, log) {
 }
 
 function runSetup(env, log, repoRoot) {
-  trace("runSetup: entered");
   env = env || process.env;
   log = log || console.log;
   repoRoot = repoRoot || REPO_ROOT;
 
   const p = resolvePaths(env);
-  trace(`runSetup: resolvePaths done -> ${JSON.stringify(p)}`);
   ensureDirs(p);
-  trace("runSetup: ensureDirs done");
   migrateOldState(p, repoRoot, log);
-  trace("runSetup: migrateOldState done");
   const agentsResult = ensureAgentsJson(p, repoRoot, env.PATH, log);
-  trace(`runSetup: ensureAgentsJson done -> ${JSON.stringify(agentsResult)}`);
   ensureEnvFile(repoRoot, log);
-  trace("runSetup: ensureEnvFile done");
 
   log("[jarvis-bridge setup] done.");
   if (agentsResult.created && agentsResult.detected.length === 0) {
@@ -175,7 +155,6 @@ function runSetup(env, log, repoRoot) {
   } else {
     log("[jarvis-bridge setup] run `npm run dev` to start the gateway.");
   }
-  trace("runSetup: returning normally");
   return p;
 }
 
@@ -194,14 +173,11 @@ module.exports = {
 };
 
 if (require.main === module) {
-  trace("CLI entry: about to call runSetup()");
   try {
     runSetup();
   } catch (err) {
     const detail = err && err.stack ? err.stack : String(err);
-    trace(`CLI entry: runSetup() threw -> ${detail}`);
     process.stderr.write(`[jarvis-bridge setup] failed: ${detail}\n`);
     process.exit(1);
   }
-  trace("CLI entry: runSetup() returned, exiting 0");
 }
