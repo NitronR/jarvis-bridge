@@ -500,6 +500,22 @@ export function createServer(opts: CreateServerOptions): Express {
     }
   }));
 
+  // ── Groups ──────────────────────────────────────────────────────────
+  app.get("/chat/groups", smallJson, (_req, res) => {
+    const groups = opts.sessionConfig?.getGroups() ?? [];
+    res.json({ groups });
+  });
+
+  app.post("/chat/groups", smallJson, asyncRoute(async (req, res) => {
+    const body = CreateGroupBodySchema.parse(req.body ?? {});
+    if (!opts.sessionConfig) {
+      res.status(500).json({ error: "session config not available" });
+      return;
+    }
+    const groups = await opts.sessionConfig.addGroup(body.name);
+    res.json({ ok: true, groups });
+  }));
+
   // ── Status ────────────────────────────────────────────────────────
   app.get("/status/active", (_req, res) => {
     res.json({
@@ -758,6 +774,8 @@ const ToolsBodySchema = z.object({
 });
 
 const SetDefaultBackendBodySchema = z.object({ name: z.string().min(1) });
+
+const CreateGroupBodySchema = z.object({ name: z.string().min(1).max(100) });
 
 const StreamQuerySchema = z.object({ sessionId: z.string() });
 
