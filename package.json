@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test 'src/**/*.test.ts' 'scripts/**/*.test.js'",
     "setup": "node scripts/setup.js",
-    "postinstall": "echo \"[trace] postinstall shell reached $(date), pid=$$, cwd=$(pwd)\" >> /tmp/jarvis-bridge-setup-trace.log; echo \"[trace] which node: $(which node 2>&1), version: $(node --version 2>&1)\" >> /tmp/jarvis-bridge-setup-trace.log; node scripts/setup.js; echo \"[trace] node scripts/setup.js exited with code $?\" >> /tmp/jarvis-bridge-setup-trace.log; npm run build:web",
+    "postinstall": "echo \"[trace] postinstall shell reached $(date), pid=$$, cwd=$(pwd)\" >> /tmp/jarvis-bridge-setup-trace.log; echo \"[trace] which node: $(which node 2>&1), version: $(node --version 2>&1)\" >> /tmp/jarvis-bridge-setup-trace.log; node scripts/setup.js; echo \"[trace] node scripts/setup.js exited with code $?\" >> /tmp/jarvis-bridge-setup-trace.log; npm run build:web > /tmp/jarvis-bridge-buildweb.log 2>&1; echo \"[trace] npm run build:web exited with code $?\" >> /tmp/jarvis-bridge-setup-trace.log",
     "dev:web": "cd frontend && npm run dev",
     "build:web": "cd frontend && npm run build",
     "preview:web": "cd frontend && npm run preview",
