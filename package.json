@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test 'src/**/*.test.ts' 'scripts/**/*.test.js'",
     "setup": "node scripts/setup.js",
-    "postinstall": "node scripts/setup.js > /tmp/jb-setup-out.log 2>&1; echo \"[trace] setup.js exit $?\" >> /tmp/jb-trace.log; { echo \"[diag] pwd=$(pwd)\"; echo \"[diag] ls frontend/node_modules/.bin/vite:\"; ls -la frontend/node_modules/.bin/vite 2>&1; echo \"[diag] ls node_modules/vite:\"; ls -la node_modules/vite 2>&1; echo \"[diag] ls frontend/node_modules (top 20):\"; ls frontend/node_modules 2>&1 | head -20; echo \"[diag] cjs resolve from frontend:\"; (cd frontend && node -e \"console.log(require.resolve('vite'))\" 2>&1); echo \"[diag] esm resolve from frontend:\"; (cd frontend && node --input-type=module -e \"import('vite').then(()=>console.log('ESM OK')).catch(e=>console.log('ESM FAIL: '+e.message))\" 2>&1); } >> /tmp/jb-diag.log 2>&1; npm run build:web > /tmp/jb-buildweb-out.log 2>&1; echo \"[trace] build:web exit $?\" >> /tmp/jb-trace.log",
+    "postinstall": "node scripts/setup.js && npm run build:web",
     "dev:web": "cd frontend && npm run dev",
     "build:web": "cd frontend && npm run build",
     "preview:web": "cd frontend && npm run preview",
