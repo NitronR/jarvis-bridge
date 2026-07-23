@@ -575,6 +575,16 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
             <Button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork || chat.busy}>Fork</Button>
             <button
               type="button"
+              className={`${styles.pinBtn} ${ctx.state.pinned ? styles.pinBtnActive : ""}`}
+              onClick={() => onPinnedChange(!ctx.state.pinned)}
+              aria-label={ctx.state.pinned ? "Unpin session" : "Pin session"}
+            >
+              <svg viewBox="0 0 24 24" fill={ctx.state.pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M16 2l-1.5 4 5 5 4-1.5v3l-5 1.5-3.5 6.5L13 17l-6 6-1.5-1.5 6-6-3.5-2.5L9.5 8 8 3h3L9.5 7.5l4 4 4-5.5L16 2z" />
+              </svg>
+            </button>
+            <button
+              type="button"
               className={styles.settingsBtn}
               onClick={() => setSettingsOpen(true)}
               title="Settings"

@@ -83,6 +83,34 @@
   height: 16px;
 }
 
+.pinBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 4px 6px;
+}
+.pinBtn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.pinBtnActive {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.pinBtnActive:hover {
+  color: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
+}
+.pinBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
 .divider {
   width: 1px;
   height: 22px;
