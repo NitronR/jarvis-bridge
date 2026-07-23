@@ -98,7 +98,7 @@ export function InfoPanel(props: InfoPanelProps) {
   };
   return (
     <aside className={styles.panel}>
-      <div className={styles.card}>
+      <div className={styles.section}>
         <h3>Current chat</h3>
         <div className={styles.row}>
           <span className={styles.key}>Title</span>
@@ -165,8 +165,8 @@ export function InfoPanel(props: InfoPanelProps) {
       </div>
 
       {(usageQuerySupported || (usage && (usage.rate_limits || usage.cost))) && (
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
+        <div className={styles.section}>
+          <div className={styles.sectionLabelRow}>
             <h3>Usage</h3>
             {usageQuerySupported && (
               <button
@@ -229,7 +229,7 @@ export function InfoPanel(props: InfoPanelProps) {
         </div>
       )}
 
-      <div className={styles.card}>
+      <div className={styles.section}>
         <h3>Session & workspace</h3>
         <div className={styles.row}>
           <span className={styles.key}>Workspace</span>
