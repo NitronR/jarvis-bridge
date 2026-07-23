@@ -32,8 +32,8 @@ const baseState: ChatState = {
 };
 
 const baseProps = {
-  state: baseState, title: "My chat", group: "", groups: [], pinned: false,
-  onRename: vi.fn(), onGroup: vi.fn(), onAddGroup: vi.fn(), onPinned: vi.fn(),
+  state: baseState, title: "My chat", pinned: false,
+  onRename: vi.fn(), onPinned: vi.fn(),
 };
 
 describe("<InfoPanel>", () => {
@@ -206,72 +206,6 @@ describe("<InfoPanel>", () => {
     expect(screen.getByText(/Jul 16 at 9am \(UTC\)/)).toBeInTheDocument();
   });
 
-  it("renders a group dropdown instead of a text input", () => {
-    render(<InfoPanel {...baseProps} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    expect(select.tagName).toBe("SELECT");
-  });
-
-  it("populates the dropdown with provided groups", () => {
-    render(<InfoPanel {...baseProps} groups={["bugfix", "feature"]} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    const options = Array.from(select.options).map((o) => o.textContent);
-    expect(options).toContain("bugfix");
-    expect(options).toContain("feature");
-  });
-
-  it("includes a None option and Add Group option", () => {
-    render(<InfoPanel {...baseProps} groups={["bugfix"]} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    const options = Array.from(select.options).map((o) => o.textContent);
-    expect(options).toContainEqual("None");
-    expect(options).toContainEqual("+ Add Group…");
-  });
-
-  it("selects the current group value", () => {
-    render(<InfoPanel {...baseProps} group="bugfix" groups={["bugfix", "feature"]} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    expect(select.value).toBe("bugfix");
-  });
-
-  it("calls onGroup when a group is selected", () => {
-    const onGroup = vi.fn();
-    render(<InfoPanel {...baseProps} groups={["bugfix"]} onGroup={onGroup} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "bugfix" } });
-    expect(onGroup).toHaveBeenCalledWith("bugfix");
-  });
-
-  it("calls onGroup with empty string when None is selected", () => {
-    const onGroup = vi.fn();
-    render(<InfoPanel {...baseProps} group="bugfix" groups={["bugfix"]} onGroup={onGroup} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "" } });
-    expect(onGroup).toHaveBeenCalledWith("");
-  });
-
-  it("opens add-group dialog when Add Group is selected", () => {
-    render(<InfoPanel {...baseProps} groups={["bugfix"]} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "__add_group__" } });
-    expect(screen.getByText("Add Group")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/group name/i)).toBeInTheDocument();
-  });
-
-  it("calls onAddGroup and onGroup when a new group is created", async () => {
-    const onAddGroup = vi.fn().mockResolvedValue(undefined);
-    const onGroup = vi.fn();
-    render(<InfoPanel {...baseProps} groups={[]} onAddGroup={onAddGroup} onGroup={onGroup} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "__add_group__" } });
-    fireEvent.change(screen.getByPlaceholderText(/group name/i), { target: { value: "new-group" } });
-    fireEvent.click(screen.getByText("Create"));
-    await vi.waitFor(() => {
-      expect(onAddGroup).toHaveBeenCalledWith("new-group");
-      expect(onGroup).toHaveBeenCalledWith("new-group");
-    });
-  });
-
   it("renders cards in Chat identity -> Usage -> Session & workspace order", () => {
     render(
       <InfoPanel
@@ -352,12 +286,4 @@ describe("<InfoPanel>", () => {
     expect(screen.queryByText(/⚠/)).not.toBeInTheDocument();
   });
 
-  it("closes the dialog on Cancel", () => {
-    render(<InfoPanel {...baseProps} groups={[]} />);
-    const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "__add_group__" } });
-    expect(screen.getByText("Add Group")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Cancel"));
-    expect(screen.queryByText("Add Group")).not.toBeInTheDocument();
-  });
 });

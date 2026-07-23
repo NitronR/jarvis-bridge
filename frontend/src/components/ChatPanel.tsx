@@ -14,6 +14,7 @@ import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorksp
 import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow } from "../api/types";
 import styles from "./ChatPanel.module.css";
 import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import { Dot, type DotStatus } from "./ui/Dot";
 
 // Per-window field merge (not a wholesale replace) — a manual /chat/usage
@@ -312,6 +313,30 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
     [ctx],
   );
 
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+
+  const handleGroupChange = useCallback(
+    (value: string) => {
+      if (value === "__add_group__") {
+        setAddGroupOpen(true);
+        setNewGroupName("");
+        return;
+      }
+      onGroupChange(value);
+    },
+    [onGroupChange],
+  );
+
+  const handleCreateGroup = useCallback(async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    await onAddGroup(name);
+    onGroupChange(name);
+    setAddGroupOpen(false);
+    setNewGroupName("");
+  }, [newGroupName, onAddGroup, onGroupChange]);
+
   const onModelChange = useCallback(
     (modelId: string) => {
       void chat.setModel(modelId);
@@ -516,6 +541,16 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
                 {ctx.state.title || "New chat"}
               </button>
             )}
+            <Select
+              value={ctx.state.group || ""}
+              options={[
+                { value: "", label: "None" },
+                ...ctx.state.groups.map((g) => ({ value: g, label: g })),
+                { value: "__add_group__", label: "+ Add Group…" },
+              ]}
+              onChange={handleGroupChange}
+              aria-label="Group"
+            />
             {/* Primary group */}
             <Button variant="primary" onClick={onNewChat}>＋ New</Button>
             <Button
@@ -600,15 +635,11 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
           <InfoPanel
             state={ctx.state}
             title={ctx.state.title}
-            group={ctx.state.group}
-            groups={ctx.state.groups}
             pinned={ctx.state.pinned}
             usage={displayedUsage}
             usageQuerySupported={!!ctx.state.capabilities?.usageQuery}
             refreshingUsage={refreshingUsage}
             onRename={onRename}
-            onGroup={onGroupChange}
-            onAddGroup={onAddGroup}
             onPinned={onPinnedChange}
             onRefreshUsage={onRefreshUsage}
           />
@@ -617,6 +648,24 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
       <ApprovalModal patch={pendingApproval} onResolve={onResolveApproval} />
       <ElicitationModal patch={pendingElicitation} onResolve={onResolveElicitation} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {addGroupOpen && (
+        <div className={styles.dialogBackdrop} onClick={() => setAddGroupOpen(false)}>
+          <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
+            <h4>Add Group</h4>
+            <input
+              placeholder="Group name"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); }}
+              autoFocus
+            />
+            <div className={styles.dialogActions}>
+              <Button type="button" onClick={() => setAddGroupOpen(false)}>Cancel</Button>
+              <Button type="button" variant="primary" onClick={handleCreateGroup}>Create</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
