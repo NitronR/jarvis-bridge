@@ -155,26 +155,6 @@ export function InfoPanel(props: InfoPanelProps) {
         </div>
       </div>
 
-      <div className={styles.card}>
-        <h3>Overview</h3>
-        <div className={styles.row}>
-          <span className={styles.key}>Workspace</span>
-          <span className={styles.val}>{state.cwd ?? "—"}</span>
-        </div>
-      </div>
-
-      <div className={styles.card}>
-        <h3>Session</h3>
-        <div className={styles.row}>
-          <span className={styles.key}>ID</span>
-          <span className={styles.val}>{state.sessionId ?? "—"}</span>
-        </div>
-        <div className={styles.row}>
-          <span className={styles.key}>Slash cmds</span>
-          <span className={styles.val}>{state.slashCommands.length}</span>
-        </div>
-      </div>
-
       {(usageQuerySupported || (usage && (usage.rate_limits || usage.cost))) && (
         <div className={styles.card}>
           <div className={styles.cardHeader}>
@@ -222,6 +202,23 @@ export function InfoPanel(props: InfoPanelProps) {
           )}
         </div>
       )}
+
+      <div className={styles.card}>
+        <h3>Session & workspace</h3>
+        <div className={styles.row}>
+          <span className={styles.key}>Workspace</span>
+          <span className={styles.val}>{state.cwd ?? "—"}</span>
+        </div>
+        <div className={styles.row}>
+          <span className={styles.key}>ID</span>
+          <span className={styles.val}>{state.sessionId ?? "—"}</span>
+        </div>
+        <div className={styles.row}>
+          <span className={styles.key}>Slash cmds</span>
+          <span className={styles.val}>{state.slashCommands.length}</span>
+        </div>
+      </div>
+
       {addGroupOpen && (
         <div className={styles.dialogBackdrop} onClick={() => setAddGroupOpen(false)}>
           <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>

@@ -233,6 +233,30 @@ describe("<InfoPanel>", () => {
     });
   });
 
+  it("renders cards in Chat identity -> Usage -> Session & workspace order", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { five_hour: { status: "allowed", utilization: 0.12 } },
+        }}
+      />,
+    );
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Current chat", "Usage", "Session & workspace"]);
+  });
+
+  it("merges workspace, session id, and slash count under one Session & workspace card", () => {
+    render(<InfoPanel {...baseProps} />);
+    expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Session")).not.toBeInTheDocument();
+    expect(screen.getByText("Session & workspace")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/ws")).toBeInTheDocument();
+    expect(screen.getByText("sess-1")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
   it("closes the dialog on Cancel", () => {
     render(<InfoPanel {...baseProps} groups={[]} />);
     const select = screen.getByLabelText(/group/i) as HTMLSelectElement;
