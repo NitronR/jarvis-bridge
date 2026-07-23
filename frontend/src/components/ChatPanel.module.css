@@ -21,16 +21,19 @@
   margin: 0 var(--space-5) 0 0; font-size: 13px; font-weight: var(--font-weight-semibold);
   letter-spacing: 0.1px; flex: 1; display: flex; align-items: center; gap: var(--space-4);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  background: none; border: none; padding: 2px 0; cursor: text;
+  background: none; border: 1px solid transparent; padding: 1px 4px; cursor: text;
   color: var(--color-text); text-align: left;
   border-bottom: 1px solid var(--color-text-muted);
 }
 .header .titleButton:hover {
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
   border-bottom-color: var(--color-text);
   border-radius: var(--radius-md);
-  padding: 1px 4px;
   margin: 0 var(--space-4) 0 0;
+}
+.header .titleButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 .header .titleButton.titlePlaceholder {
   font-weight: var(--font-weight-medium); font-style: italic; color: var(--color-text-muted);

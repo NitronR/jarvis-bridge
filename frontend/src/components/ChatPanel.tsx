@@ -485,6 +485,7 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
       <div className={styles.stage}>
         <div className={styles.main}>
           <div className={styles.header}>
+            <Dot status={healthStatus} />
             {editingTitle ? (
               <input
                 ref={titleInputRef}
@@ -512,7 +513,6 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
                 }}
                 aria-label="Edit title"
               >
-                <Dot status={healthStatus} />
                 {ctx.state.title || "New chat"}
               </button>
             )}
