@@ -197,10 +197,21 @@ export function createServer(opts: CreateServerOptions): Express {
       res.status(404).json({ error: "no session available" });
       return;
     }
-    const session = await registry.getSession(sessionId);
+    let session = await registry.getSession(sessionId);
     if (!session) {
-      res.status(404).json({ error: "session not found" });
-      return;
+      const entry = await registry.findSession(sessionId);
+      if (entry?.backend.loadSession) {
+        try {
+          await entry.backend.loadSession(sessionId, { cwd: entry.cwd });
+        } catch {
+          // Session not found or can't be reloaded.
+        }
+        session = await registry.getSession(sessionId);
+      }
+      if (!session) {
+        res.status(404).json({ error: "session not found" });
+        return;
+      }
     }
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
