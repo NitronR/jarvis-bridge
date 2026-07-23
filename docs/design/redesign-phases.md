@@ -68,6 +68,17 @@ compile break — see the spec's Files to Modify note on `ChatPanel.tsx`).
 - Spec: `docs/superpowers/specs/2026-07-22-info-panel-redesign-design.md`
 - Plan: `docs/superpowers/plans/2026-07-22-info-panel-redesign.md`
 
+### Phase 5b: Top Bar Redesign — Done (2026-07-23)
+
+Moved session-specific controls (Title, Group, Pin) from InfoPanel into the ChatPanel
+header bar. Title became click-to-edit with an underline+border affordance, Group uses the
+`Select` primitive (same as model picker in Composer), Pin is an icon button left of
+Settings. Removed the now-empty "Current chat" section from InfoPanel, removed the Slash
+cmds row, and reordered remaining sections (Session & workspace → Usage). InfoPanel is now
+a slim two-section sidebar (Session & workspace + Usage).
+
+- Spec: `docs/superpowers/specs/2026-07-22-topbar-redesign.md`
+
 ## Phase 6: Chats & Groups Popup Redesign — Not started
 
 `ChatsDrawer.tsx` (the "Chats" popup reached from `ChatPanel`'s header) currently mixes a
@@ -145,15 +156,13 @@ Not a visual redesign — an audit-and-migrate pass checking the app against
 discipline, closing gaps left by incremental adoption across Phases 1–7.
 
 Known gaps found in a quick audit (to confirm/expand during the audit stage):
-- **`Select` primitive now documented and adopted (Composer only).** Exists at
+- **`Select` primitive now documented and adopted (Composer + ChatPanel header).** Exists at
   `frontend/src/components/ui/Select.tsx` (accessible custom select: keyboard nav, listbox
   semantics, top/bottom auto-placement), now in `docs/frontend-components.md`'s primitives
-  list, and adopted by `Composer`'s model selector (Phase 4 — a mid-implementation deviation
-  from the phase's own plan, which had specified a native `<select>`). Raw `<select>`
-   elements remain everywhere else: `InfoPanel.tsx` (group filter — its model `<select>` was
-   removed, not migrated, when the model selector moved to `Composer`), `SettingsPanel.tsx`
-   (see dead-code note below), `SettingsDialog.tsx`, and `ChatsDrawer.tsx` — candidates once
-   Phases 6–7 land.
+  list, and adopted by `Composer`'s model selector (Phase 4) and `ChatPanel`'s group
+  selector (Phase 5b). Raw `<select>` elements remain in `SettingsPanel.tsx` (see
+  dead-code note below), `SettingsDialog.tsx`, and `ChatsDrawer.tsx` — candidates once
+  Phases 6–7 land.
 - **`Button` adoption gap**, beyond the already-tracked `InfoPanel` backlog item: raw
   `<button>` elements also remain in `ApprovalModal.tsx`, `ElicitationModal.tsx`,
   `TerminalDrawer.tsx`, `ChatsDrawer.tsx`, and `WorkspacesDrawer.tsx`.
@@ -164,6 +173,12 @@ Known gaps found in a quick audit (to confirm/expand during the audit stage):
 - **Fold in the still-open Phase 1/2 backlog items** (below) as part of this pass rather than
   leaving them as a separate perpetual list, since this phase's whole purpose is closing
   exactly this kind of drift.
+- **`prefers-reduced-motion` gap:** Add `@media (prefers-reduced-motion: reduce)` rules to
+  ChatsDrawer and WorkspacesDrawer (`slideIn` keyframe animations), `Dot` spin, and InfoPanel
+  refresh icon spin. For status spinners, replace the animation with a non-motion indicator
+  (static icon + `aria-live` text update) rather than simply removing the animation — a static
+  spinner is visually identical to an idle state and loses all meaning. See
+  `docs/design/philosophy.md`'s Motion & Animation section for the full handling guidance.
 
 Non-goal: this phase should not introduce new primitives or tokens — it migrates existing
 call sites onto what already exists, per philosophy.md's "only tokenize what actually
@@ -176,7 +191,9 @@ To be resolved as part of Phase 9 (Design System Consistency Review) rather than
 standalone pass — kept listed here until then so they aren't lost to chat history.
 
 - **`Button` call sites: `ChatPanel` migrated (Phase 3), `Composer` migrated (Phase 4),
-  `InfoPanel` migrated (Phase 5).** Only `Composer` remains (pending its own Phase 4 spec).
+  `InfoPanel` migrated (Phase 5).** Remaining raw `<button>` elements in
+  `ApprovalModal.tsx`, `ElicitationModal.tsx`, `TerminalDrawer.tsx`, `ChatsDrawer.tsx`,
+  and `WorkspacesDrawer.tsx` — candidates for Phase 9.
 - **`Pill`'s `.neutral` tone is ~2px larger than other tones** — it has a border the other
   tones don't (`Pill.module.css`, added during Phase 1's Task 5 fix), no `box-sizing` offset.
   No visible effect today since `Timeline` only ever renders `tone="neutral"`; would matter

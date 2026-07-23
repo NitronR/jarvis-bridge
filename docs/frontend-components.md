@@ -67,7 +67,7 @@ changes).
 Renders with `--radius-md` (4px rounding), smooth hover/focus transitions, a
 `--color-accent` focus-visible ring, and a subtle `:active` scale press. First adopted by
 `ChatPanel`'s header toolbar (Phase 3: Header/Toolbar Cleanup), then `Composer`'s action row
-(Phase 4: Composer Redesign), and `InfoPanel`'s pin toggle, usage refresh, and dialog buttons.
+(Phase 4: Composer Redesign), and `InfoPanel`'s usage refresh button.
 
 **Deliberately not migrated**: `QuickPhrasesRow`'s pill/add/delete/overflow buttons stay bare
 `<button className={styles.x}>` elements rather than `<Button>`, for the same reason its pill
@@ -130,9 +130,9 @@ open, same keys plus `Escape` inside the open list), click-outside-to-close, and
 auto-flip placement (`top`/`bottom`) based on available viewport space
 (`useLayoutEffect` measuring `getBoundingClientRect()` against `options.length *
 OPTION_HEIGHT`). Escape restores focus to the trigger button, matching
-`QuickPhrasesRow`'s overflow-popup pattern above. First and only consumer: `Composer`'s
-model selector (Phase 4: Composer Redesign) — chosen over a native `<select>`
-mid-implementation for a more consistent, stylable dropdown; see Edge Case 8 of
+`QuickPhrasesRow`'s overflow-popup pattern above. Consumers: `Composer`'s model selector
+(Phase 4: Composer Redesign) and `ChatPanel`'s group selector (Phase 5b: Top Bar Redesign)
+— chosen over native `<select>` for a consistent, stylable dropdown; see Edge Case 8 of
 `docs/superpowers/specs/2026-07-22-composer-redesign-design.md`.
 
 ## `JsonView` — syntax-highlighted JSON renderer

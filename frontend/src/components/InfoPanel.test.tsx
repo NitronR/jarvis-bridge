@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { InfoPanel } from "./InfoPanel";
+import { ToastProvider } from "../state/ToastContext";
 import type { ChatState } from "../state/ChatContext";
 
 const baseState: ChatState = {
@@ -35,26 +36,30 @@ const baseProps = {
   state: baseState,
 };
 
+function renderPanel(ui: React.ReactElement) {
+  return render(<ToastProvider>{ui}</ToastProvider>);
+}
+
 describe("<InfoPanel>", () => {
   it("renders session id and cwd", () => {
-    render(<InfoPanel {...baseProps} />);
+    renderPanel(<InfoPanel {...baseProps} />);
     expect(screen.getByText("sess-1")).toBeInTheDocument();
     expect(screen.getByText("/tmp/ws")).toBeInTheDocument();
     expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
   });
 
   it("does not render a Usage card when no usage is passed", () => {
-    render(<InfoPanel {...baseProps} />);
+    renderPanel(<InfoPanel {...baseProps} />);
     expect(screen.queryByText("Usage")).not.toBeInTheDocument();
   });
 
   it("does not render an auto-approve toggle", () => {
-    render(<InfoPanel {...baseProps} />);
+    renderPanel(<InfoPanel {...baseProps} />);
     expect(screen.queryByTestId("auto-approve-toggle")).not.toBeInTheDocument();
   });
 
   it("renders rate-limit windows and cost under a Usage card", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{
@@ -77,7 +82,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("falls back to status text when a rate-limit window has no utilization", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{
@@ -91,13 +96,13 @@ describe("<InfoPanel>", () => {
   });
 
   it("does not render a Usage card or refresh button when usageQuerySupported is false and there's no usage data", () => {
-    render(<InfoPanel {...baseProps} usageQuerySupported={false} />);
+    renderPanel(<InfoPanel {...baseProps} usageQuerySupported={false} />);
     expect(screen.queryByText("Usage")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Refresh usage")).not.toBeInTheDocument();
   });
 
   it("renders a refresh button and a placeholder row when usageQuerySupported is true but no usage data yet", () => {
-    render(<InfoPanel {...baseProps} usageQuerySupported />);
+    renderPanel(<InfoPanel {...baseProps} usageQuerySupported />);
     expect(screen.getByText("Usage")).toBeInTheDocument();
     expect(screen.getByLabelText("Refresh usage")).toBeInTheDocument();
     expect(screen.getByText("tap refresh")).toBeInTheDocument();
@@ -105,18 +110,18 @@ describe("<InfoPanel>", () => {
 
   it("calls onRefreshUsage when the refresh button is clicked, and disables it while refreshing", () => {
     const onRefreshUsage = vi.fn();
-    const { rerender } = render(
+    const { rerender } = renderPanel(
       <InfoPanel {...baseProps} usageQuerySupported onRefreshUsage={onRefreshUsage} />,
     );
     fireEvent.click(screen.getByLabelText("Refresh usage"));
     expect(onRefreshUsage).toHaveBeenCalledTimes(1);
 
-    rerender(<InfoPanel {...baseProps} usageQuerySupported refreshingUsage onRefreshUsage={onRefreshUsage} />);
+    rerender(<ToastProvider><InfoPanel {...baseProps} usageQuerySupported refreshingUsage onRefreshUsage={onRefreshUsage} /></ToastProvider>);
     expect(screen.getByLabelText("Refresh usage")).toBeDisabled();
   });
 
   it("prefers numeric resetsAt but falls back to resetsAtText when only the manual-refresh text is present", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usageQuerySupported
@@ -130,7 +135,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("renders sections in Session & workspace → Usage order", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{
@@ -144,7 +149,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("renders workspace and session id under Session & workspace", () => {
-    render(<InfoPanel {...baseProps} />);
+    renderPanel(<InfoPanel {...baseProps} />);
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
     expect(screen.getByText("Session & workspace")).toBeInTheDocument();
@@ -153,7 +158,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("renders a progressbar with the correct value for each rate-limit window", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{
@@ -169,7 +174,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("does not render a progressbar for a window with no numeric utilization", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{
@@ -182,7 +187,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("prefixes the percentage with a warning glyph at >=80%, not just a color change", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{
@@ -195,7 +200,7 @@ describe("<InfoPanel>", () => {
   });
 
   it("does not prefix the percentage with a warning glyph below 80%", () => {
-    render(
+    renderPanel(
       <InfoPanel
         {...baseProps}
         usage={{

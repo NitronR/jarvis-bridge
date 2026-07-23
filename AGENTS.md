@@ -65,8 +65,8 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   holds a session's assigned group *name*, this list is the set of names a session can be
   assigned to) via `getGroups()`/`addGroup()` on `SessionConfigStore`, exposed as
   `GET`/`POST /chat/groups`. `addGroup` dedupes case-insensitively and persists; the frontend
-  fetches it into `ChatContext`'s `groups` state on `init()` and surfaces it via the
-  `InfoPanel` group dropdown ("+ Add Group…" dialog) and the `ChatsDrawer` Groups tab
+   fetches it into `ChatContext`'s `groups` state on `init()` and surfaces it via the
+   `ChatPanel` header group dropdown ("+ Add Group…" dialog) and the `ChatsDrawer` Groups tab
   (collapsible accordion, `jarvis.lastChatsTab` in `localStorage`).
 - `src/agent/backendRegistry.ts` composes one `BackendPool` (`src/agent/backendPool.ts`)
   per profile — lazy-spawns non-default backends on first use, eagerly spawns the

@@ -541,16 +541,18 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
                 {ctx.state.title || "New chat"}
               </button>
             )}
-            <Select
-              value={ctx.state.group || ""}
-              options={[
-                { value: "", label: "None" },
-                ...ctx.state.groups.map((g) => ({ value: g, label: g })),
-                { value: "__add_group__", label: "+ Add Group…" },
-              ]}
-              onChange={handleGroupChange}
-              aria-label="Group"
-            />
+            <span className={styles.headerSpacer}>
+              <Select
+                value={ctx.state.group || ""}
+                options={[
+                  { value: "", label: "Add to Group" },
+                  ...ctx.state.groups.map((g) => ({ value: g, label: g })),
+                  { value: "__add_group__", label: "+ Add Group…" },
+                ]}
+                onChange={handleGroupChange}
+                aria-label="Group"
+              />
+            </span>
             {/* Primary group */}
             <Button variant="primary" onClick={onNewChat}>＋ New</Button>
             <Button
@@ -579,8 +581,9 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
               onClick={() => onPinnedChange(!ctx.state.pinned)}
               aria-label={ctx.state.pinned ? "Unpin session" : "Pin session"}
             >
-              <svg viewBox="0 0 24 24" fill={ctx.state.pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M16 2l-1.5 4 5 5 4-1.5v3l-5 1.5-3.5 6.5L13 17l-6 6-1.5-1.5 6-6-3.5-2.5L9.5 8 8 3h3L9.5 7.5l4 4 4-5.5L16 2z" />
+              <svg viewBox="0 0 24 24" fill={ctx.state.pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 17v5" />
+                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
               </svg>
             </button>
             <button

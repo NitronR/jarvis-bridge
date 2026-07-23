@@ -19,7 +19,7 @@
 }
 .header .titleButton {
   margin: 0 var(--space-5) 0 0; font-size: 13px; font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.1px; flex: 1; display: flex; align-items: center; gap: var(--space-4);
+  letter-spacing: 0.1px; display: flex; align-items: center; gap: var(--space-4);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background: none; border: 1px solid transparent; padding: 1px 4px; cursor: text;
   color: var(--color-text); text-align: left;
@@ -41,7 +41,7 @@
 
 .header .titleInput {
   margin: 0 var(--space-4) 0 0; font-size: 13px; font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.1px; flex: 1; min-width: 0;
+  letter-spacing: 0.1px; min-width: 0;
   background: var(--color-surface-1); border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md); padding: 1px 4px;
   color: var(--color-text); outline: none;
@@ -49,6 +49,7 @@
 .header .titleInput::placeholder {
   font-style: italic; color: var(--color-text-muted);
 }
+.headerSpacer { margin-left: auto; display: flex; align-items: center; }
 .header :global(button) { padding: 5px 10px; font-size: 12px; }
 
 /* Toggle-on state: a tinted "selected" chip, distinct from the solid-fill CTA (+ New),
@@ -109,6 +110,7 @@
 .pinBtn svg {
   width: 16px;
   height: 16px;
+  transform: rotate(25deg);
 }
 
 .divider {

@@ -1,5 +1,7 @@
+import { useCallback } from "react";
 import type { ChatState } from "../state/ChatContext";
 import type { UsageTotals } from "../api/types";
+import { useToast } from "../state/ToastContext";
 import styles from "./InfoPanel.module.css";
 import { Button } from "./ui/Button";
 
@@ -48,22 +50,53 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
 export function InfoPanel(props: InfoPanelProps) {
   const {
     state, usage, usageQuerySupported, refreshingUsage,
     onRefreshUsage,
   } = props;
+
+  const toast = useToast();
+
+  const copyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.push("Copied to clipboard", "info");
+  }, [toast]);
+
   return (
     <aside className={styles.panel}>
       <div className={styles.section}>
         <h3>Session & workspace</h3>
-        <div className={styles.row}>
+        <div className={styles.stackRow}>
           <span className={styles.key}>Workspace</span>
-          <span className={styles.val}>{state.cwd ?? "—"}</span>
+          <span className={styles.valRow}>
+            <span className={styles.val}>{state.cwd ?? "—"}</span>
+            {state.cwd && (
+              <button type="button" className={styles.copyBtn} onClick={() => copyToClipboard(state.cwd!)} title="Copy workspace path" aria-label="Copy workspace path">
+                <CopyIcon />
+              </button>
+            )}
+          </span>
         </div>
-        <div className={styles.row}>
+        <div className={styles.stackRow}>
           <span className={styles.key}>ID</span>
-          <span className={styles.val}>{state.sessionId ?? "—"}</span>
+          <span className={styles.valRow}>
+            <span className={styles.val}>{state.sessionId ?? "—"}</span>
+            {state.sessionId && (
+              <button type="button" className={styles.copyBtn} onClick={() => copyToClipboard(state.sessionId!)} title="Copy session ID" aria-label="Copy session ID">
+                <CopyIcon />
+              </button>
+            )}
+          </span>
         </div>
       </div>
 
