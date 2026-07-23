@@ -25,6 +25,36 @@
 .header h1.titlePlaceholder {
   font-weight: var(--font-weight-medium); font-style: italic; color: var(--color-text-muted);
 }
+
+.header .titleButton {
+  margin: 0 var(--space-5) 0 0; font-size: 13px; font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.1px; flex: 1; display: flex; align-items: center; gap: var(--space-4);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: none; border: none; padding: 2px 0; cursor: text;
+  color: var(--color-text); text-align: left;
+  border-bottom: 1px solid var(--color-text-muted);
+}
+.header .titleButton:hover {
+  border-bottom-color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1px 4px;
+  margin: 0 var(--space-4) 0 0;
+}
+.header .titleButton.titlePlaceholder {
+  font-weight: var(--font-weight-medium); font-style: italic; color: var(--color-text-muted);
+}
+
+.header .titleInput {
+  margin: 0 var(--space-4) 0 0; font-size: 13px; font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.1px; flex: 1; min-width: 0;
+  background: var(--color-surface-1); border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md); padding: 1px 4px;
+  color: var(--color-text); outline: none;
+}
+.header .titleInput::placeholder {
+  font-style: italic; color: var(--color-text-muted);
+}
 .header :global(button) { padding: 5px 10px; font-size: 12px; }
 
 /* Toggle-on state: a tinted "selected" chip, distinct from the solid-fill CTA (+ New),

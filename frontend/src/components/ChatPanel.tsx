@@ -457,15 +457,65 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
 
   const healthStatus: DotStatus = healthOk === null ? "idle" : healthOk ? "ok" : "bad";
 
+  const [titleDraft, setTitleDraft] = useState(ctx.state.title);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  const openTitleEdit = () => {
+    setTitleDraft(ctx.state.title);
+    setEditingTitle(true);
+  };
+
+  const commitTitle = () => {
+    setEditingTitle(false);
+    if (titleDraft !== ctx.state.title) onRename(titleDraft);
+  };
+
+  const revertTitle = () => setEditingTitle(false);
+
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitle]);
+
   return (
     <div className={styles.panel}>
       <div className={styles.stage}>
         <div className={styles.main}>
           <div className={styles.header}>
-            <h1 className={ctx.state.title ? undefined : styles.titlePlaceholder}>
-              <Dot status={healthStatus} />
-              {ctx.state.title || "New chat"}
-            </h1>
+            {editingTitle ? (
+              <input
+                ref={titleInputRef}
+                className={styles.titleInput}
+                aria-label="Title"
+                placeholder="New chat"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitTitle();
+                  if (e.key === "Escape") revertTitle();
+                }}
+                onBlur={commitTitle}
+              />
+            ) : (
+              <button
+                type="button"
+                className={`${styles.titleButton} ${ctx.state.title ? "" : styles.titlePlaceholder}`}
+                onClick={openTitleEdit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openTitleEdit();
+                  }
+                }}
+                aria-label="Edit title"
+              >
+                <Dot status={healthStatus} />
+                {ctx.state.title || "New chat"}
+              </button>
+            )}
             {/* Primary group */}
             <Button variant="primary" onClick={onNewChat}>＋ New</Button>
             <Button

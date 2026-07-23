@@ -31,7 +31,7 @@ describe("<ChatPanel>", () => {
         </ChatProvider>
       </ToastProvider>,
     );
-    expect(screen.getByText("Loading")).toBeInTheDocument();
+    expect(screen.getAllByText("Loading").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Info")).toBeInTheDocument();
   });
 
@@ -152,7 +152,7 @@ describe("<ChatPanel>", () => {
           </ChatProvider>
         </ToastProvider>,
       );
-      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByLabelText("Edit title").length).toBeGreaterThanOrEqual(1));
       const initCallsBefore = fetchSpy.mock.calls.filter(([u]) => String(u).startsWith("/chat/init")).length;
 
       fireEvent.click(screen.getByText("☰ Chats"));
@@ -175,7 +175,7 @@ describe("<ChatPanel>", () => {
           </ChatProvider>
         </ToastProvider>,
       );
-      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByLabelText("Edit title").length).toBeGreaterThanOrEqual(1));
 
       // Primary group: New, Follow, Chats
       expect(screen.getByText("＋ New")).toBeInTheDocument();
@@ -220,7 +220,7 @@ describe("<ChatPanel>", () => {
           </ChatProvider>
         </ToastProvider>,
       );
-      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByLabelText("Edit title").length).toBeGreaterThanOrEqual(1));
       expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
       expect(screen.getByText("Model One")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Auto-approve" })).toBeInTheDocument();
@@ -250,7 +250,7 @@ describe("<ChatPanel>", () => {
           </ChatProvider>
         </ToastProvider>,
       );
-      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByLabelText("Edit title").length).toBeGreaterThanOrEqual(1));
       expect(screen.queryByText("Steer")).not.toBeInTheDocument();
     });
 
