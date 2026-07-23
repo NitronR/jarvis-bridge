@@ -2,7 +2,7 @@
 
 Reference guide for how a senior UI/UX designer approaches redesigning an existing
 product. Use this to structure any redesign work on jarvis_bridge's frontend
-(`ChatPanel`, `Composer`, `Sidenav`, terminal drawer).
+(`ChatPanel`, `Composer`, terminal drawer).
 
 ## Stages
 
@@ -178,7 +178,7 @@ stage 6 (visual polish) without stage 2 (audit) and stage 5 (IA) — this produc
 a UI that's prettier but still structurally confusing.
 
 Concretely, for this codebase:
-- Stage 2 (audit) maps to a heuristic pass over `ChatPanel`, `Composer`, `Sidenav`,
+- Stage 2 (audit) maps to a heuristic pass over `ChatPanel`, `Composer`,
   and the terminal drawer.
 - Stage 6 (tokens) maps naturally onto the existing `*.module.css` files —
   introducing CSS custom properties for color/spacing/type rather than hardcoded

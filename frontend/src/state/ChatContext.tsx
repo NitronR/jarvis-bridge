@@ -165,6 +165,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return;
       }
       const d = res.data;
+      console.log(`[FE] init response sessionId=${d.sessionId} model.current=${d.model?.current} model.available=${d.model?.available?.map(m => m.modelId).join(",")}`);
       const count = (d.history || []).length;
       setState((s) => {
         const nextTurnCounts = { ...s.turnCounts, [d.sessionId]: count };

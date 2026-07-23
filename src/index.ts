@@ -14,6 +14,7 @@ import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config";
+import { initLogger, installConsoleOverride } from "./logger";
 import { loadBackendProfiles } from "./agent/backendConfig";
 import { createSettingsStore } from "./agent/settingsStore";
 import { createSessionConfigStore } from "./agent/sessionConfigStore";
@@ -24,6 +25,10 @@ import { attachTerminalServer } from "./terminal";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
+
+  initLogger({ logFile: cfg.logFile });
+  installConsoleOverride();
+  console.log(`[jarvis-bridge] logging to ${cfg.logFile}`);
 
   // 1. Ensure workspace + system dirs exist. `workspace` is the agent cwd +
   // tools realpath root; `systemDir/config` holds agents.json and friends,
@@ -89,6 +94,7 @@ async function main(): Promise<void> {
     registry,
     tools,
     sessionConfig,
+    logFile: cfg.logFile,
   });
   const server = app.listen(cfg.port, () => {
     console.log(`[jarvis-bridge] gateway listening on http://localhost:${cfg.port}`);

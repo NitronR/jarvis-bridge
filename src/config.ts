@@ -14,6 +14,7 @@ export interface AppConfig {
   shell: boolean;
   slackToken?: string;
   gatewayUrl: string;
+  logFile?: string;
 }
 
 function expandHome(p: string): string {
@@ -51,5 +52,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     shell: boolOpt(env.JARVIS_BRIDGE_SHELL, "false"),
     slackToken: env.SLACK_BOT_TOKEN?.trim() || undefined,
     gatewayUrl: env.JARVIS_BRIDGE_GATEWAY_URL ?? "http://localhost:3001",
+    logFile: env.JARVIS_BRIDGE_LOG_FILE?.trim() || path.join(systemDir, "logs", "gateway.log"),
   };
 }

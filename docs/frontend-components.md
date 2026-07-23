@@ -34,7 +34,7 @@ extend this file rather than adding a parallel test when a new token lands.
 8px circle. `progress` renders a spinning ring (`Dot.module.css`'s own `@keyframes spin`) —
 this is the only place the spin animation lives; don't reintroduce a local copy elsewhere.
 Forwards all `HTMLAttributes<HTMLSpanElement>` (used for `data-testid` in tests, and by
-`Timeline`'s tool-call pills). Consumers: `Sidenav`'s health indicator, `Timeline`'s tool-call
+`Timeline`'s tool-call pills). Consumers: `ChatPanel`'s header title, `Timeline`'s tool-call
 status pill.
 
 ## `Avatar` — role initials
@@ -66,9 +66,16 @@ changes).
 
 Renders with `--radius-md` (4px rounding), smooth hover/focus transitions, a
 `--color-accent` focus-visible ring, and a subtle `:active` scale press. First adopted by
-`ChatPanel`'s header toolbar (Phase 3: Header/Toolbar Cleanup). `InfoPanel`/`Composer` still
-use raw `<button>` — migrate onto `Button` whenever those files are next touched, rather
-than as a standalone sweep.
+`ChatPanel`'s header toolbar (Phase 3: Header/Toolbar Cleanup), then `Composer`'s action row
+(Phase 4: Composer Redesign). `InfoPanel` still uses raw `<button>` — migrate whenever that
+file is next touched.
+
+**Deliberately not migrated**: `QuickPhrasesRow`'s pill/add/delete/overflow buttons stay bare
+`<button className={styles.x}>` elements rather than `<Button>`, for the same reason its pill
+isn't run through the `Pill` primitive either (see below): they're tightly coupled to a
+`ResizeObserver`-measured clone of their own box model, and `Button`'s own border/padding
+would need overriding anyway with no visual gain — any mismatch between the real element and
+its hidden measurement clone silently breaks the overflow-cutoff math.
 
 ## `Pill`
 
@@ -91,6 +98,43 @@ label, plus a hidden `ResizeObserver`-measured clone tightly coupled to its own 
 class's box model) intentionally stays a bare `<span>`, tokenized but not swapped onto
 `<Pill>` — forcing it through `Pill`'s generic `children`-only API would risk breaking the
 width measurement for no visual gain.
+
+`QuickPhrasesRow`'s overflow ("+N") indicator is a real, keyboard-operable `<button>` (not a
+hover trigger) — `aria-haspopup`/`aria-expanded`, opens on click, closes on click-outside,
+Escape, or blur (Phase 4: Composer Redesign). One CSS constraint from its original
+implementation still applies and is easy to reintroduce accidentally: `.row` must not set
+`overflow: hidden` — the popup is an absolutely-positioned descendant placed *above* the row
+(`bottom: 100%`), so a clipping ancestor hides it outright regardless of open/close state.
+(An earlier, hover-driven version of this popup also required the visual gap above the pill
+to come from `padding-bottom` on `.overflowPopup` rather than `margin-bottom`, to avoid a
+`mouseleave` dead zone — see `docs/archives/2026-07-22-quick-phrases-overflow-popup-fixes.md`.
+That specific reasoning no longer applies now that open/close isn't hover-driven, but the
+`.overflowPopupInner` split it produced was kept as-is.)
+
+## `Select` — custom listbox combobox
+
+`frontend/src/components/ui/Select.tsx`
+
+```tsx
+<Select
+  value={currentModel}
+  options={models.map((m) => ({ value: m, label: m }))}
+  onChange={onModelChange}
+  disabled={models.length === 0}
+  aria-label="Model"
+/>
+```
+
+Not a native `<select>` — a `role="listbox"`/`role="option"` combobox with its own
+open/close state, keyboard nav (`ArrowUp`/`ArrowDown`/`Enter`/`Space` on the trigger to
+open, same keys plus `Escape` inside the open list), click-outside-to-close, and
+auto-flip placement (`top`/`bottom`) based on available viewport space
+(`useLayoutEffect` measuring `getBoundingClientRect()` against `options.length *
+OPTION_HEIGHT`). Escape restores focus to the trigger button, matching
+`QuickPhrasesRow`'s overflow-popup pattern above. First and only consumer: `Composer`'s
+model selector (Phase 4: Composer Redesign) — chosen over a native `<select>`
+mid-implementation for a more consistent, stylable dropdown; see Edge Case 8 of
+`docs/superpowers/specs/2026-07-22-composer-redesign-design.md`.
 
 ## `JsonView` — syntax-highlighted JSON renderer
 
@@ -132,7 +176,7 @@ unused but available). This plumbing enables backend-specific rendering in `rend
 without further prop-threading — e.g., showing `_meta.claudeCode.toolName` for Claude or
 `locations[]` for opencode.
 
-## Conventions shared by all five primitives
+## Conventions shared by all six primitives
 
 - One `.tsx` + one `.module.css` + one `.test.tsx`, in `ui/`.
 - Variant/tone/status/role prop is optional with a sensible default, typed as a string

@@ -12,20 +12,58 @@
   .infoWrap { transition: none; }
 }
 .header {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  display: flex; align-items: center; gap: 6px; padding: 0 var(--space-7);
   height: var(--header-h); border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-1); flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
 }
 .header h1 {
-  margin: 0; font-size: 13px; font-weight: 600; flex: 1;
+  margin: 0 var(--space-5) 0 0; font-size: 13px; font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.1px; flex: 1; display: flex; align-items: center; gap: var(--space-4);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.header h1.titlePlaceholder {
+  font-weight: var(--font-weight-medium); font-style: italic; color: var(--color-text-muted);
 }
 .header :global(button) { padding: 5px 10px; font-size: 12px; }
 
+/* Toggle-on state: a tinted "selected" chip, distinct from the solid-fill CTA (+ New),
+   so an active Follow/Steer/Auto-approve reads as "on" rather than competing as another CTA. */
+.header :global(button).toggleOn {
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.header :global(button).toggleOn:hover:not(:disabled) {
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent-strong);
+}
+
+.settingsBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 4px 6px;
+}
+.settingsBtn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.settingsBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
 .divider {
   width: 1px;
-  height: 20px;
-  background: var(--color-border);
-  margin: 0 var(--space-2);
+  height: 22px;
+  background: var(--color-border-strong);
+  opacity: 0.6;
+  margin: 0 var(--space-3);
   flex-shrink: 0;
 }

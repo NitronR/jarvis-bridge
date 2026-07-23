@@ -69,4 +69,77 @@ describe("<QuickPhrasesRow>", () => {
     expect(onAdd).not.toHaveBeenCalled();
     expect(screen.queryByPlaceholderText(/new quick phrase/i)).not.toBeInTheDocument();
   });
+
+  it("has a group role and label on the container", () => {
+    render(<QuickPhrasesRow phrases={["a"]} onSubmit={vi.fn()} onAdd={vi.fn()} onDelete={vi.fn()} />);
+    expect(screen.getByRole("group", { name: "Quick phrases" })).toBeInTheDocument();
+  });
+
+  describe("overflow popup", () => {
+    // In jsdom all measured widths are 0, so with 3 phrases only the first
+    // is "visible" and the rest ("b", "c") land in the overflow popup — see
+    // the recompute() trace above.
+    const phrases = ["a", "b", "c"];
+
+    it("renders a real, focusable button (not a hover-only div) with aria-haspopup/aria-expanded", () => {
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={vi.fn()} onAdd={vi.fn()} onDelete={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: "2 more quick phrases" });
+      expect(toggle.tagName).toBe("BUTTON");
+      expect(toggle).toHaveAttribute("aria-haspopup", "true");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      toggle.focus();
+      expect(toggle).toHaveFocus();
+    });
+
+    it("opens the popup on click and shows the hidden phrases", () => {
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={vi.fn()} onAdd={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "2 more quick phrases" }));
+      expect(screen.getByRole("button", { name: "2 more quick phrases" })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: "b" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "c" })).toBeInTheDocument();
+    });
+
+    it("submits a hidden phrase from the popup and closes it", () => {
+      const onSubmit = vi.fn();
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={onSubmit} onAdd={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "2 more quick phrases" }));
+      fireEvent.click(screen.getByRole("button", { name: "b" }));
+      expect(onSubmit).toHaveBeenCalledWith("b");
+      expect(screen.queryByRole("button", { name: "c" })).not.toBeInTheDocument();
+    });
+
+    it("deletes a hidden phrase from the popup without submitting it", () => {
+      const onSubmit = vi.fn();
+      const onDelete = vi.fn();
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={onSubmit} onAdd={vi.fn()} onDelete={onDelete} />);
+      fireEvent.click(screen.getByRole("button", { name: "2 more quick phrases" }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove quick phrase: c" }));
+      expect(onDelete).toHaveBeenCalledWith(2);
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("closes on Escape", () => {
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={vi.fn()} onAdd={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "2 more quick phrases" }));
+      expect(screen.getByRole("button", { name: "b" })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("button", { name: "b" })).not.toBeInTheDocument();
+    });
+
+    it("returns focus to the toggle button after closing via Escape", () => {
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={vi.fn()} onAdd={vi.fn()} onDelete={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: "2 more quick phrases" });
+      fireEvent.click(toggle);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(toggle).toHaveFocus();
+    });
+
+    it("closes on click-outside", () => {
+      render(<QuickPhrasesRow phrases={phrases} onSubmit={vi.fn()} onAdd={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "2 more quick phrases" }));
+      expect(screen.getByRole("button", { name: "b" })).toBeInTheDocument();
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("button", { name: "b" })).not.toBeInTheDocument();
+    });
+  });
 });

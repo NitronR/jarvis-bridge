@@ -28,6 +28,8 @@
   border-radius: var(--radius-bubble);
   padding: var(--space-4) var(--space-6);
   font-size: var(--font-size-3);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 .tool summary {
   display: flex;
@@ -40,6 +42,10 @@
   font-family: var(--font-mono);
   color: var(--color-accent);
   font-weight: var(--font-weight-semibold);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .toolResult {
   margin-top: var(--space-3);

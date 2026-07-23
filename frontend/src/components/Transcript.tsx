@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { Message, type MessageEntry } from "./Message";
 import type { ChatPatch } from "../api/types";
+import { useScrollButtons } from "../hooks/useScrollButtons";
+import { ScrollButtons } from "./ScrollButtons";
 import styles from "./Transcript.module.css";
 
 export interface TranscriptProps {
@@ -15,44 +17,58 @@ export interface TranscriptProps {
 }
 
 export function Transcript(props: TranscriptProps) {
-  const ref = useRef<HTMLDivElement>(null);
+  const { scrollRef, showTop, showBottom, scrollToTop, scrollToBottom } = useScrollButtons();
   const follow = props.follow ?? true;
-  useEffect(() => {
-    if (follow && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [props.entries, follow]);
+  useLayoutEffect(() => {
+    if (!follow || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const raf = requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [props.entries, follow, scrollRef]);
   if (props.loading) {
     return (
-      <div ref={ref} className={styles.transcript}>
-        <div className={styles.empty}>
-          <p>Loading…</p>
+      <div className={styles.transcriptWrap}>
+        <div ref={scrollRef} className={styles.transcript}>
+          <div className={styles.empty}>
+            <p>Loading…</p>
+          </div>
         </div>
+        <ScrollButtons showTop={showTop} showBottom={showBottom} onScrollToTop={scrollToTop} onScrollToBottom={scrollToBottom} />
       </div>
     );
   }
   if (props.entries.length === 0) {
     return (
-      <div ref={ref} className={styles.transcript}>
-        <div className={styles.empty}>
-          <h2>Start a conversation</h2>
-          <p>Send a message to begin.</p>
+      <div className={styles.transcriptWrap}>
+        <div ref={scrollRef} className={styles.transcript}>
+          <div className={styles.empty}>
+            <h2>Start a conversation</h2>
+            <p>Send a message to begin.</p>
+          </div>
         </div>
+        <ScrollButtons showTop={showTop} showBottom={showBottom} onScrollToTop={scrollToTop} onScrollToBottom={scrollToBottom} />
       </div>
     );
   }
   return (
-    <div ref={ref} className={styles.transcript} role="log" aria-live="polite">
-      {props.entries.map((entry, idx) => (
-        <Message
-          key={idx}
-          entry={entry}
-          showAvatar={idx === 0 || props.entries[idx - 1].role !== entry.role}
-          backendKind={props.backendKind}
-          onApproval={props.onApproval}
-          onElicitation={props.onElicitation}
-          onSteerAck={props.onSteerAck}
-          onImagesSkipped={props.onImagesSkipped}
-        />
-      ))}
+    <div className={styles.transcriptWrap}>
+      <div ref={scrollRef} className={styles.transcript} role="log" aria-live="polite">
+        {props.entries.map((entry, idx) => (
+          <Message
+            key={idx}
+            entry={entry}
+            showAvatar={idx === 0 || props.entries[idx - 1].role !== entry.role}
+            backendKind={props.backendKind}
+            onApproval={props.onApproval}
+            onElicitation={props.onElicitation}
+            onSteerAck={props.onSteerAck}
+            onImagesSkipped={props.onImagesSkipped}
+          />
+        ))}
+      </div>
+      <ScrollButtons showTop={showTop} showBottom={showBottom} onScrollToTop={scrollToTop} onScrollToBottom={scrollToBottom} />
     </div>
   );
 }

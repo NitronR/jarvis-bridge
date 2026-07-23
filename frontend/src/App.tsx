@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Sidenav } from "./components/Sidenav";
 import { HealthDot } from "./components/HealthDot";
 import { ChatPanel } from "./components/ChatPanel";
 import { StatusPanel } from "./components/StatusPanel";
-import { SettingsPanel } from "./components/SettingsPanel";
 import { SkillsManagePanel } from "./components/SkillsManagePanel";
 import { SkillPanel } from "./components/SkillPanel";
 import { TerminalDrawer } from "./components/TerminalDrawer";
@@ -11,24 +9,6 @@ import { ToastProvider } from "./state/ToastContext";
 import { ChatProvider, useChatContext } from "./state/ChatContext";
 import { useHashRoute } from "./useHashRoute";
 import { useFavicon } from "./useFavicon";
-
-const SIDENAV_COLLAPSED_STORAGE_KEY = "jarvis.sidenavCollapsed";
-
-function safeGetStoredSidenavCollapsed(): boolean {
-  try {
-    return window.localStorage?.getItem(SIDENAV_COLLAPSED_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function safeSetStoredSidenavCollapsed(value: boolean): void {
-  try {
-    window.localStorage?.setItem(SIDENAV_COLLAPSED_STORAGE_KEY, String(value));
-  } catch {
-    // ignore (storage may be unavailable)
-  }
-}
 
 export function App() {
   return (
@@ -39,16 +19,8 @@ export function App() {
 }
 
 function AppInner() {
-  const { route, navigate } = useHashRoute();
+  const { route } = useHashRoute();
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
-  const [sidenavCollapsed, setSidenavCollapsedState] = useState(() => safeGetStoredSidenavCollapsed());
-  const setSidenavCollapsed = useCallback((value: boolean | ((v: boolean) => boolean)) => {
-    setSidenavCollapsedState((prev) => {
-      const next = typeof value === "function" ? (value as (v: boolean) => boolean)(prev) : value;
-      safeSetStoredSidenavCollapsed(next);
-      return next;
-    });
-  }, []);
   const [cwd, setCwd] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
@@ -91,18 +63,10 @@ function AppInner() {
   return (
     <ToastProvider>
       <HealthDot onUpdate={onHealthUpdate} />
-      <div style={{ display: "flex", height: "100vh" }}>
-        <Sidenav
-          current={route}
-          onNavigate={navigate}
-          healthOk={healthOk}
-          collapsed={sidenavCollapsed}
-          onToggleCollapsed={() => setSidenavCollapsed((v) => !v)}
-        />
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
         <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-          {route === "chat" && <ChatPanel />}
+          {route === "chat" && <ChatPanel healthOk={healthOk} />}
           {route === "status" && <StatusPanel active={true} />}
-          {route === "settings" && <SettingsPanel />}
           {route === "skills-manage" && <SkillsManagePanel />}
           {route.startsWith("skill/") && <SkillPanel name={route.slice("skill/".length)} />}
           {terminalMounted && (

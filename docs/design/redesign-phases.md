@@ -40,22 +40,128 @@ divider, migrated onto `Button` primitive, replaced cryptic "AA✓" with self-ex
 - Spec: `docs/superpowers/specs/2026-07-21-header-toolbar-cleanup-design.md`
 - Plan: `docs/superpowers/plans/2026-07-21-header-toolbar-cleanup.md`
 
-## Phase 4: Composer + Info Panel Audit — Not started
+## Phase 4: Composer Redesign — Done (2026-07-22)
 
-Neither surface was raised as a pain point during Phase 2's discovery, so neither was
-touched — but neither has had a heuristic audit run against it either (`ui-ux-process.md`
-stage 2). Before any visual changes here, run that audit rather than assuming what needs
-fixing.
+Scoped to `Composer` only — the Info Panel half of the original "Composer + Info Panel Audit"
+entry remains deferred (not raised as a pain point, no audit run against it yet). Fixed the
+critical accessibility bug (quick-phrases overflow, now a real keyboard/touch-operable
+button), the four major issues (color-only context warning, no persistent send-mode
+indicator, inconsistent empty-input handling, missing attach `aria-label`), and the minor
+ones (raw `<button>`s in `Composer.tsx` migrated onto `Button`, hardcoded px values onto
+tokens, auto-resizing textarea capped at ~4 lines). Relocated Steer and Auto-approve out of
+`ChatPanel`'s header, and the model selector out of `InfoPanel`, into one consolidated
+turn-controls action row in the Composer.
+
+- Spec: `docs/superpowers/specs/2026-07-22-composer-redesign-design.md`
+- Plan: `docs/superpowers/plans/2026-07-22-composer-redesign.md`
+
+## Phase 5: Chats & Groups Popup Redesign — Not started
+
+`ChatsDrawer.tsx` (the "Chats" popup reached from `ChatPanel`'s header) currently mixes a
+raw `<select>`-based workspace/backend filter row, a tab bar (`Chats` / `Groups`) built from
+scratch, session cards with inline pin/delete actions, and a `Groups` tab as a collapsible
+accordion. None of it uses `Button`, `Select`, or `Pill` — it predates all three primitives.
+
+Candidate pain points to confirm in audit (stage 2) before writing a spec:
+- Two raw `<select>` filters (`aria-label="Workspace"`, `aria-label="Backend"`) — candidates
+  for the new `Select` primitive (`frontend/src/components/ui/Select.tsx`, built during the
+  Composer redesign but not yet documented in `docs/frontend-components.md` or adopted
+  anywhere).
+- Tab bar, close button, pin/delete/pin-toggle buttons are all raw `<button>` — candidates
+  for `Button`.
+- Groups tab: empty state is a single line ("No groups yet."); no way to create a group from
+  here (group creation lives in `InfoPanel`'s "+ Add Group…" dialog per `AGENTS.md`) — worth
+  checking whether that's a real pain point or intentional separation of concerns.
+- Search only matches session ID substrings, not titles — may or may not be in scope.
+
+Non-goals to confirm in spec: changing where groups are created/assigned (`InfoPanel`),
+changing the underlying `groups` API contract.
+
+## Phase 6: Settings Dialog Redesign — Not started
+
+`SettingsDialog.tsx` currently holds two sections: "Default agent backend" (a raw `<select>`)
+and "Quick phrases" (add/remove list, duplicating state already editable directly in
+`Composer.tsx`/`QuickPhrasesRow` via the same `loadQuickPhrases`/`saveQuickPhrases` module).
+
+Decided scope (carry into the spec):
+- **Remove the Quick Phrases section from Settings entirely.** Confirmed redundant: Composer
+  already has its own add/remove UI for the same `localStorage`-backed list
+  (`frontend/src/state/quickPhrases.ts`); Settings never was the only place to manage it.
+- Redesign the remaining "Default agent backend" section — migrate its raw `<select>` onto
+  the `Select` primitive, its close button onto `Button`, and audit the modal chrome
+  (backdrop/header/body) for consistency with other dialogs (`ApprovalModal`,
+  `ElicitationModal`).
+- Confirm whether any other settings belong here now that Quick Phrases is gone, or whether
+  a single-section dialog is fine as-is (a legitimate outcome, not necessarily a problem to
+  solve by adding content).
+
+Non-goal to confirm in spec: don't expand Settings' scope with new preferences not already
+requested elsewhere.
+
+## Phase 7: Workspaces ("New in…") Popup Redesign + Bookmarking — Not started
+
+`WorkspacesDrawer.tsx` is currently minimal: a header, an "Open folder…" button, and a flat
+recency-ordered list of `recentWorkspaces` (basename + full path), sourced entirely from
+`frontend/src/state/recentWorkspaces.ts` (a `localStorage`-backed MRU list, no backend
+persistence, no dedup beyond exact-path match).
+
+Decided scope:
+- Redesign the popup itself (visual/interaction pass — audit first for concrete pain points,
+  e.g. no distinction between the just-opened workspace and older ones, no search/filter for
+  users with many workspaces).
+- **Add workspace bookmarking**: a way to bookmark/unbookmark a workspace from this popup,
+  and a bookmarked-workspaces section (or tab, to be decided in the spec) shown alongside
+  recents.
+
+Open questions for the spec/brainstorm stage (don't decide here):
+- Storage: mirror `recentWorkspaces.ts`'s `localStorage` pattern with a new
+  `bookmarkedWorkspaces.ts` (simplest, consistent with current no-backend-persistence
+  design), vs. promoting to backend persistence (`session_metadata.json` already persists
+  other cross-session state per `AGENTS.md` — but bookmarks aren't session-scoped, so this
+  would be a new top-level concept, not a fit for the existing per-session store as-is).
+- Interaction model: bookmarked and recent as separate list sections in one view, vs. a
+  tab bar like `ChatsDrawer`'s Chats/Groups split (Phase 5 above) — worth deciding once,
+  consistently, if both drawers end up with a similar two-list shape.
+- What happens when a bookmarked workspace no longer appears in recents (never removed vs.
+  auto-pruned) — an edge case the spec must enumerate per `docs/design/philosophy.md`.
+
+## Phase 8: Design System Consistency Review — Not started
+
+Not a visual redesign — an audit-and-migrate pass checking the app against
+`docs/frontend-components.md`'s inventory and `docs/design/philosophy.md`'s token/primitive
+discipline, closing gaps left by incremental adoption across Phases 1–7.
+
+Known gaps found in a quick audit (to confirm/expand during the audit stage):
+- **`Select` primitive undocumented and unadopted.** Exists at
+  `frontend/src/components/ui/Select.tsx` (accessible custom select: keyboard nav, listbox
+  semantics, top/bottom auto-placement) but isn't in `docs/frontend-components.md`'s
+  primitives list, and no consumer uses it yet. Raw `<select>` elements remain in
+  `InfoPanel.tsx`, `SettingsPanel.tsx` (see dead-code note below), `SettingsDialog.tsx`, and
+  `ChatsDrawer.tsx` — candidates once Phases 5–6 land, plus document the primitive either way.
+- **`Button` adoption gap**, beyond the already-tracked `InfoPanel` backlog item: raw
+  `<button>` elements also remain in `ApprovalModal.tsx`, `ElicitationModal.tsx`,
+  `TerminalDrawer.tsx`, `ChatsDrawer.tsx`, and `WorkspacesDrawer.tsx`.
+- **Two dead components found**, superseded by later redesigns but never removed:
+  `PastChatsMenu.tsx` (+ its `.test.tsx`) — superseded by `ChatsDrawer.tsx`, zero non-test
+  importers — and `SettingsPanel.tsx` — superseded by `SettingsDialog.tsx`, zero importers.
+  Confirm with the user and delete rather than carry forward as redesign scope.
+- **Fold in the still-open Phase 1/2 backlog items** (below) as part of this pass rather than
+  leaving them as a separate perpetual list, since this phase's whole purpose is closing
+  exactly this kind of drift.
+
+Non-goal: this phase should not introduce new primitives or tokens — it migrates existing
+call sites onto what already exists, per philosophy.md's "only tokenize what actually
+repeats."
 
 ## Backlog: Deferred Findings (non-blocking)
 
 Minor findings surfaced during Phase 1/2 review, explicitly deferred rather than fixed.
-Revisit opportunistically — when a listed file is next touched for another reason, or when
-one of these visibly matters (e.g., a new `Pill` tone is added).
+To be resolved as part of Phase 8 (Design System Consistency Review) rather than as a
+standalone pass — kept listed here until then so they aren't lost to chat history.
 
-- **`Button` call sites: `ChatPanel` migrated (Phase 3); `InfoPanel` and `Composer` still
-  use raw `<button>` elements.** Migrate onto `Button` whenever one of those files is next
-  touched, rather than as a standalone migration pass.
+- **`Button` call sites: `ChatPanel` migrated (Phase 3), `Composer` migrated (Phase 4);
+  `InfoPanel` still uses raw `<button>` elements.** Migrate onto `Button` whenever that file
+  is next touched, rather than as a standalone migration pass.
 - **`Pill`'s `.neutral` tone is ~2px larger than other tones** — it has a border the other
   tones don't (`Pill.module.css`, added during Phase 1's Task 5 fix), no `box-sizing` offset.
   No visible effect today since `Timeline` only ever renders `tone="neutral"`; would matter

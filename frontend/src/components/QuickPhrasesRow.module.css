@@ -3,7 +3,6 @@
   flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
-  overflow: hidden;
   position: relative;
 }
 .addWrap { flex-shrink: 0; }
@@ -67,23 +66,36 @@
   color: var(--color-danger);
   cursor: pointer;
 }
-.overflow {
+.overflowWrap {
   position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+.overflow {
   display: flex;
   align-items: center;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
   padding: var(--space-1) var(--space-4);
+  font: inherit;
   font-size: var(--font-size-3);
-  flex-shrink: 0;
   color: var(--color-text-muted);
+  cursor: pointer;
+}
+.overflow:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 .overflowPopup {
   position: absolute;
   bottom: 100%;
   right: 0;
-  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  z-index: 10;
+  min-width: 160px;
+}
+.overflowPopupInner {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -91,10 +103,8 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--space-3);
-  z-index: 10;
-  min-width: 160px;
 }
-.overflowPopup .pill { width: 100%; }
+.overflowPopupInner .pill { width: 100%; }
 .measure {
   position: absolute;
   visibility: hidden;

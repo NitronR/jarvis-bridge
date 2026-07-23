@@ -415,6 +415,7 @@ export class AcpAgentBackend implements AgentBackend {
     ctx.currentModelId = parsed.models.current;
     ctx.rawConfigOptions = parsed.rawConfigOptions;
     ctx.modes = parsed.modes;
+    console.log(`[ACP] createSession sessionId=${sessionId} parsed.current=${parsed.models.current}`);
     this.sessions.set(sessionId, ctx);
     const sessionObj = new AcpAgentSession(this, sessionId, ctx);
     this.sessionObjects.set(sessionId, sessionObj);
@@ -454,6 +455,7 @@ export class AcpAgentBackend implements AgentBackend {
     ctx.currentModelId = parsed.models.current;
     ctx.rawConfigOptions = parsed.rawConfigOptions;
     ctx.modes = parsed.modes;
+    console.log(`[ACP] loadSession sessionId=${sessionId} parsed.current=${parsed.models.current}`);
     // Wait briefly for replay activity to drain.
     await this.waitForReplayIdle(ctx);
     ctx.captureReplay = false;
@@ -544,6 +546,7 @@ export class AcpAgentBackend implements AgentBackend {
     }
     await this.conn.sendRequest("session/set_model", { sessionId, modelId });
     ctx.currentModelId = modelId;
+    console.log(`[ACP] setSessionModel sessionId=${sessionId} modelId=${modelId}`);
   }
 
   async queryUsage(): Promise<UsageTotals["rate_limits"] | null> {

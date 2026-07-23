@@ -52,9 +52,8 @@
 
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
 
-  --sidenav-w: 220px;
   --chat-composer-h: 96px;
-  --header-h: 44px;
+  --header-h: 48px;
 
   --button-primary-bg: var(--color-accent);
   --button-primary-bg-hover: var(--color-accent-strong);

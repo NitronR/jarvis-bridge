@@ -1,8 +1,13 @@
-import { useRef, useState, type DragEvent, type FormEvent } from "react";
-import type { ImageAttachment, UsageTotals } from "../api/types";
+import { useLayoutEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import type { ImageAttachment, ModelInfo, UsageTotals } from "../api/types";
 import { loadQuickPhrases, saveQuickPhrases } from "../state/quickPhrases";
 import { QuickPhrasesRow } from "./QuickPhrasesRow";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import styles from "./Composer.module.css";
+
+// ~4 lines at the textarea's 20px line-height + 16px vertical padding (2 × --space-4).
+const TEXTAREA_MAX_HEIGHT_PX = 96;
 
 export interface ComposerProps {
   busy: boolean;
@@ -11,6 +16,12 @@ export interface ComposerProps {
   imagesSupported: boolean;
   attachments: ImageAttachment[];
   latestUsage?: UsageTotals;
+  models: ModelInfo[];
+  currentModel?: string | null;
+  onModelChange: (modelId: string) => void;
+  autoApproveEffective: boolean;
+  autoApproveCapable: boolean;
+  onAutoApproveToggle: () => void;
   onRemoveAttachment: (idx: number) => void;
   onAttachFiles: (files: File[]) => void;
   onSend: (text: string) => void;
@@ -24,6 +35,8 @@ export function Composer(props: ComposerProps) {
   const {
     busy, steerEnabled, steerSupported, imagesSupported,
     attachments, latestUsage,
+    models, currentModel, onModelChange,
+    autoApproveEffective, autoApproveCapable, onAutoApproveToggle,
     onRemoveAttachment, onAttachFiles,
     onSend, onSteer, onCancel, onQueue, onToggleSteer,
   } = props;
@@ -33,6 +46,13 @@ export function Composer(props: ComposerProps) {
   const [phrases, setPhrases] = useState<string[]>(() => loadQuickPhrases());
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
+
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
+  }, [text]);
 
   const dispatch = (trimmed: string) => {
     if (steerEnabled) void onSteer(trimmed);
@@ -69,6 +89,13 @@ export function Composer(props: ComposerProps) {
     setText("");
   };
 
+  const queueClick = () => {
+    const trimmed = text.trim();
+    if (!trimmed && attachments.length === 0) return;
+    void onQueue(trimmed);
+    setText("");
+  };
+
   const hasFiles = (ev: DragEvent) => Array.from(ev.dataTransfer.types).includes("Files");
 
   const onDragEnter = (ev: DragEvent) => {
@@ -99,6 +126,12 @@ export function Composer(props: ComposerProps) {
     if (files.length > 0) onAttachFiles(files);
   };
 
+  const isEmpty = !text.trim() && attachments.length === 0;
+  const usagePct = latestUsage?.context_used != null && latestUsage?.context_limit
+    ? latestUsage.context_used / latestUsage.context_limit
+    : null;
+  const isWarn = usagePct != null && usagePct > 0.8;
+
   return (
     <form
       className={dragging ? `${styles.form} ${styles.dragging}` : styles.form}
@@ -115,15 +148,15 @@ export function Composer(props: ComposerProps) {
           <div key={idx} className={styles.attachment}>
             <img src={`data:${img.mimeType};base64,${img.data}`} alt={img.filename || "image"} />
             <span>{img.filename || `image ${idx + 1}`}</span>
-            <button type="button" onClick={() => onRemoveAttachment(idx)} aria-label="remove">×</button>
+            <Button type="button" onClick={() => onRemoveAttachment(idx)} aria-label="Remove attachment">×</Button>
           </div>
         ))}
       </div>
       <QuickPhrasesRow phrases={phrases} onSubmit={submitPhrase} onAdd={addPhrase} onDelete={deletePhrase} />
-      <div className={styles.row}>
+      <div className={styles.textareaRow}>
         <textarea
           ref={textareaRef}
-          rows={2}
+          rows={1}
           placeholder={
             steerEnabled
               ? "Steer the running turn…"
@@ -152,16 +185,45 @@ export function Composer(props: ComposerProps) {
             e.target.value = "";
           }}
         />
-        <div className={styles.actions}>
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!imagesSupported} title="Attach image">📎</button>
+      </div>
+      <div className={styles.actionRow}>
+        <div className={styles.actionsLeft}>
+          <Button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!imagesSupported}
+            title="Attach image"
+            aria-label="Attach image"
+          >
+            📎
+          </Button>
+          <Select
+            value={currentModel ?? ""}
+            options={models.map((m) => ({ value: m.modelId, label: m.name || m.modelId }))}
+            onChange={onModelChange}
+            disabled={models.length === 0}
+            aria-label="Model"
+          />
+          <Button
+            type="button"
+            variant={autoApproveEffective ? "primary" : "default"}
+            onClick={onAutoApproveToggle}
+            disabled={!autoApproveCapable}
+          >
+            {autoApproveEffective ? "✓ Auto-approve" : "Auto-approve"}
+          </Button>
+        </div>
+        <div className={styles.actionsRight}>
           {busy ? (
-            <button type="button" className="danger" onClick={() => void onCancel()}>Stop</button>
+            <>
+              <Button type="button" variant="danger" onClick={() => void onCancel()}>Stop</Button>
+              <Button type="button" onClick={queueClick} disabled={isEmpty}>Queue</Button>
+              {steerSupported && (
+                <Button type="button" variant={steerEnabled ? "primary" : "default"} onClick={onToggleSteer}>Steer</Button>
+              )}
+            </>
           ) : (
-            <button type="submit" className="primary">Send</button>
-          )}
-          {busy && <button type="button" onClick={() => void onQueue(text)} disabled={!text.trim()}>Queue</button>}
-          {steerSupported && (
-            <button type="button" className={steerEnabled ? "primary" : ""} onClick={onToggleSteer}>Steer</button>
+            <Button type="submit" variant="primary" disabled={isEmpty}>Send</Button>
           )}
         </div>
       </div>
@@ -171,7 +233,8 @@ export function Composer(props: ComposerProps) {
             Context: {latestUsage.context_used?.toLocaleString() ?? "0"} /{" "}
             {latestUsage.context_limit.toLocaleString()}
             {" ("}
-            <span className={latestUsage.context_used != null && latestUsage.context_used / latestUsage.context_limit > 0.8 ? styles.warn : undefined}>
+            <span className={isWarn ? styles.warn : undefined}>
+              {isWarn ? "⚠ " : ""}
               {latestUsage.context_used != null
                 ? Math.round((latestUsage.context_used / latestUsage.context_limit) * 100)
                 : 0}

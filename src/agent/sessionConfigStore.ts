@@ -29,6 +29,8 @@ export interface SessionConfigStore {
   setAutoApproveOverride(sessionId: string, v: boolean | null): Promise<void>;
   getMetadata(sessionId: string): SessionMetadata | undefined;
   setMetadata(sessionId: string, patch: SessionMetadataPatch): Promise<void>;
+  getModelOverride(sessionId: string): string | undefined;
+  setModelOverride(sessionId: string, modelId: string | null): Promise<void>;
   getSessionCwd(sessionId: string): string | undefined;
   setSessionCwd(sessionId: string, cwd: string): Promise<void>;
   getLastUsage(sessionId: string): UsageTotals | undefined;
@@ -48,6 +50,7 @@ interface PersistedFileShape {
     group?: unknown;
   }>;
   cwds?: Record<string, string>;
+  modelOverrides?: Record<string, string>;
   usage?: Record<string, unknown>;
   groups?: unknown;
 }
@@ -140,6 +143,9 @@ export async function createSessionConfigStore(opts: {
   const sessionCwds: Map<string, string> = new Map(
     Object.entries(persisted.cwds ?? {}).filter((e): e is [string, string] => typeof e[1] === "string"),
   );
+  const modelOverrides: Map<string, string> = new Map(
+    Object.entries(persisted.modelOverrides ?? {}).filter((e): e is [string, string] => typeof e[1] === "string"),
+  );
   const lastUsage: Map<string, UsageTotals> = new Map();
   for (const [sid, raw] of Object.entries(persisted.usage ?? {})) {
     const sanitized = sanitizeUsage(raw);
@@ -155,6 +161,7 @@ export async function createSessionConfigStore(opts: {
       },
       metadata: Object.fromEntries(metadata),
       cwds: Object.fromEntries(sessionCwds),
+      modelOverrides: Object.fromEntries(modelOverrides),
       usage: Object.fromEntries(lastUsage),
       groups,
     };
@@ -177,6 +184,17 @@ export async function createSessionConfigStore(opts: {
         autoApproveOverrides.delete(sessionId);
       } else {
         autoApproveOverrides.set(sessionId, v);
+      }
+      await persist();
+    },
+    getModelOverride(sessionId: string): string | undefined {
+      return modelOverrides.get(sessionId);
+    },
+    async setModelOverride(sessionId: string, modelId: string | null): Promise<void> {
+      if (modelId == null) {
+        modelOverrides.delete(sessionId);
+      } else {
+        modelOverrides.set(sessionId, modelId);
       }
       await persist();
     },

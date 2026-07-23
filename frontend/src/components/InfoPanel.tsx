@@ -16,7 +16,6 @@ export interface InfoPanelProps {
   onGroup: (g: string) => void;
   onAddGroup: (name: string) => Promise<void>;
   onPinned: (p: boolean) => void;
-  onModelChange: (modelId: string) => void;
   onAutoApproveToggle: () => void;
   onRefreshUsage?: () => void;
 }
@@ -77,7 +76,7 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
 export function InfoPanel(props: InfoPanelProps) {
   const {
     state, title, group, groups, pinned, usage, usageQuerySupported, refreshingUsage,
-    onRename, onGroup, onAddGroup, onPinned, onModelChange, onAutoApproveToggle, onRefreshUsage,
+    onRename, onGroup, onAddGroup, onPinned, onAutoApproveToggle, onRefreshUsage,
   } = props;
   const [titleDraft, setTitleDraft] = useState(title);
   useEffect(() => setTitleDraft(title), [title]);
@@ -162,14 +161,6 @@ export function InfoPanel(props: InfoPanelProps) {
         <div className={styles.row}>
           <span className={styles.key}>Workspace</span>
           <span className={styles.val}>{state.cwd ?? "—"}</span>
-        </div>
-        <div className={styles.row}>
-          <span className={styles.key}>Model</span>
-          <select value={state.currentModel ?? ""} onChange={(e) => onModelChange(e.target.value)} disabled={state.models.length === 0}>
-            {state.models.map((m) => (
-              <option key={m.modelId} value={m.modelId}>{m.name || m.modelId}</option>
-            ))}
-          </select>
         </div>
         <div className={styles.row}>
           <span className={styles.key}>Auto-approve</span>

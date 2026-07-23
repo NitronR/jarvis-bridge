@@ -7,12 +7,14 @@ import { Composer } from "./Composer";
 import { InfoPanel } from "./InfoPanel";
 import { ApprovalModal } from "./ApprovalModal";
 import { ElicitationModal } from "./ElicitationModal";
+import { SettingsDialog } from "./SettingsDialog";
 import { ChatsDrawer } from "./ChatsDrawer";
 import { WorkspacesDrawer } from "./WorkspacesDrawer";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
 import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow } from "../api/types";
 import styles from "./ChatPanel.module.css";
 import { Button } from "./ui/Button";
+import { Dot, type DotStatus } from "./ui/Dot";
 
 // Per-window field merge (not a wholesale replace) — a manual /chat/usage
 // refresh contributes {utilization, resetsAtText} while the passive
@@ -67,11 +69,11 @@ function safeSetStoredInfoHidden(value: boolean): void {
   }
 }
 
-export function ChatPanel() {
-  return <ChatPanelInner />;
+export function ChatPanel({ healthOk }: { healthOk: boolean | null }) {
+  return <ChatPanelInner healthOk={healthOk} />;
 }
 
-function ChatPanelInner() {
+function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
   const chat = useChat();
   const toast = useToast();
   const ctx = chat.context;
@@ -100,6 +102,7 @@ function ChatPanelInner() {
   const [pendingElicitation, setPendingElicitation] = useState<(ChatPatch & { type: "elicitation-request" }) | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [pickingFolder, setPickingFolder] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [manualRateLimits, setManualRateLimits] = useState<Record<string, RateLimitWindow> | undefined>();
   const [refreshingUsage, setRefreshingUsage] = useState(false);
   const queueRef = useRef<string | null>(null);
@@ -164,7 +167,21 @@ function ChatPanelInner() {
 
   useEffect(() => {
     document.title = `${ctx.state.title || "New chat"} — Jarvis Bridge`;
+    if (ctx.state.title) {
+      history.pushState(null, "", `#${encodeURIComponent(ctx.state.title)}`);
+    }
   }, [ctx.state.title]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const hash = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+      if (hash) {
+        document.title = `${hash} — Jarvis Bridge`;
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -324,6 +341,14 @@ function ChatPanelInner() {
     }
   }, [chat.busy, chat]);
 
+  // Composer's Steer button now only renders while busy — if steerEnabled
+  // stayed true across a turn ending, there'd be no visible control left to
+  // turn it off, silently misrouting the next message through onSteer
+  // instead of onSend. Auto-reset it whenever a turn is no longer busy.
+  useEffect(() => {
+    if (!chat.busy) setSteerEnabled(false);
+  }, [chat.busy]);
+
   const onForkCurrent = useCallback(async () => {
     await chat.forkCurrent();
   }, [chat]);
@@ -430,22 +455,28 @@ function ChatPanelInner() {
     openWorkspacesDrawer();
   }, [openWorkspacesDrawer]);
 
+  const healthStatus: DotStatus = healthOk === null ? "idle" : healthOk ? "ok" : "bad";
+
   return (
     <div className={styles.panel}>
       <div className={styles.stage}>
         <div className={styles.main}>
           <div className={styles.header}>
-            <h1>{ctx.state.title || "New chat"}</h1>
+            <h1 className={ctx.state.title ? undefined : styles.titlePlaceholder}>
+              <Dot status={healthStatus} />
+              {ctx.state.title || "New chat"}
+            </h1>
             {/* Primary group */}
             <Button variant="primary" onClick={onNewChat}>＋ New</Button>
             <Button
               variant={followChat ? "primary" : "default"}
+              className={followChat ? styles.toggleOn : undefined}
               onClick={() => setFollowChat((v) => !v)}
               title={followChat ? "Following chat — click to stop auto-scrolling" : "Not following — click to auto-scroll to latest"}
             >
               ↓ Follow
             </Button>
-            <Button variant="primary" onClick={openPastChats}>☰ Chats</Button>
+            <Button onClick={openPastChats}>☰ Chats</Button>
             {/* Divider */}
             <span className={styles.divider} />
             {/* Secondary group */}
@@ -457,20 +488,18 @@ function ChatPanelInner() {
               + New in...
             </Button>
             <Button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork || chat.busy}>Fork</Button>
-            <Button
-              variant={steerEnabled ? "primary" : "default"}
-              onClick={() => setSteerEnabled((v) => !v)}
-              disabled={!ctx.state.capabilities?.steer}
+            <button
+              type="button"
+              className={styles.settingsBtn}
+              onClick={() => setSettingsOpen(true)}
+              title="Settings"
+              aria-label="Settings"
             >
-              Steer
-            </Button>
-            <Button
-              variant={ctx.state.autoApprove.effective ? "primary" : "default"}
-              onClick={onAutoApproveToggle}
-              disabled={!ctx.state.capabilities?.toolApprovals}
-            >
-              {ctx.state.autoApprove.effective ? "✓ Auto-approve" : "Auto-approve"}
-            </Button>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
           <ChatsDrawer open={pastChatsOpen} sessions={sessions} groups={ctx.state.groups} recentWorkspaces={recentWorkspaces} onClose={() => setPastChatsOpen(false)} onSwitch={onSwitchSession} onOpenInNewTab={onOpenSessionInNewTab} onDelete={onDeleteSession} onTogglePin={onToggleSessionPin} canDelete={!!ctx.state.capabilities?.sessionDelete} getTurnCount={ctx.getTurnCount} />
           <WorkspacesDrawer
@@ -502,6 +531,12 @@ function ChatPanelInner() {
             imagesSupported={!!ctx.state.capabilities?.images}
             attachments={attachments}
             latestUsage={latestUsage}
+            models={ctx.state.models}
+            currentModel={ctx.state.currentModel}
+            onModelChange={onModelChange}
+            autoApproveEffective={ctx.state.autoApprove.effective}
+            autoApproveCapable={!!ctx.state.capabilities?.toolApprovals}
+            onAutoApproveToggle={onAutoApproveToggle}
             onRemoveAttachment={onRemoveAttachment}
             onAttachFiles={onAttachFiles}
             onSend={onSend}
@@ -525,7 +560,6 @@ function ChatPanelInner() {
             onGroup={onGroupChange}
             onAddGroup={onAddGroup}
             onPinned={onPinnedChange}
-            onModelChange={onModelChange}
             onAutoApproveToggle={onAutoApproveToggle}
             onRefreshUsage={onRefreshUsage}
           />
@@ -533,6 +567,7 @@ function ChatPanelInner() {
       </div>
       <ApprovalModal patch={pendingApproval} onResolve={onResolveApproval} />
       <ElicitationModal patch={pendingElicitation} onResolve={onResolveElicitation} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import styles from "./QuickPhrasesRow.module.css";
 
 export interface QuickPhrasesRowProps {
@@ -15,8 +15,10 @@ export function QuickPhrasesRow({ phrases, onSubmit, onAdd, onDelete }: QuickPhr
   const addWrapRef = useRef<HTMLDivElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
+  const overflowWrapRef = useRef<HTMLDivElement>(null);
+  const overflowToggleRef = useRef<HTMLButtonElement>(null);
   const [visibleCount, setVisibleCount] = useState(phrases.length);
-  const [overflowHovered, setOverflowHovered] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -56,6 +58,27 @@ export function QuickPhrasesRow({ phrases, onSubmit, onAdd, onDelete }: QuickPhr
     return () => ro.disconnect();
   }, [phrases, adding]);
 
+  const closeOverflow = () => setOverflowOpen(false);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (!overflowWrapRef.current?.contains(e.target as Node)) closeOverflow();
+    };
+    const onDocKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeOverflow();
+        overflowToggleRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onDocKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onDocKeyDown);
+    };
+  }, [overflowOpen]);
+
   const openAdd = () => {
     setAdding(true);
     requestAnimationFrame(() => addInputRef.current?.focus());
@@ -90,7 +113,7 @@ export function QuickPhrasesRow({ phrases, onSubmit, onAdd, onDelete }: QuickPhr
   const hidden = phrases.slice(visibleCount);
 
   return (
-    <div className={styles.row} ref={containerRef}>
+    <div className={styles.row} ref={containerRef} role="group" aria-label="Quick phrases">
       <div className={styles.addWrap} ref={addWrapRef}>
         {adding ? (
           <input
@@ -113,21 +136,35 @@ export function QuickPhrasesRow({ phrases, onSubmit, onAdd, onDelete }: QuickPhr
       ))}
       {hidden.length > 0 && (
         <div
-          className={styles.overflow}
-          onMouseEnter={() => setOverflowHovered(true)}
-          onMouseLeave={() => setOverflowHovered(false)}
+          className={styles.overflowWrap}
+          ref={overflowWrapRef}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) closeOverflow();
+          }}
         >
-          +{hidden.length}
-          {overflowHovered && (
+          <button
+            ref={overflowToggleRef}
+            type="button"
+            className={styles.overflow}
+            aria-haspopup="true"
+            aria-expanded={overflowOpen}
+            aria-label={`${hidden.length} more quick phrases`}
+            onClick={() => setOverflowOpen((v) => !v)}
+          >
+            +{hidden.length}
+          </button>
+          {overflowOpen && (
             <div className={styles.overflowPopup}>
-              {hidden.map((p, idx) => (
-                <Pill
-                  key={idx}
-                  text={p}
-                  onSubmit={() => onSubmit(p)}
-                  onDelete={() => onDelete(visibleCount + idx)}
-                />
-              ))}
+              <div className={styles.overflowPopupInner}>
+                {hidden.map((p, idx) => (
+                  <Pill
+                    key={idx}
+                    text={p}
+                    onSubmit={() => { onSubmit(p); closeOverflow(); }}
+                    onDelete={() => onDelete(visibleCount + idx)}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>

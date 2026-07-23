@@ -19,6 +19,7 @@ export interface CreateServerOptions {
   tools: Map<string, ToolHandler>;
   sessionConfig?: SessionConfigStore;
   pickFolder?: PickFolderFn;
+  logFile?: string;
 }
 
 export function createServer(opts: CreateServerOptions): Express {
@@ -27,6 +28,7 @@ export function createServer(opts: CreateServerOptions): Express {
     registry,
     tools,
     pickFolder = pickFolderNative,
+    logFile,
   } = opts;
 
   const app = express();
@@ -82,7 +84,18 @@ export function createServer(opts: CreateServerOptions): Express {
         session = resident!;
         resumed = true;
       } else if (backend.loadSession) {
+        console.log(`[INIT] loadSession sessionId=${q.sessionId}`);
         session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd });
+        const storedModel = opts.sessionConfig?.getModelOverride(q.sessionId);
+        console.log(`[INIT]   storedModel=${storedModel ?? "(none)"}`);
+        if (storedModel) {
+          try {
+            await backend.setSessionModel?.(q.sessionId, storedModel);
+            console.log(`[INIT]   re-applied model ${storedModel}`);
+          } catch (e) {
+            console.log(`[INIT]   re-apply failed: ${e instanceof Error ? e.message : e}`);
+          }
+        }
         resumed = true;
       } else {
         const found = await registry.getSession(q.sessionId);
@@ -132,6 +145,7 @@ export function createServer(opts: CreateServerOptions): Express {
       history.push({ kind: "assistant", patches: liveTurnForResponse.patches });
     }
     const models = backend.getSessionModels?.(session.id) ?? null;
+    console.log(`[INIT]   getSessionModels → current=${models?.current} available=${models?.available?.map(m => m.modelId).join(",") ?? "(none)"}`);
     const slashCommands = session.getSlashCommands
       ? session.getSlashCommands()
       : backend.getSlashCommands
@@ -361,8 +375,12 @@ export function createServer(opts: CreateServerOptions): Express {
       return;
     }
     try {
+      console.log(`[MODEL] POST /chat/model sessionId=${body.sessionId} modelId=${body.modelId}`);
       await entry.backend.setSessionModel(body.sessionId, body.modelId);
-      res.json({ ok: true });
+      console.log(`[MODEL]   setSessionModel OK, persisting override`);
+      await opts.sessionConfig?.setModelOverride(body.sessionId, body.modelId);
+      console.log(`[MODEL]   override persisted`);
+      res.json({ ok: true, current: body.modelId });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: message });
@@ -634,6 +652,16 @@ export function createServer(opts: CreateServerOptions): Express {
   });
   app.post("/analytics/track", smallJson, (_req, res) => {
     res.status(204).end();
+  });
+
+  // ── Client logging ───────────────────────────────────────────────
+  app.post("/chat/client-logs", express.json({ limit: "1mb" }), (req, res) => {
+    res.status(204).end();
+    const { entries } = req.body as { entries?: Array<{ ts: string; level: string; args: string }> };
+    if (!entries?.length || !logFile) return;
+    const frontendLogFile = logFile.replace(/gateway\.log$/, "frontend.log");
+    const lines = entries.map((e) => `[${e.ts}] [FE ${e.level.toUpperCase().padEnd(5)}] ${e.args}`).join("\n") + "\n";
+    void fs.appendFile(frontendLogFile, lines);
   });
 
   // ── Static files ──────────────────────────────────────────────────

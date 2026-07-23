@@ -12,6 +12,12 @@ const baseProps = {
   steerSupported: true,
   imagesSupported: true,
   attachments: [] as ImageAttachment[],
+  models: [] as { modelId: string; name: string }[],
+  currentModel: null as string | null,
+  onModelChange: vi.fn(),
+  autoApproveEffective: false,
+  autoApproveCapable: true,
+  onAutoApproveToggle: vi.fn(),
   onRemoveAttachment: vi.fn(),
   onAttachFiles: vi.fn(),
   onSend: vi.fn(),
@@ -108,6 +114,16 @@ describe("<Composer>", () => {
     expect(onQueue).toHaveBeenCalledWith("run the tests");
   });
 
+  it("clears the textarea after clicking Queue, matching the Enter-to-queue path", () => {
+    const onQueue = vi.fn();
+    render(<Composer {...baseProps} busy={true} onQueue={onQueue} />);
+    const textarea = screen.getByPlaceholderText(/queue a message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "run the tests" } });
+    fireEvent.click(screen.getByText("Queue"));
+    expect(onQueue).toHaveBeenCalledWith("run the tests");
+    expect(textarea.value).toBe("");
+  });
+
   it("steers with a quick phrase instead of sending it while steering", () => {
     const onSteer = vi.fn();
     saveQuickPhrases(["run the tests"]);
@@ -134,5 +150,143 @@ describe("<Composer>", () => {
     expect(screen.getByRole("button", { name: "ping me when done" })).toBeInTheDocument();
     const textarea = screen.getByPlaceholderText(/type a message/i) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
+  });
+
+  describe("empty-input handling", () => {
+    it("disables Send when the composer is empty", () => {
+      render(<Composer {...baseProps} />);
+      expect(screen.getByText("Send")).toBeDisabled();
+    });
+
+    it("enables Send once there is text", () => {
+      render(<Composer {...baseProps} />);
+      const textarea = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(textarea, { target: { value: "hi" } });
+      expect(screen.getByText("Send")).toBeEnabled();
+    });
+
+    it("enables Send when there are attachments even with empty text", () => {
+      const attachments: ImageAttachment[] = [{ data: "abc", mimeType: "image/png", filename: "a.png" }];
+      render(<Composer {...baseProps} attachments={attachments} />);
+      expect(screen.getByText("Send")).toBeEnabled();
+    });
+
+    it("enables Queue (not just Send) when there are attachments even with empty text, while busy", () => {
+      const attachments: ImageAttachment[] = [{ data: "abc", mimeType: "image/png", filename: "a.png" }];
+      render(<Composer {...baseProps} busy={true} attachments={attachments} />);
+      expect(screen.getByText("Queue")).toBeEnabled();
+    });
+  });
+
+  describe("textarea auto-resize", () => {
+    it("grows the textarea height with content, capped at the 4-line max", () => {
+      render(<Composer {...baseProps} />);
+      const textarea = screen.getByPlaceholderText(/type a message/i) as HTMLTextAreaElement;
+
+      Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 60 });
+      fireEvent.change(textarea, { target: { value: "line1\nline2" } });
+      expect(textarea.style.height).toBe("60px");
+
+      Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 300 });
+      fireEvent.change(textarea, { target: { value: "line1\nline2\nline3\nline4\nline5" } });
+      expect(textarea.style.height).toBe("96px");
+    });
+  });
+
+  describe("attach button", () => {
+    it("has an accessible name via aria-label", () => {
+      render(<Composer {...baseProps} />);
+      expect(screen.getByRole("button", { name: "Attach image" })).toBeInTheDocument();
+    });
+  });
+
+  describe("model selector", () => {
+    const models = [
+      { modelId: "m1", name: "Model One" },
+      { modelId: "m2", name: "Model Two" },
+    ];
+
+    it("shows the current model name on the trigger button", () => {
+      render(<Composer {...baseProps} models={models} currentModel="m2" />);
+      expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Model Two");
+    });
+
+    it("opens the dropdown and calls onModelChange when an option is clicked", async () => {
+      const onModelChange = vi.fn();
+      render(<Composer {...baseProps} models={models} currentModel="m1" onModelChange={onModelChange} />);
+      fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      expect(screen.getByRole("option", { name: "Model Two" })).toBeInTheDocument();
+      fireEvent.mouseDown(screen.getByRole("option", { name: "Model Two" }));
+      expect(onModelChange).toHaveBeenCalledWith("m2");
+    });
+
+    it("disables the selector when there are no models", () => {
+      render(<Composer {...baseProps} models={[]} />);
+      expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
+    });
+  });
+
+  describe("auto-approve toggle", () => {
+    it("shows Auto-approve and calls onAutoApproveToggle when clicked", () => {
+      const onAutoApproveToggle = vi.fn();
+      render(<Composer {...baseProps} onAutoApproveToggle={onAutoApproveToggle} />);
+      fireEvent.click(screen.getByRole("button", { name: "Auto-approve" }));
+      expect(onAutoApproveToggle).toHaveBeenCalled();
+    });
+
+    it("shows a checkmark when effective", () => {
+      render(<Composer {...baseProps} autoApproveEffective={true} />);
+      expect(screen.getByText("✓ Auto-approve")).toBeInTheDocument();
+    });
+
+    it("is disabled when not capable", () => {
+      render(<Composer {...baseProps} autoApproveCapable={false} />);
+      expect(screen.getByRole("button", { name: "Auto-approve" })).toBeDisabled();
+    });
+  });
+
+  describe("Steer visibility", () => {
+    it("does not render Steer while idle, even when steerSupported", () => {
+      render(<Composer {...baseProps} busy={false} steerSupported={true} />);
+      expect(screen.queryByText("Steer")).not.toBeInTheDocument();
+    });
+
+    it("renders Steer while busy, when steerSupported", () => {
+      render(<Composer {...baseProps} busy={true} steerSupported={true} />);
+      expect(screen.getByText("Steer")).toBeInTheDocument();
+    });
+
+    it("does not render Steer while busy when steerSupported is false", () => {
+      render(<Composer {...baseProps} busy={true} steerSupported={false} />);
+      expect(screen.queryByText("Steer")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("context warning", () => {
+    it("adds a non-color warning glyph once usage exceeds 80%", () => {
+      render(
+        <Composer
+          {...baseProps}
+          latestUsage={{
+            requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+            context_limit: 1000, context_used: 900,
+          }}
+        />,
+      );
+      expect(screen.getByText(/⚠/)).toBeInTheDocument();
+    });
+
+    it("shows no warning glyph under 80% usage", () => {
+      render(
+        <Composer
+          {...baseProps}
+          latestUsage={{
+            requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+            context_limit: 1000, context_used: 100,
+          }}
+        />,
+      );
+      expect(screen.queryByText(/⚠/)).not.toBeInTheDocument();
+    });
   });
 });

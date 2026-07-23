@@ -9,7 +9,6 @@ describe("parseHash", () => {
   });
   it("parses simple routes", () => {
     expect(parseHash("#status")).toBe("status");
-    expect(parseHash("#settings")).toBe("settings");
     expect(parseHash("#chat")).toBe("chat");
     expect(parseHash("#skills-manage")).toBe("skills-manage");
   });
@@ -33,8 +32,8 @@ describe("useHashRoute", () => {
 
   it("navigate updates hash and state", () => {
     const { result } = renderHook(() => useHashRoute());
-    act(() => result.current.navigate("settings"));
-    expect(result.current.route).toBe("settings");
+    act(() => result.current.navigate("status"));
+    expect(result.current.route).toBe("status");
   });
 
   it("reacts to hashchange event", () => {

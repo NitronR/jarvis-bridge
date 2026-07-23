@@ -257,10 +257,12 @@ export function useChat(): UseChatResult {
 
   const setModel = useCallback(async (modelId: string) => {
     if (!ctx.state.sessionId) return;
+    console.log(`[FE] setModel modelId=${modelId} sessionId=${ctx.state.sessionId}`);
     const res = await fetchJSON<{ ok: boolean; current: string }>(
       "/chat/model",
       { method: "POST", body: { sessionId: ctx.state.sessionId, modelId } },
     );
+    console.log(`[FE]   setModel response ok=${res.ok} data=${JSON.stringify(res.data)}`);
     if (res.ok && res.data) ctx.setModels(ctx.state.models, res.data.current);
   }, [ctx]);
 

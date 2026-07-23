@@ -9,6 +9,7 @@ import type { ChatInitResponse } from "../api/types";
 async function defaultMock(url: string): Promise<{ ok: boolean; status: number; data: object }> {
         if (String(url).startsWith("/chat/init")) return { ok: true, status: 200, data: { ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" }, sessionId: "sess-1", cwd: "/tmp/ws", resumed: false, capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false }, slashCommands: [], history: [], pinned: false, group: null, autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false }, model: { supported: false, available: [], current: null } } };
   if (url === "/chat/sessions") return { ok: true, status: 200, data: { sessions: [] } };
+  if (url === "/chat/auto-approve") return { ok: true, status: 200, data: { effective: true, default: false, override: true } };
   return { ok: true, status: 200, data: {} };
 }
 
@@ -26,7 +27,7 @@ describe("<ChatPanel>", () => {
     render(
       <ToastProvider>
         <ChatProvider>
-          <ChatPanel />
+          <ChatPanel healthOk={null} />
         </ChatProvider>
       </ToastProvider>,
     );
@@ -38,7 +39,7 @@ describe("<ChatPanel>", () => {
     render(
       <ToastProvider>
         <ChatProvider>
-          <ChatPanel />
+          <ChatPanel healthOk={null} />
         </ChatProvider>
       </ToastProvider>,
     );
@@ -77,7 +78,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel />
+            <ChatPanel healthOk={null} />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -120,7 +121,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel />
+            <ChatPanel healthOk={null} />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -147,7 +148,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel />
+            <ChatPanel healthOk={null} />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -166,11 +167,11 @@ describe("<ChatPanel>", () => {
   });
 
   describe("header toolbar", () => {
-    it("renders 8 buttons with a divider separating primary and secondary groups", async () => {
+    it("renders 6 buttons with a divider separating primary and secondary groups — Steer and Auto-approve moved to the Composer", async () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel />
+            <ChatPanel healthOk={null} />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -184,33 +185,101 @@ describe("<ChatPanel>", () => {
       // Divider
       expect(document.querySelector('[class*="divider"]')).toBeInTheDocument();
 
-      // Secondary group: Info, New in..., Fork, Steer, Auto-approve
+      // Secondary group: Info, New in..., Fork
       expect(screen.getByText("Info")).toBeInTheDocument();
       expect(screen.getByText("+ New in...")).toBeInTheDocument();
       expect(screen.getByText("Fork")).toBeInTheDocument();
-      expect(screen.getByText("Steer")).toBeInTheDocument();
-      expect(screen.getByText("Auto-approve")).toBeInTheDocument();
+    });
+  });
+
+  describe("composer turn controls", () => {
+    beforeEach(() => {
+      fetchSpy.mockImplementation(async (url: string) => {
+        if (String(url).startsWith("/chat/init")) {
+          return {
+            ok: true, status: 200, data: {
+              ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
+              sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: true, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              slashCommands: [], history: [], pinned: false, group: null,
+              autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
+              model: { supported: true, available: [{ modelId: "m1", name: "Model One" }, { modelId: "m2", name: "Model Two" }], current: "m1" },
+            },
+          };
+        }
+        if (url === "/chat/sessions") return { ok: true, status: 200, data: { sessions: [] } };
+        return { ok: true, status: 200, data: {} };
+      });
     });
 
-    it("toggles auto-approve button variant on click", async () => {
+    it("renders the model selector and an auto-approve toggle inside the Composer", async () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel />
+            <ChatPanel healthOk={null} />
           </ChatProvider>
         </ToastProvider>,
       );
       await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
+      expect(screen.getByText("Model One")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Auto-approve" })).toBeInTheDocument();
+    });
 
-      const aaButton = screen.getByText("Auto-approve");
-      // Initially off — should not have primary variant class
-      expect(aaButton.className).not.toMatch(/primary/);
+    it("calls /chat/model when a different model is selected in the Composer", async () => {
+      render(
+        <ToastProvider>
+          <ChatProvider>
+            <ChatPanel healthOk={null} />
+          </ChatProvider>
+        </ToastProvider>,
+      );
+      await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      fireEvent.mouseDown(screen.getByRole("option", { name: "Model Two" }));
+      await waitFor(() =>
+        expect(fetchSpy.mock.calls.some(([u]) => String(u).startsWith("/chat/model"))).toBe(true),
+      );
+    });
 
-      fireEvent.click(aaButton);
-      // After click — should show "✓ Auto-approve" and have primary variant
-      await waitFor(() => expect(screen.getByText("✓ Auto-approve")).toBeInTheDocument());
-      const toggledButton = screen.getByText("✓ Auto-approve");
-      expect(toggledButton.className).toMatch(/primary/);
+    it("does not show the Composer's Steer button while idle", async () => {
+      render(
+        <ToastProvider>
+          <ChatProvider>
+            <ChatPanel healthOk={null} />
+          </ChatProvider>
+        </ToastProvider>,
+      );
+      await waitFor(() => expect(screen.getByText("New chat")).toBeInTheDocument());
+      expect(screen.queryByText("Steer")).not.toBeInTheDocument();
+    });
+
+    it("disables the Composer's Auto-approve button when the backend lacks tool-approval capability, even though autoApprove.supported is true", async () => {
+      fetchSpy.mockImplementation(async (url: string) => {
+        if (String(url).startsWith("/chat/init")) {
+          return {
+            ok: true, status: 200, data: {
+              ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
+              sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: true, toolApprovals: false, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              slashCommands: [], history: [], pinned: false, group: null,
+              autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
+              model: { supported: true, available: [{ modelId: "m1", name: "Model One" }], current: "m1" },
+            },
+          };
+        }
+        if (url === "/chat/sessions") return { ok: true, status: 200, data: { sessions: [] } };
+        return { ok: true, status: 200, data: {} };
+      });
+      render(
+        <ToastProvider>
+          <ChatProvider>
+            <ChatPanel healthOk={null} />
+          </ChatProvider>
+        </ToastProvider>,
+      );
+      await waitFor(() => expect(screen.getByRole("button", { name: "Auto-approve" })).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Auto-approve" })).toBeDisabled();
     });
   });
 });
