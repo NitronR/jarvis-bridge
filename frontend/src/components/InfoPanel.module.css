@@ -64,27 +64,26 @@
   text-align: right;
   margin: -2px 0 4px;
 }
-.titleField {
-  display: flex;
+.titleDisplay {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-3);
+  cursor: pointer;
+  font-size: var(--font-size-4);
+}
+.titlePencil {
+  opacity: 0;
+  color: var(--color-text-muted);
+  transition: opacity 120ms ease;
+}
+.titleDisplay:hover .titlePencil,
+.titleDisplay:focus .titlePencil {
+  opacity: 1;
+}
+.titleInput {
+  font-size: var(--font-size-4);
   flex: 1;
   min-width: 0;
-}
-.titleField input {
-  flex: 1;
-  min-width: 0;
-}
-.saveButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  flex-shrink: 0;
-}
-.saveButton svg {
-  width: 14px;
-  height: 14px;
 }
 .pinButton {
   display: flex;

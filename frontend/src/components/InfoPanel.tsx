@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ChatState } from "../state/ChatContext";
 import type { UsageTotals } from "../api/types";
 import styles from "./InfoPanel.module.css";
@@ -51,15 +51,6 @@ function formatResetsAt(resetsAt: number | undefined, resetsAtText: string | und
   return resetsAtText ?? null;
 }
 
-function SaveIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" strokeLinejoin="round" />
-      <path d="M17 21v-8H7v8M7 3v5h8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function RefreshIcon({ spinning }: { spinning?: boolean }) {
   return (
     <svg
@@ -78,9 +69,13 @@ export function InfoPanel(props: InfoPanelProps) {
     onRename, onGroup, onAddGroup, onPinned, onRefreshUsage,
   } = props;
   const [titleDraft, setTitleDraft] = useState(title);
-  useEffect(() => setTitleDraft(title), [title]);
-  const titleDirty = titleDraft !== title;
-  const saveTitle = () => { if (titleDirty) onRename(titleDraft); };
+  const [editingTitle, setEditingTitle] = useState(false);
+  const openTitleEdit = () => { setTitleDraft(title); setEditingTitle(true); };
+  const commitTitle = () => {
+    setEditingTitle(false);
+    if (titleDraft !== title) onRename(titleDraft);
+  };
+  const revertTitle = () => setEditingTitle(false);
   const [addGroupOpen, setAddGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
 
@@ -107,24 +102,38 @@ export function InfoPanel(props: InfoPanelProps) {
         <h3>Current chat</h3>
         <div className={styles.row}>
           <span className={styles.key}>Title</span>
-          <div className={styles.titleField}>
+          {editingTitle ? (
             <input
+              className={styles.titleInput}
+              aria-label="Title"
               placeholder="Untitled"
               value={titleDraft}
+              autoFocus
               onChange={(e) => setTitleDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitTitle();
+                if (e.key === "Escape") revertTitle();
+              }}
+              onBlur={commitTitle}
             />
-            <button
-              type="button"
-              className={styles.saveButton}
-              aria-label="Save title"
-              title="Save title"
-              disabled={!titleDirty}
-              onClick={saveTitle}
+          ) : (
+            <span
+              className={styles.titleDisplay}
+              role="button"
+              tabIndex={0}
+              aria-label="Edit title"
+              onClick={openTitleEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openTitleEdit();
+                }
+              }}
             >
-              <SaveIcon />
-            </button>
-          </div>
+              {title || "Untitled"}
+              <span className={styles.titlePencil} aria-hidden="true">&#9998;</span>
+            </span>
+          )}
         </div>
         <div className={styles.row}>
           <label className={styles.key} htmlFor="group-select">Group</label>

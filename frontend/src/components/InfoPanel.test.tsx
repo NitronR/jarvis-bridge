@@ -45,35 +45,74 @@ describe("<InfoPanel>", () => {
     expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
   });
 
-  it("does not call onRename while typing, only on save", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} title="" onRename={onRename} />);
-    fireEvent.change(screen.getByPlaceholderText("Untitled"), { target: { value: "new title" } });
-    expect(onRename).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText("Save title"));
-    expect(onRename).toHaveBeenCalledWith("new title");
-  });
-
-  it("calls onRename when Enter is pressed in the title input", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} title="" onRename={onRename} />);
-    fireEvent.change(screen.getByPlaceholderText("Untitled"), { target: { value: "new title" } });
-    fireEvent.keyDown(screen.getByPlaceholderText("Untitled"), { key: "Enter" });
-    expect(onRename).toHaveBeenCalledWith("new title");
-  });
-
-  it("disables the save button until the title is edited", () => {
+  it("renders the title as static text by default, not an input", () => {
     render(<InfoPanel {...baseProps} />);
-    expect(screen.getByLabelText("Save title")).toBeDisabled();
-    fireEvent.change(screen.getByDisplayValue("My chat"), { target: { value: "My chat 2" } });
-    expect(screen.getByLabelText("Save title")).toBeEnabled();
+    expect(screen.getByText("My chat")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("resets the draft title when the title prop changes externally", () => {
-    const { rerender } = render(<InfoPanel {...baseProps} />);
-    fireEvent.change(screen.getByDisplayValue("My chat"), { target: { value: "unsaved edit" } });
-    rerender(<InfoPanel {...baseProps} title="Renamed elsewhere" />);
-    expect(screen.getByDisplayValue("Renamed elsewhere")).toBeInTheDocument();
+  it("shows an accessible edit affordance for the title", () => {
+    render(<InfoPanel {...baseProps} />);
+    const trigger = screen.getByLabelText("Edit title");
+    expect(trigger).toHaveAttribute("role", "button");
+    expect(trigger).toHaveAttribute("tabIndex", "0");
+  });
+
+  it("enters edit mode on click and commits the new title on Enter", () => {
+    const onRename = vi.fn();
+    render(<InfoPanel {...baseProps} onRename={onRename} />);
+    fireEvent.click(screen.getByLabelText("Edit title"));
+    const input = screen.getByDisplayValue("My chat");
+    fireEvent.change(input, { target: { value: "new title" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRename).toHaveBeenCalledWith("new title");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("enters edit mode via keyboard (Enter or Space on the trigger)", () => {
+    render(<InfoPanel {...baseProps} />);
+    fireEvent.keyDown(screen.getByLabelText("Edit title"), { key: "Enter" });
+    expect(screen.getByDisplayValue("My chat")).toBeInTheDocument();
+  });
+
+  it("commits the new title on blur", () => {
+    const onRename = vi.fn();
+    render(<InfoPanel {...baseProps} onRename={onRename} />);
+    fireEvent.click(screen.getByLabelText("Edit title"));
+    const input = screen.getByDisplayValue("My chat");
+    fireEvent.change(input, { target: { value: "blurred title" } });
+    fireEvent.blur(input);
+    expect(onRename).toHaveBeenCalledWith("blurred title");
+  });
+
+  it("reverts without committing on Escape", () => {
+    const onRename = vi.fn();
+    render(<InfoPanel {...baseProps} onRename={onRename} />);
+    fireEvent.click(screen.getByLabelText("Edit title"));
+    const input = screen.getByDisplayValue("My chat");
+    fireEvent.change(input, { target: { value: "discarded" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.getByText("My chat")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("does not call onRename when the committed value is unchanged", () => {
+    const onRename = vi.fn();
+    render(<InfoPanel {...baseProps} onRename={onRename} />);
+    fireEvent.click(screen.getByLabelText("Edit title"));
+    fireEvent.keyDown(screen.getByDisplayValue("My chat"), { key: "Enter" });
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it("commits an empty title", () => {
+    const onRename = vi.fn();
+    render(<InfoPanel {...baseProps} onRename={onRename} />);
+    fireEvent.click(screen.getByLabelText("Edit title"));
+    const input = screen.getByDisplayValue("My chat");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRename).toHaveBeenCalledWith("");
   });
 
   it("does not render an auto-approve toggle", () => {
