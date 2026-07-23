@@ -132,12 +132,15 @@ Not a visual redesign — an audit-and-migrate pass checking the app against
 discipline, closing gaps left by incremental adoption across Phases 1–7.
 
 Known gaps found in a quick audit (to confirm/expand during the audit stage):
-- **`Select` primitive undocumented and unadopted.** Exists at
+- **`Select` primitive now documented and adopted (Composer only).** Exists at
   `frontend/src/components/ui/Select.tsx` (accessible custom select: keyboard nav, listbox
-  semantics, top/bottom auto-placement) but isn't in `docs/frontend-components.md`'s
-  primitives list, and no consumer uses it yet. Raw `<select>` elements remain in
-  `InfoPanel.tsx`, `SettingsPanel.tsx` (see dead-code note below), `SettingsDialog.tsx`, and
-  `ChatsDrawer.tsx` — candidates once Phases 5–6 land, plus document the primitive either way.
+  semantics, top/bottom auto-placement), now in `docs/frontend-components.md`'s primitives
+  list, and adopted by `Composer`'s model selector (Phase 4 — a mid-implementation deviation
+  from the phase's own plan, which had specified a native `<select>`). Raw `<select>`
+  elements remain everywhere else: `InfoPanel.tsx` (group filter — its model `<select>` was
+  removed, not migrated, when the model selector moved to `Composer`), `SettingsPanel.tsx`
+  (see dead-code note below), `SettingsDialog.tsx`, and `ChatsDrawer.tsx` — candidates once
+  Phases 5–6 land.
 - **`Button` adoption gap**, beyond the already-tracked `InfoPanel` backlog item: raw
   `<button>` elements also remain in `ApprovalModal.tsx`, `ElicitationModal.tsx`,
   `TerminalDrawer.tsx`, `ChatsDrawer.tsx`, and `WorkspacesDrawer.tsx`.
