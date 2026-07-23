@@ -644,13 +644,9 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
         <div className={infoHidden ? `${styles.infoWrap} ${styles.infoHidden}` : styles.infoWrap} aria-hidden={infoHidden}>
           <InfoPanel
             state={ctx.state}
-            title={ctx.state.title}
-            pinned={ctx.state.pinned}
             usage={displayedUsage}
             usageQuerySupported={!!ctx.state.capabilities?.usageQuery}
             refreshingUsage={refreshingUsage}
-            onRename={onRename}
-            onPinned={onPinnedChange}
             onRefreshUsage={onRefreshUsage}
           />
         </div>

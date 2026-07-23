@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { ChatState } from "../state/ChatContext";
 import type { UsageTotals } from "../api/types";
 import styles from "./InfoPanel.module.css";
@@ -6,19 +5,12 @@ import { Button } from "./ui/Button";
 
 export interface InfoPanelProps {
   state: ChatState;
-  title: string;
-  pinned: boolean;
   usage?: UsageTotals;
   usageQuerySupported?: boolean;
   refreshingUsage?: boolean;
-  onRename: (t: string) => void;
-  onPinned: (p: boolean) => void;
   onRefreshUsage?: () => void;
 }
 
-// Known rate-limit windows, in the order Claude's own `/usage` output shows
-// them. Any unrecognized rateLimitType (future SDK additions) still renders,
-// just with a title-cased fallback label instead of one of these.
 const RATE_LIMIT_LABELS: Record<string, string> = {
   five_hour: "Session (5h)",
   seven_day: "Week",
@@ -32,10 +24,6 @@ function rateLimitLabel(type: string): string {
   return RATE_LIMIT_LABELS[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// Prefers the exact epoch-ms value; falls back to the human-readable text a
-// manual /chat/usage refresh provides (see RateLimitWindow.resetsAtText —
-// there's no reliable way to parse "Jul 15 at 2pm (Asia/Calcutta)" into an
-// exact timestamp, so it's rendered verbatim instead).
 function formatResetsAt(resetsAt: number | undefined, resetsAtText: string | undefined): string | null {
   if (typeof resetsAt === "number") {
     return new Date(resetsAt).toLocaleString(undefined, {
@@ -62,68 +50,20 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
 
 export function InfoPanel(props: InfoPanelProps) {
   const {
-    state, title, pinned, usage, usageQuerySupported, refreshingUsage,
-    onRename, onPinned, onRefreshUsage,
+    state, usage, usageQuerySupported, refreshingUsage,
+    onRefreshUsage,
   } = props;
-  const [titleDraft, setTitleDraft] = useState(title);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const openTitleEdit = () => { setTitleDraft(title); setEditingTitle(true); };
-  const commitTitle = () => {
-    setEditingTitle(false);
-    if (titleDraft !== title) onRename(titleDraft);
-  };
-  const revertTitle = () => setEditingTitle(false);
   return (
     <aside className={styles.panel}>
       <div className={styles.section}>
-        <h3>Current chat</h3>
+        <h3>Session & workspace</h3>
         <div className={styles.row}>
-          <span className={styles.key}>Title</span>
-          {editingTitle ? (
-            <input
-              className={styles.titleInput}
-              aria-label="Title"
-              placeholder="Untitled"
-              value={titleDraft}
-              autoFocus
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitTitle();
-                if (e.key === "Escape") revertTitle();
-              }}
-              onBlur={commitTitle}
-            />
-          ) : (
-            <span
-              className={styles.titleDisplay}
-              role="button"
-              tabIndex={0}
-              aria-label="Edit title"
-              onClick={openTitleEdit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  openTitleEdit();
-                }
-              }}
-            >
-              {title || "Untitled"}
-              <span className={styles.titlePencil} aria-hidden="true">&#9998;</span>
-            </span>
-          )}
+          <span className={styles.key}>Workspace</span>
+          <span className={styles.val}>{state.cwd ?? "—"}</span>
         </div>
         <div className={styles.row}>
-          <span className={styles.key}>Pinned</span>
-          <Button
-            type="button"
-            className={`${styles.pinButton} ${pinned ? styles.pinButtonActive : ""}`}
-            onClick={() => onPinned(!pinned)}
-            aria-label={pinned ? "Unpin session" : "Pin session"}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M16 2l-1.5 4 5 5 4-1.5v3l-5 1.5-3.5 6.5L13 17l-6 6-1.5-1.5 6-6-3.5-2.5L9.5 8 8 3h3L9.5 7.5l4 4 4-5.5L16 2z" />
-            </svg>
-          </Button>
+          <span className={styles.key}>ID</span>
+          <span className={styles.val}>{state.sessionId ?? "—"}</span>
         </div>
       </div>
 
@@ -191,22 +131,6 @@ export function InfoPanel(props: InfoPanelProps) {
           )}
         </div>
       )}
-
-      <div className={styles.section}>
-        <h3>Session & workspace</h3>
-        <div className={styles.row}>
-          <span className={styles.key}>Workspace</span>
-          <span className={styles.val}>{state.cwd ?? "—"}</span>
-        </div>
-        <div className={styles.row}>
-          <span className={styles.key}>ID</span>
-          <span className={styles.val}>{state.sessionId ?? "—"}</span>
-        </div>
-        <div className={styles.row}>
-          <span className={styles.key}>Slash cmds</span>
-          <span className={styles.val}>{state.slashCommands.length}</span>
-        </div>
-      </div>
     </aside>
   );
 }

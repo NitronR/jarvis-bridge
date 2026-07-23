@@ -32,97 +32,25 @@ const baseState: ChatState = {
 };
 
 const baseProps = {
-  state: baseState, title: "My chat", pinned: false,
-  onRename: vi.fn(), onPinned: vi.fn(),
+  state: baseState,
 };
 
 describe("<InfoPanel>", () => {
-  it("renders session id, cwd, and slash count", () => {
+  it("renders session id and cwd", () => {
     render(<InfoPanel {...baseProps} />);
     expect(screen.getByText("sess-1")).toBeInTheDocument();
     expect(screen.getByText("/tmp/ws")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
-  });
-
-  it("renders the title as static text by default, not an input", () => {
-    render(<InfoPanel {...baseProps} />);
-    expect(screen.getByText("My chat")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  });
-
-  it("shows an accessible edit affordance for the title", () => {
-    render(<InfoPanel {...baseProps} />);
-    const trigger = screen.getByLabelText("Edit title");
-    expect(trigger).toHaveAttribute("role", "button");
-    expect(trigger).toHaveAttribute("tabIndex", "0");
-  });
-
-  it("enters edit mode on click and commits the new title on Enter", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} onRename={onRename} />);
-    fireEvent.click(screen.getByLabelText("Edit title"));
-    const input = screen.getByDisplayValue("My chat");
-    fireEvent.change(input, { target: { value: "new title" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(onRename).toHaveBeenCalledWith("new title");
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  });
-
-  it("enters edit mode via keyboard (Enter or Space on the trigger)", () => {
-    render(<InfoPanel {...baseProps} />);
-    fireEvent.keyDown(screen.getByLabelText("Edit title"), { key: "Enter" });
-    expect(screen.getByDisplayValue("My chat")).toBeInTheDocument();
-  });
-
-  it("commits the new title on blur", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} onRename={onRename} />);
-    fireEvent.click(screen.getByLabelText("Edit title"));
-    const input = screen.getByDisplayValue("My chat");
-    fireEvent.change(input, { target: { value: "blurred title" } });
-    fireEvent.blur(input);
-    expect(onRename).toHaveBeenCalledWith("blurred title");
-  });
-
-  it("reverts without committing on Escape", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} onRename={onRename} />);
-    fireEvent.click(screen.getByLabelText("Edit title"));
-    const input = screen.getByDisplayValue("My chat");
-    fireEvent.change(input, { target: { value: "discarded" } });
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(onRename).not.toHaveBeenCalled();
-    expect(screen.getByText("My chat")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  });
-
-  it("does not call onRename when the committed value is unchanged", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} onRename={onRename} />);
-    fireEvent.click(screen.getByLabelText("Edit title"));
-    fireEvent.keyDown(screen.getByDisplayValue("My chat"), { key: "Enter" });
-    expect(onRename).not.toHaveBeenCalled();
-  });
-
-  it("commits an empty title", () => {
-    const onRename = vi.fn();
-    render(<InfoPanel {...baseProps} onRename={onRename} />);
-    fireEvent.click(screen.getByLabelText("Edit title"));
-    const input = screen.getByDisplayValue("My chat");
-    fireEvent.change(input, { target: { value: "" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(onRename).toHaveBeenCalledWith("");
-  });
-
-  it("does not render an auto-approve toggle", () => {
-    render(<InfoPanel {...baseProps} />);
-    expect(screen.queryByTestId("auto-approve-toggle")).not.toBeInTheDocument();
   });
 
   it("does not render a Usage card when no usage is passed", () => {
     render(<InfoPanel {...baseProps} />);
     expect(screen.queryByText("Usage")).not.toBeInTheDocument();
+  });
+
+  it("does not render an auto-approve toggle", () => {
+    render(<InfoPanel {...baseProps} />);
+    expect(screen.queryByTestId("auto-approve-toggle")).not.toBeInTheDocument();
   });
 
   it("renders rate-limit windows and cost under a Usage card", () => {
@@ -133,11 +61,6 @@ describe("<InfoPanel>", () => {
           requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
           cost: { amount: 0.42, currency: "USD" },
           rate_limits: {
-            // resetsAt is epoch ms (already normalized by the backend from
-            // the SDK's epoch-seconds wire value) — this exercises that the
-            // component renders it on its own line rather than crammed next
-            // to the percentage, which used to wrap awkwardly in the narrow
-            // sidebar.
             five_hour: { status: "allowed", utilization: 0.12, resetsAt: Date.UTC(2026, 6, 16, 2, 5) },
             seven_day: { status: "allowed_warning", utilization: 0.86 },
           },
@@ -206,7 +129,7 @@ describe("<InfoPanel>", () => {
     expect(screen.getByText(/Jul 16 at 9am \(UTC\)/)).toBeInTheDocument();
   });
 
-  it("renders cards in Chat identity -> Usage -> Session & workspace order", () => {
+  it("renders sections in Session & workspace → Usage order", () => {
     render(
       <InfoPanel
         {...baseProps}
@@ -217,17 +140,16 @@ describe("<InfoPanel>", () => {
       />,
     );
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Current chat", "Usage", "Session & workspace"]);
+    expect(headings).toEqual(["Session & workspace", "Usage"]);
   });
 
-  it("merges workspace, session id, and slash count under one Session & workspace card", () => {
+  it("renders workspace and session id under Session & workspace", () => {
     render(<InfoPanel {...baseProps} />);
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
     expect(screen.getByText("Session & workspace")).toBeInTheDocument();
     expect(screen.getByText("/tmp/ws")).toBeInTheDocument();
     expect(screen.getByText("sess-1")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
   });
 
   it("renders a progressbar with the correct value for each rate-limit window", () => {

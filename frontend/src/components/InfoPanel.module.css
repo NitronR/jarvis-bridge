@@ -80,53 +80,5 @@
   text-align: right;
   margin: -2px 0 4px;
 }
-.titleDisplay {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
-  cursor: pointer;
-  font-size: var(--font-size-6);
-  font-weight: var(--font-weight-semibold);
-}
-.titlePencil {
-  opacity: 0;
-  color: var(--color-text-muted);
-  transition: opacity 120ms ease;
-}
-.titleDisplay:hover .titlePencil,
-.titleDisplay:focus .titlePencil {
-  opacity: 1;
-}
-.titleInput {
-  font-size: var(--font-size-6);
-  font-weight: var(--font-weight-semibold);
-  flex: 1;
-  min-width: 0;
-}
-.pinButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  padding: var(--space-4) var(--space-5);
-  cursor: pointer;
-  transition: color 120ms ease, background 120ms ease;
-}
-.pinButton svg {
-  width: 14px;
-  height: 14px;
-}
-.pinButton:hover {
-  color: var(--color-text);
-}
-.pinButtonActive {
-  color: var(--color-warning);
-  background: rgba(210, 153, 34, 0.12);
-}
-.pinButtonActive:hover {
-  background: rgba(210, 153, 34, 0.2);
-}
+
 
