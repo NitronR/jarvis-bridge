@@ -92,11 +92,6 @@
   flex-shrink: 0;
 }
 
-.groupSelect {
-  margin-left: var(--space-4);
-  flex-shrink: 0;
-}
-
 .dialogBackdrop {
   position: fixed;
   inset: 0;
