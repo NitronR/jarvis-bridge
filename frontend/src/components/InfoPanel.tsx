@@ -184,15 +184,32 @@ export function InfoPanel(props: InfoPanelProps) {
           {usage?.rate_limits &&
             Object.entries(usage.rate_limits).map(([type, w]) => {
               const pct = typeof w.utilization === "number" ? Math.round(w.utilization * 100) : null;
+              const isWarn = pct != null && pct >= 80;
               const resets = formatResetsAt(w.resetsAt, w.resetsAtText);
+              const label = rateLimitLabel(type);
               return (
                 <div key={type}>
                   <div className={styles.row}>
-                    <span className={styles.key}>{rateLimitLabel(type)}</span>
-                    <span className={`${styles.val} ${pct != null && pct >= 80 ? styles.warn : ""}`}>
-                      {pct != null ? `${pct}%` : w.status.replace(/_/g, " ")}
+                    <span className={styles.key}>{label}</span>
+                    <span className={`${styles.val} ${isWarn ? styles.warn : ""}`}>
+                      {pct != null ? `${isWarn ? "⚠ " : ""}${pct}%` : w.status.replace(/_/g, " ")}
                     </span>
                   </div>
+                  {pct != null && (
+                    <div
+                      className={styles.meterTrack}
+                      role="progressbar"
+                      aria-valuenow={pct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${label} usage`}
+                    >
+                      <div
+                        className={`${styles.meterFill} ${isWarn ? styles.meterFillWarn : ""}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
                   {resets && <div className={styles.resetNote}>resets {resets}</div>}
                 </div>
               );

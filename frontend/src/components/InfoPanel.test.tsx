@@ -296,6 +296,62 @@ describe("<InfoPanel>", () => {
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
+  it("renders a progressbar with the correct value for each rate-limit window", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { five_hour: { status: "allowed", utilization: 0.12 } },
+        }}
+      />,
+    );
+    const bar = screen.getByRole("progressbar", { name: /session \(5h\) usage/i });
+    expect(bar).toHaveAttribute("aria-valuenow", "12");
+    expect(bar).toHaveAttribute("aria-valuemin", "0");
+    expect(bar).toHaveAttribute("aria-valuemax", "100");
+  });
+
+  it("does not render a progressbar for a window with no numeric utilization", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { overage: { status: "rejected" } },
+        }}
+      />,
+    );
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("prefixes the percentage with a warning glyph at >=80%, not just a color change", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { seven_day: { status: "allowed_warning", utilization: 0.86 } },
+        }}
+      />,
+    );
+    expect(screen.getByText("⚠ 86%")).toBeInTheDocument();
+  });
+
+  it("does not prefix the percentage with a warning glyph below 80%", () => {
+    render(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { five_hour: { status: "allowed", utilization: 0.12 } },
+        }}
+      />,
+    );
+    expect(screen.getByText("12%")).toBeInTheDocument();
+    expect(screen.queryByText(/⚠/)).not.toBeInTheDocument();
+  });
+
   it("closes the dialog on Cancel", () => {
     render(<InfoPanel {...baseProps} groups={[]} />);
     const select = screen.getByLabelText(/group/i) as HTMLSelectElement;

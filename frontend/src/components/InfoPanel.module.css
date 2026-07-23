@@ -57,7 +57,21 @@
   word-break: break-all;
   text-align: right;
 }
-.val.warn { color: var(--color-warning); }
+.val.warn { color: var(--color-warning); font-weight: var(--font-weight-semibold); }
+.meterTrack {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-3);
+  overflow: hidden;
+  margin: var(--space-2) 0 var(--space-4);
+}
+.meterFill {
+  height: 100%;
+  background: var(--color-success);
+}
+.meterFillWarn {
+  background: var(--color-warning);
+}
 .resetNote {
   font-size: 10px;
   color: var(--color-text-muted);
