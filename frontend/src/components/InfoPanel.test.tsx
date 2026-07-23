@@ -34,20 +34,15 @@ const baseState: ChatState = {
 const baseProps = {
   state: baseState, title: "My chat", group: "", groups: [], pinned: false,
   onRename: vi.fn(), onGroup: vi.fn(), onAddGroup: vi.fn(), onPinned: vi.fn(),
-  onAutoApproveToggle: vi.fn(),
 };
 
 describe("<InfoPanel>", () => {
-  it("renders session id, cwd, slash count", () => {
+  it("renders session id, cwd, and slash count", () => {
     render(<InfoPanel {...baseProps} />);
     expect(screen.getByText("sess-1")).toBeInTheDocument();
     expect(screen.getByText("/tmp/ws")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
-  });
-
-  it("no longer renders a model selector — it moved to the Composer", () => {
-    render(<InfoPanel {...baseProps} />);
-    expect(screen.queryByText("Model One")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
   });
 
   it("does not call onRename while typing, only on save", () => {
@@ -81,11 +76,9 @@ describe("<InfoPanel>", () => {
     expect(screen.getByDisplayValue("Renamed elsewhere")).toBeInTheDocument();
   });
 
-  it("calls onAutoApproveToggle when the toggle is clicked", () => {
-    const onToggle = vi.fn();
-    render(<InfoPanel {...baseProps} onAutoApproveToggle={onToggle} />);
-    fireEvent.click(screen.getByTestId("auto-approve-toggle"));
-    expect(onToggle).toHaveBeenCalled();
+  it("does not render an auto-approve toggle", () => {
+    render(<InfoPanel {...baseProps} />);
+    expect(screen.queryByTestId("auto-approve-toggle")).not.toBeInTheDocument();
   });
 
   it("does not render a Usage card when no usage is passed", () => {

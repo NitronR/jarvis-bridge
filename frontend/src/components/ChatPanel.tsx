@@ -560,7 +560,6 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
             onGroup={onGroupChange}
             onAddGroup={onAddGroup}
             onPinned={onPinnedChange}
-            onAutoApproveToggle={onAutoApproveToggle}
             onRefreshUsage={onRefreshUsage}
           />
         </div>

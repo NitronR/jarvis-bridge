@@ -16,7 +16,6 @@ export interface InfoPanelProps {
   onGroup: (g: string) => void;
   onAddGroup: (name: string) => Promise<void>;
   onPinned: (p: boolean) => void;
-  onAutoApproveToggle: () => void;
   onRefreshUsage?: () => void;
 }
 
@@ -76,7 +75,7 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
 export function InfoPanel(props: InfoPanelProps) {
   const {
     state, title, group, groups, pinned, usage, usageQuerySupported, refreshingUsage,
-    onRename, onGroup, onAddGroup, onPinned, onAutoApproveToggle, onRefreshUsage,
+    onRename, onGroup, onAddGroup, onPinned, onRefreshUsage,
   } = props;
   const [titleDraft, setTitleDraft] = useState(title);
   useEffect(() => setTitleDraft(title), [title]);
@@ -161,17 +160,6 @@ export function InfoPanel(props: InfoPanelProps) {
         <div className={styles.row}>
           <span className={styles.key}>Workspace</span>
           <span className={styles.val}>{state.cwd ?? "—"}</span>
-        </div>
-        <div className={styles.row}>
-          <span className={styles.key}>Auto-approve</span>
-          <button
-            type="button"
-            data-testid="auto-approve-toggle"
-            className={state.autoApprove.effective ? "primary" : ""}
-            onClick={onAutoApproveToggle}
-          >
-            {state.autoApprove.effective ? "On" : "Off"}
-          </button>
         </div>
       </div>
 
