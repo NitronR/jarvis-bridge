@@ -55,7 +55,20 @@ turn-controls action row in the Composer.
 - Spec: `docs/superpowers/specs/2026-07-22-composer-redesign-design.md`
 - Plan: `docs/superpowers/plans/2026-07-22-composer-redesign.md`
 
-## Phase 5: Chats & Groups Popup Redesign — Not started
+## Phase 5: Info Panel Redesign — Done (2026-07-23)
+
+Restructured `InfoPanel.tsx` from four uniform bordered cards into three typographic
+sections (Chat identity → Usage → Session & workspace, merging the old Overview/Session
+split), added click-to-edit title, per-window usage meters with a non-color-only ≥80%
+warning signal, and migrated its raw `<button>` elements onto the `Button` primitive.
+Assumes Phase 4's removal of the Model selector/Auto-approve toggle from this file has
+already landed here (done as part of this phase, ahead of Phase 4 itself, to avoid a
+compile break — see the spec's Files to Modify note on `ChatPanel.tsx`).
+
+- Spec: `docs/superpowers/specs/2026-07-22-info-panel-redesign-design.md`
+- Plan: `docs/superpowers/plans/2026-07-22-info-panel-redesign.md`
+
+## Phase 6: Chats & Groups Popup Redesign — Not started
 
 `ChatsDrawer.tsx` (the "Chats" popup reached from `ChatPanel`'s header) currently mixes a
 raw `<select>`-based workspace/backend filter row, a tab bar (`Chats` / `Groups`) built from
@@ -77,7 +90,7 @@ Candidate pain points to confirm in audit (stage 2) before writing a spec:
 Non-goals to confirm in spec: changing where groups are created/assigned (`InfoPanel`),
 changing the underlying `groups` API contract.
 
-## Phase 6: Settings Dialog Redesign — Not started
+## Phase 7: Settings Dialog Redesign — Not started
 
 `SettingsDialog.tsx` currently holds two sections: "Default agent backend" (a raw `<select>`)
 and "Quick phrases" (add/remove list, duplicating state already editable directly in
@@ -98,7 +111,7 @@ Decided scope (carry into the spec):
 Non-goal to confirm in spec: don't expand Settings' scope with new preferences not already
 requested elsewhere.
 
-## Phase 7: Workspaces ("New in…") Popup Redesign + Bookmarking — Not started
+## Phase 8: Workspaces ("New in…") Popup Redesign + Bookmarking — Not started
 
 `WorkspacesDrawer.tsx` is currently minimal: a header, an "Open folder…" button, and a flat
 recency-ordered list of `recentWorkspaces` (basename + full path), sourced entirely from
@@ -125,7 +138,7 @@ Open questions for the spec/brainstorm stage (don't decide here):
 - What happens when a bookmarked workspace no longer appears in recents (never removed vs.
   auto-pruned) — an edge case the spec must enumerate per `docs/design/philosophy.md`.
 
-## Phase 8: Design System Consistency Review — Not started
+## Phase 9: Design System Consistency Review — Not started
 
 Not a visual redesign — an audit-and-migrate pass checking the app against
 `docs/frontend-components.md`'s inventory and `docs/design/philosophy.md`'s token/primitive
@@ -137,10 +150,10 @@ Known gaps found in a quick audit (to confirm/expand during the audit stage):
   semantics, top/bottom auto-placement), now in `docs/frontend-components.md`'s primitives
   list, and adopted by `Composer`'s model selector (Phase 4 — a mid-implementation deviation
   from the phase's own plan, which had specified a native `<select>`). Raw `<select>`
-  elements remain everywhere else: `InfoPanel.tsx` (group filter — its model `<select>` was
-  removed, not migrated, when the model selector moved to `Composer`), `SettingsPanel.tsx`
-  (see dead-code note below), `SettingsDialog.tsx`, and `ChatsDrawer.tsx` — candidates once
-  Phases 5–6 land.
+   elements remain everywhere else: `InfoPanel.tsx` (group filter — its model `<select>` was
+   removed, not migrated, when the model selector moved to `Composer`), `SettingsPanel.tsx`
+   (see dead-code note below), `SettingsDialog.tsx`, and `ChatsDrawer.tsx` — candidates once
+   Phases 6–7 land.
 - **`Button` adoption gap**, beyond the already-tracked `InfoPanel` backlog item: raw
   `<button>` elements also remain in `ApprovalModal.tsx`, `ElicitationModal.tsx`,
   `TerminalDrawer.tsx`, `ChatsDrawer.tsx`, and `WorkspacesDrawer.tsx`.
@@ -159,7 +172,7 @@ repeats."
 ## Backlog: Deferred Findings (non-blocking)
 
 Minor findings surfaced during Phase 1/2 review, explicitly deferred rather than fixed.
-To be resolved as part of Phase 8 (Design System Consistency Review) rather than as a
+To be resolved as part of Phase 9 (Design System Consistency Review) rather than as a
 standalone pass — kept listed here until then so they aren't lost to chat history.
 
 - **`Button` call sites: `ChatPanel` migrated (Phase 3), `Composer` migrated (Phase 4),
