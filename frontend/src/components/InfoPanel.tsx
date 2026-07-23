@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ChatState } from "../state/ChatContext";
 import type { UsageTotals } from "../api/types";
 import styles from "./InfoPanel.module.css";
+import { Button } from "./ui/Button";
 
 export interface InfoPanelProps {
   state: ChatState;
@@ -151,7 +152,7 @@ export function InfoPanel(props: InfoPanelProps) {
         </div>
         <div className={styles.row}>
           <span className={styles.key}>Pinned</span>
-          <button
+          <Button
             type="button"
             className={`${styles.pinButton} ${pinned ? styles.pinButtonActive : ""}`}
             onClick={() => onPinned(!pinned)}
@@ -160,7 +161,7 @@ export function InfoPanel(props: InfoPanelProps) {
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M16 2l-1.5 4 5 5 4-1.5v3l-5 1.5-3.5 6.5L13 17l-6 6-1.5-1.5 6-6-3.5-2.5L9.5 8 8 3h3L9.5 7.5l4 4 4-5.5L16 2z" />
             </svg>
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -169,7 +170,7 @@ export function InfoPanel(props: InfoPanelProps) {
           <div className={styles.sectionLabelRow}>
             <h3>Usage</h3>
             {usageQuerySupported && (
-              <button
+              <Button
                 type="button"
                 className={styles.refreshButton}
                 aria-label="Refresh usage"
@@ -178,7 +179,7 @@ export function InfoPanel(props: InfoPanelProps) {
                 onClick={onRefreshUsage}
               >
                 <RefreshIcon spinning={refreshingUsage} />
-              </button>
+              </Button>
             )}
           </div>
           {usage?.rate_limits &&
@@ -257,8 +258,8 @@ export function InfoPanel(props: InfoPanelProps) {
               autoFocus
             />
             <div className={styles.dialogActions}>
-              <button type="button" onClick={() => setAddGroupOpen(false)}>Cancel</button>
-              <button type="button" onClick={handleCreateGroup}>Create</button>
+              <Button type="button" onClick={() => setAddGroupOpen(false)}>Cancel</Button>
+              <Button type="button" variant="primary" onClick={handleCreateGroup}>Create</Button>
             </div>
           </div>
         </div>

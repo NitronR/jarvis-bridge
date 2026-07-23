@@ -67,8 +67,7 @@ changes).
 Renders with `--radius-md` (4px rounding), smooth hover/focus transitions, a
 `--color-accent` focus-visible ring, and a subtle `:active` scale press. First adopted by
 `ChatPanel`'s header toolbar (Phase 3: Header/Toolbar Cleanup), then `Composer`'s action row
-(Phase 4: Composer Redesign). `InfoPanel` still uses raw `<button>` — migrate whenever that
-file is next touched.
+(Phase 4: Composer Redesign), and `InfoPanel`'s pin toggle, usage refresh, and dialog buttons.
 
 **Deliberately not migrated**: `QuickPhrasesRow`'s pill/add/delete/overflow buttons stay bare
 `<button className={styles.x}>` elements rather than `<Button>`, for the same reason its pill

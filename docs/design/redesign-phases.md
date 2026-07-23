@@ -162,9 +162,8 @@ Minor findings surfaced during Phase 1/2 review, explicitly deferred rather than
 To be resolved as part of Phase 8 (Design System Consistency Review) rather than as a
 standalone pass — kept listed here until then so they aren't lost to chat history.
 
-- **`Button` call sites: `ChatPanel` migrated (Phase 3), `Composer` migrated (Phase 4);
-  `InfoPanel` still uses raw `<button>` elements.** Migrate onto `Button` whenever that file
-  is next touched, rather than as a standalone migration pass.
+- **`Button` call sites: `ChatPanel` migrated (Phase 3), `Composer` migrated (Phase 4),
+  `InfoPanel` migrated (Phase 5).** Only `Composer` remains (pending its own Phase 4 spec).
 - **`Pill`'s `.neutral` tone is ~2px larger than other tones** — it has a border the other
   tones don't (`Pill.module.css`, added during Phase 1's Task 5 fix), no `box-sizing` offset.
   No visible effect today since `Timeline` only ever renders `tone="neutral"`; would matter
