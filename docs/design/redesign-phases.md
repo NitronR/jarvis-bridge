@@ -55,6 +55,17 @@ turn-controls action row in the Composer.
 - Spec: `docs/superpowers/specs/2026-07-22-composer-redesign-design.md`
 - Plan: `docs/superpowers/plans/2026-07-22-composer-redesign.md`
 
+**Addendum (2026-07-23): action row polish.** Concrete, scoped follow-up requests handled
+directly (no spec/plannotator — see the archive note's rationale): attach-image icon became a
+flat borderless SVG icon button; Auto-approve became a `role="switch"` toggle with the label
+inside a bordered pill; the context-usage readout moved inline into the action row (dropped
+the "Context:" label prefix, added a bordered pill, then a thin usage bar along the pill's
+bottom border reflecting percent used); the `$cost` figure was removed from the pill as
+redundant with `InfoPanel`'s Usage section. Both new controls stayed local to
+`Composer.module.css` rather than becoming `ui/` primitives — see Phase 9's known gaps below.
+
+- Archive: `docs/archives/2026-07-23-composer-action-row-polish.md`
+
 ## Phase 5: Info Panel Redesign — Done (2026-07-23)
 
 Restructured `InfoPanel.tsx` from four uniform bordered cards into three typographic
@@ -173,6 +184,12 @@ Known gaps found in a quick audit (to confirm/expand during the audit stage):
 - **Fold in the still-open Phase 1/2 backlog items** (below) as part of this pass rather than
   leaving them as a separate perpetual list, since this phase's whole purpose is closing
   exactly this kind of drift.
+- **`Toggle` / flat `IconButton` primitives, undocumented gap:** `Composer`'s Auto-approve
+  toggle (`role="switch"`, animated track+thumb) and its attach-image flat icon button
+  (2026-07-23 addendum above) are local, single-consumer implementations in
+  `Composer.module.css`, not `ui/` primitives. Promote to shared primitives (a `Toggle`, and
+  either a `Button` ghost variant or a dedicated `IconButton`) if either pattern gets a second
+  consumer — see `docs/frontend-components.md`'s `Button` section for the full detail.
 - **`prefers-reduced-motion` gap:** Add `@media (prefers-reduced-motion: reduce)` rules to
   ChatsDrawer and WorkspacesDrawer (`slideIn` keyframe animations), `Dot` spin, and InfoPanel
   refresh icon spin. For status spinners, replace the animation with a non-motion indicator

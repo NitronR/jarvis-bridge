@@ -67,7 +67,8 @@ changes).
 Renders with `--radius-md` (4px rounding), smooth hover/focus transitions, a
 `--color-accent` focus-visible ring, and a subtle `:active` scale press. First adopted by
 `ChatPanel`'s header toolbar (Phase 3: Header/Toolbar Cleanup), then `Composer`'s action row
-(Phase 4: Composer Redesign), and `InfoPanel`'s usage refresh button.
+(Phase 4: Composer Redesign), and `InfoPanel`'s usage refresh button. `Composer`'s Send/Stop/
+Queue/Steer/remove-attachment controls still use `Button` today.
 
 **Deliberately not migrated**: `QuickPhrasesRow`'s pill/add/delete/overflow buttons stay bare
 `<button className={styles.x}>` elements rather than `<Button>`, for the same reason its pill
@@ -75,6 +76,27 @@ isn't run through the `Pill` primitive either (see below): they're tightly coupl
 `ResizeObserver`-measured clone of their own box model, and `Button`'s own border/padding
 would need overriding anyway with no visual gain — any mismatch between the real element and
 its hidden measurement clone silently breaks the overflow-cutoff math.
+
+`Composer`'s attach-image and Auto-approve controls **moved off `Button` onto local custom
+markup** during a 2026-07-23 action-row polish pass (see
+`docs/archives/2026-07-23-composer-action-row-polish.md`), because neither fits `Button`'s
+bordered-rectangle shape:
+
+- **Attach image** is now a flat (borderless, background-transparent until hover) icon-only
+  `<button>` with an inline SVG paperclip, styled in `Composer.module.css`'s `.attachButton`
+  — matching the SVG icon vocabulary `ChatPanel.tsx`'s Pin/Settings buttons already use, but
+  intentionally chromeless at rest rather than boxed like those two.
+- **Auto-approve** is now a `role="switch"`/`aria-checked` toggle (`.autoApprove` /
+  `.switchTrack` / `.switchThumb` in `Composer.module.css`): an animated track+thumb plus the
+  "Auto-approve" text label, both inside one bordered pill that is itself the clickable
+  element. The accessible name comes from the visible text content; the track+thumb markup is
+  `aria-hidden`.
+
+Both are single-consumer today and were kept local rather than promoted to `ui/` primitives,
+per "only tokenize what actually repeats" — candidates for a `Toggle` primitive and a
+`Button` ghost/`IconButton` variant (`docs/design/philosophy.md` already flags a "Ghost"
+button as planned-but-unbuilt) if either pattern gets a second consumer. Tracked as a Phase 9
+(Design System Consistency Review) candidate in `docs/design/redesign-phases.md`.
 
 ## `Pill`
 

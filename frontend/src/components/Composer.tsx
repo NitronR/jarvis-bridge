@@ -131,6 +131,7 @@ export function Composer(props: ComposerProps) {
     ? latestUsage.context_used / latestUsage.context_limit
     : null;
   const isWarn = usagePct != null && usagePct > 0.8;
+  const usagePctRounded = usagePct != null ? Math.min(100, Math.max(0, Math.round(usagePct * 100))) : 0;
 
   return (
     <form
@@ -188,15 +189,18 @@ export function Composer(props: ComposerProps) {
       </div>
       <div className={styles.actionRow}>
         <div className={styles.actionsLeft}>
-          <Button
+          <button
             type="button"
+            className={styles.attachButton}
             onClick={() => fileInputRef.current?.click()}
             disabled={!imagesSupported}
             title="Attach image"
             aria-label="Attach image"
           >
-            📎
-          </Button>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
           <Select
             value={currentModel ?? ""}
             options={models.map((m) => ({ value: m.modelId, label: m.name || m.modelId }))}
@@ -204,14 +208,35 @@ export function Composer(props: ComposerProps) {
             disabled={models.length === 0}
             aria-label="Model"
           />
-          <Button
+          <button
             type="button"
-            variant={autoApproveEffective ? "primary" : "default"}
+            role="switch"
+            aria-checked={autoApproveEffective}
+            className={autoApproveEffective ? `${styles.autoApprove} ${styles.autoApproveActive}` : styles.autoApprove}
             onClick={onAutoApproveToggle}
             disabled={!autoApproveCapable}
           >
-            {autoApproveEffective ? "✓ Auto-approve" : "Auto-approve"}
-          </Button>
+            <span className={styles.switchTrack} aria-hidden="true">
+              <span className={styles.switchThumb} />
+            </span>
+            Auto-approve
+          </button>
+          {latestUsage && latestUsage.context_limit != null && latestUsage.context_limit > 0 && (
+            <span className={styles.contextPill}>
+              {latestUsage.context_used?.toLocaleString() ?? "0"} / {latestUsage.context_limit.toLocaleString()}
+              {" ("}
+              <span className={isWarn ? styles.warn : undefined}>
+                {isWarn ? "⚠ " : ""}
+                {usagePctRounded}%
+              </span>
+              {")"}
+              <span
+                className={isWarn ? `${styles.usageBar} ${styles.usageBarWarn}` : styles.usageBar}
+                style={{ width: `${usagePctRounded}%` }}
+                aria-hidden="true"
+              />
+            </span>
+          )}
         </div>
         <div className={styles.actionsRight}>
           {busy ? (
@@ -227,26 +252,6 @@ export function Composer(props: ComposerProps) {
           )}
         </div>
       </div>
-      {latestUsage && latestUsage.context_limit != null && latestUsage.context_limit > 0 && (
-        <div className={styles.contextBar}>
-          <span>
-            Context: {latestUsage.context_used?.toLocaleString() ?? "0"} /{" "}
-            {latestUsage.context_limit.toLocaleString()}
-            {" ("}
-            <span className={isWarn ? styles.warn : undefined}>
-              {isWarn ? "⚠ " : ""}
-              {latestUsage.context_used != null
-                ? Math.round((latestUsage.context_used / latestUsage.context_limit) * 100)
-                : 0}
-              %
-            </span>
-            {")"}
-          </span>
-          {latestUsage.cost && (
-            <span> · ${latestUsage.cost.amount.toFixed(2)}</span>
-          )}
-        </div>
-      )}
     </form>
   );
 }

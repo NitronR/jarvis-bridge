@@ -230,18 +230,23 @@ describe("<Composer>", () => {
     it("shows Auto-approve and calls onAutoApproveToggle when clicked", () => {
       const onAutoApproveToggle = vi.fn();
       render(<Composer {...baseProps} onAutoApproveToggle={onAutoApproveToggle} />);
-      fireEvent.click(screen.getByRole("button", { name: "Auto-approve" }));
+      fireEvent.click(screen.getByRole("switch", { name: "Auto-approve" }));
       expect(onAutoApproveToggle).toHaveBeenCalled();
     });
 
-    it("shows a checkmark when effective", () => {
+    it("reflects the effective state via aria-checked", () => {
       render(<Composer {...baseProps} autoApproveEffective={true} />);
-      expect(screen.getByText("✓ Auto-approve")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: "Auto-approve" })).toBeChecked();
+    });
+
+    it("is unchecked when not effective", () => {
+      render(<Composer {...baseProps} autoApproveEffective={false} />);
+      expect(screen.getByRole("switch", { name: "Auto-approve" })).not.toBeChecked();
     });
 
     it("is disabled when not capable", () => {
       render(<Composer {...baseProps} autoApproveCapable={false} />);
-      expect(screen.getByRole("button", { name: "Auto-approve" })).toBeDisabled();
+      expect(screen.getByRole("switch", { name: "Auto-approve" })).toBeDisabled();
     });
   });
 
