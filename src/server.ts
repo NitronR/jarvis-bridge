@@ -494,8 +494,9 @@ export function createServer(opts: CreateServerOptions): Express {
       res.status(501).json({ error: "fork not supported" });
       return;
     }
-    const forked = await entry.backend.forkSession(body.sessionId);
-    res.json({ ok: true, sourceSessionId: body.sessionId, sessionId: forked.id, cwd: workspace });
+    const forked = await entry.backend.forkSession(body.sessionId, { cwd: entry.cwd });
+    await opts.sessionConfig?.setSessionCwd(forked.id, entry.cwd);
+    res.json({ ok: true, sourceSessionId: body.sessionId, sessionId: forked.id, cwd: entry.cwd });
   }));
 
   app.patch("/chat/sessions/:sessionId", smallJson, asyncRoute(async (req, res) => {

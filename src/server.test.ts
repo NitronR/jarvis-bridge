@@ -75,7 +75,8 @@ function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/ba
     findSession: async (sessionId: string) => {
       const s = backend.getSession(sessionId);
       if (!s) return null;
-      return { backend, backendName: "fake", cwd: "", summary: { sessionId } };
+      const cwd = backend.createdWithCwd.get(sessionId) ?? "";
+      return { backend, backendName: "fake", cwd, summary: { sessionId } };
     },
     getSession: async (sessionId: string) => backend.getSession(sessionId),
     deleteSession: async (sessionId: string) => {
@@ -443,6 +444,34 @@ test("POST /chat/sessions/fork returns a new session id", async () => {
       assert.notEqual(body.sessionId, initBody.sessionId);
     },
   }));
+});
+
+test("POST /chat/sessions/fork passes the source session's cwd, not the default workspace", async () => {
+  const sourceCwd = await mkWorkspace();
+  try {
+    await withServer(async (ws) => ({
+      backend: new FakeBackend(),
+      fn: async (url) => {
+        // sourceCwd is deliberately different from ws (the server's default
+        // workspace) so a fork that silently falls back to the default (or
+        // to process.cwd()) is distinguishable from one that correctly
+        // reuses the source session's own cwd.
+        assert.notEqual(sourceCwd, ws);
+        const initRes = await fetch(`${url}/chat/init?cwd=${encodeURIComponent(sourceCwd)}`);
+        const initBody = (await initRes.json()) as { sessionId: string };
+        const res = await fetch(`${url}/chat/sessions/fork`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId: initBody.sessionId }),
+        });
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as { ok: boolean; cwd: string };
+        assert.equal(body.cwd, sourceCwd);
+      },
+    }));
+  } finally {
+    await fs.rm(sourceCwd, { recursive: true, force: true });
+  }
 });
 
 test("PATCH /chat/sessions/:id stores customTitle metadata", async () => {

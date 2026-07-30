@@ -212,6 +212,30 @@ describe("useChat", () => {
     expect(fetchJSONSpy).not.toHaveBeenCalledWith("/chat/cancel", expect.anything());
   });
 
+  it("forkCurrent opens the forked session in a new tab, leaving the current tab on the source session", async () => {
+    fetchJSONSpy.mockImplementation(async (url) => {
+      if (String(url).startsWith("/chat/sessions/fork")) {
+        return { ok: true, status: 200, data: { ok: true, sourceSessionId: "sess-1", sessionId: "sess-2", cwd: "/tmp/ws" } };
+      }
+      return { ok: true, status: 200, data: baseInit };
+    });
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init(); });
+    await act(async () => { await result.current.forkCurrent(); });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringContaining("sessionId=sess-2"),
+      "_blank",
+      "noopener,noreferrer",
+    );
+    // The current tab's own session must be untouched — no /chat/init refetch
+    // for the forked id, since forking must not switch this tab away from
+    // the source conversation.
+    expect(result.current.context.state.sessionId).toBe("sess-1");
+  });
+
   it("resyncs via /chat/init when the reattach stream errors out (e.g. the turn already finished)", async () => {
     fetchJSONSpy.mockResolvedValue({
       ok: true,

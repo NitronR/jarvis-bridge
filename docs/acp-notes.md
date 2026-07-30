@@ -21,6 +21,45 @@ after awaiting it. `handleSessionUpdate()` drops any notification whose `session
 already in the map — so registering after the await silently discards the entire replay.
 This bit us once already (fixed 2026-07-12; see `docs/archives/2026-07-12-session-history-restore.md`).
 
+## `session/fork`'s own in-flight replay is silently dropped — correctness relies on the follow-up `loadSession()`
+
+`session/fork` has the same "notifications in flight, before the response" shape as `session/load`
+(above) — confirmed by reading opencode's agent-side handler directly
+(`packages/opencode/src/acp/service.ts`'s `forkSession`): it fetches the source session's last 20
+messages and calls `replayMessages(events, messages)`, streaming `session/update` notifications
+for the **new forked session's id**, before returning the JSON-RPC response.
+
+Unlike `loadSession()`, `AcpAgentBackend.forkSession()` (`src/agent/acp/index.ts`) *cannot* register
+the new session in `this.sessions` before sending the request — the forked id doesn't exist until
+the response arrives. So any in-flight replay notifications the agent sends during `session/fork`
+target an id `handleSessionUpdate()` doesn't recognize yet, and are silently dropped by the same
+"drop unknown sessionId" guard described above.
+
+**This is currently masked, not fixed.** The frontend's `forkCurrent()` immediately calls
+`switchSession()` on the new id, which hits `GET /chat/init?sessionId=...` — and since a
+freshly-forked session has no active turn, `/chat/init` takes the `loadSession()` branch
+(`src/server.ts`), which registers first and replays correctly the second time. Fork today works
+via an accidental double-replay: the agent computes and streams the same history twice (once
+thrown away inside `forkSession()`, once for real via the follow-up `loadSession()`). Don't
+"optimize away" that follow-up `/chat/init` load under the assumption `forkSession()`'s own replay
+already captured the history — it didn't, and can't, given the id-ordering constraint above.
+
+## `POST /chat/sessions/fork` must pass and report the source session's own cwd
+
+`entry.backend.forkSession(sessionId, opts)` needs `opts.cwd` set to the *source* session's cwd
+(`entry.cwd` from `resolveSessionEntry`), the same way `loadSession(sessionId, { cwd: entry.cwd })`
+already does elsewhere in `src/server.ts`. Without it, `AcpAgentBackend.forkSession()`'s
+`cwd = opts?.cwd ?? process.cwd()` falls back to the *bridge server's own launch directory* — not
+the workspace, not the source session's cwd. Claude's agent-side `createSession()` validates `cwd`
+up front and throws `invalid_params` if it doesn't exist from the agent's perspective, so this
+isn't just "forks land in the wrong place" — it can hard-fail the fork outright whenever the
+server's launch directory isn't a valid cwd for that backend. The response must report the same
+`entry.cwd` back to the caller too, not the module-level default `workspace` — and the new
+session's cwd must be persisted via `sessionConfig.setSessionCwd()` (mirroring what `/chat/init`'s
+create-branch already does), so `resolveSessionEntry`'s cwd-drift fallback has something to recover
+with later. Fixed 2026-07-30; regression test: `server.test.ts` → "POST /chat/sessions/fork passes
+the source session's cwd, not the default workspace".
+
 ## `/chat/init` always resolves a session's own backend, and defaults cwd to the workspace
 
 Two related, easy-to-regress details about `GET /chat/init` in `src/server.ts`:

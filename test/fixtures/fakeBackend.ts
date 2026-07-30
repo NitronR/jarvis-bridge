@@ -107,6 +107,7 @@ export class FakeBackend implements AgentBackend {
   public loadedWithCwd: Array<{ sessionId: string; cwd: string | undefined }> = [];
   public listSessionsResult: ChatSessionSummary[] | null;
   public forked: string[] = [];
+  public forkedWithCwd: Array<{ sessionId: string; cwd: string | undefined }> = [];
   public currentModelBySession = new Map<string, string>();
   public autoApproveDefault = false;
   public autoApproveOverrides = new Map<string, boolean>();
@@ -166,8 +167,9 @@ export class FakeBackend implements AgentBackend {
       updatedAt: new Date().toISOString(),
     }));
   }
-  async forkSession(sessionId: string) {
+  async forkSession(sessionId: string, opts?: { cwd?: string }) {
     this.forked.push(sessionId);
+    this.forkedWithCwd.push({ sessionId, cwd: opts?.cwd });
     const newId = `fork-${sessionId}-${Math.random().toString(36).slice(2, 6)}`;
     const s = new FakeSession(newId, [], this.opts.patchDelayMs ?? 0);
     this.sessions.set(newId, s);

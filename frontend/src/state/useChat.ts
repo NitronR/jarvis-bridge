@@ -241,8 +241,11 @@ export function useChat(): UseChatResult {
       "/chat/sessions/fork",
       { method: "POST", body: { sessionId: ctx.state.sessionId } },
     );
-    if (res.ok && res.data?.sessionId) await switchSession(res.data.sessionId);
-  }, [ctx, switchSession]);
+    // Opens in a new tab (rather than switching the current one) so forking
+    // reads as "branch this into a new chat", leaving the original session's
+    // tab untouched and still on the source conversation.
+    if (res.ok && res.data?.sessionId) openSessionInNewTab(res.data.sessionId);
+  }, [ctx, openSessionInNewTab]);
 
   const startNewChat = useCallback(async (opts?: { fork?: boolean }) => {
     if (opts?.fork) {
