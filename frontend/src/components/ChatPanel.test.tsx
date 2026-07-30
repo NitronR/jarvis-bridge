@@ -27,7 +27,7 @@ describe("<ChatPanel>", () => {
     render(
       <ToastProvider>
         <ChatProvider>
-          <ChatPanel healthOk={null} />
+          <ChatPanel />
         </ChatProvider>
       </ToastProvider>,
     );
@@ -39,7 +39,7 @@ describe("<ChatPanel>", () => {
     render(
       <ToastProvider>
         <ChatProvider>
-          <ChatPanel healthOk={null} />
+          <ChatPanel />
         </ChatProvider>
       </ToastProvider>,
     );
@@ -78,7 +78,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -121,7 +121,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -148,7 +148,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -171,7 +171,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -216,7 +216,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -230,7 +230,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -246,7 +246,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );
@@ -274,7 +274,7 @@ describe("<ChatPanel>", () => {
       render(
         <ToastProvider>
           <ChatProvider>
-            <ChatPanel healthOk={null} />
+            <ChatPanel />
           </ChatProvider>
         </ToastProvider>,
       );

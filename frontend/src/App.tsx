@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { HealthDot } from "./components/HealthDot";
+import { useEffect, useState } from "react";
+import { HealthProvider } from "./state/HealthContext";
 import { ChatPanel } from "./components/ChatPanel";
 import { StatusPanel } from "./components/StatusPanel";
 import { SkillsManagePanel } from "./components/SkillsManagePanel";
@@ -13,14 +13,15 @@ import { useFavicon } from "./useFavicon";
 export function App() {
   return (
     <ChatProvider>
-      <AppInner />
+      <HealthProvider>
+        <AppInner />
+      </HealthProvider>
     </ChatProvider>
   );
 }
 
 function AppInner() {
   const { route } = useHashRoute();
-  const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [cwd, setCwd] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
@@ -58,14 +59,11 @@ function AppInner() {
     if (terminalOpen) setTerminalMounted(true);
   }, [terminalOpen]);
 
-  const onHealthUpdate = useCallback((ok: boolean) => setHealthOk(ok), []);
-
   return (
     <ToastProvider>
-      <HealthDot onUpdate={onHealthUpdate} />
       <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
         <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-          {route === "chat" && <ChatPanel healthOk={healthOk} />}
+          {route === "chat" && <ChatPanel />}
           {route === "status" && <StatusPanel active={true} />}
           {route === "skills-manage" && <SkillsManagePanel />}
           {route.startsWith("skill/") && <SkillPanel name={route.slice("skill/".length)} />}

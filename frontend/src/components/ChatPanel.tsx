@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "../state/useChat";
 import { useToast } from "../state/ToastContext";
+import { useHealthOk } from "../state/HealthContext";
 import { fetchJSON } from "../api/client";
 import { Transcript } from "./Transcript";
 import { Composer } from "./Composer";
@@ -70,11 +71,19 @@ function safeSetStoredInfoHidden(value: boolean): void {
   }
 }
 
-export function ChatPanel({ healthOk }: { healthOk: boolean | null }) {
-  return <ChatPanelInner healthOk={healthOk} />;
+// Isolated so a health-poll flip only re-renders this dot, not the whole
+// (heavy, unmemoized) ChatPanelInner tree — see HealthContext.tsx.
+function HealthStatusDot() {
+  const healthOk = useHealthOk();
+  const status: DotStatus = healthOk === null ? "idle" : healthOk ? "ok" : "bad";
+  return <Dot status={status} />;
 }
 
-function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
+export function ChatPanel() {
+  return <ChatPanelInner />;
+}
+
+function ChatPanelInner() {
   const chat = useChat();
   const toast = useToast();
   const ctx = chat.context;
@@ -480,8 +489,6 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
     openWorkspacesDrawer();
   }, [openWorkspacesDrawer]);
 
-  const healthStatus: DotStatus = healthOk === null ? "idle" : healthOk ? "ok" : "bad";
-
   const [titleDraft, setTitleDraft] = useState(ctx.state.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -510,7 +517,7 @@ function ChatPanelInner({ healthOk }: { healthOk: boolean | null }) {
       <div className={styles.stage}>
         <div className={styles.main}>
           <div className={styles.header}>
-            <Dot status={healthStatus} />
+            <HealthStatusDot />
             {editingTitle ? (
               <input
                 ref={titleInputRef}

@@ -34,8 +34,25 @@ extend this file rather than adding a parallel test when a new token lands.
 8px circle. `progress` renders a spinning ring (`Dot.module.css`'s own `@keyframes spin`) —
 this is the only place the spin animation lives; don't reintroduce a local copy elsewhere.
 Forwards all `HTMLAttributes<HTMLSpanElement>` (used for `data-testid` in tests, and by
-`Timeline`'s tool-call pills). Consumers: `ChatPanel`'s header title, `Timeline`'s tool-call
-status pill.
+`Timeline`'s tool-call pills). Consumers: `ChatPanel`'s header title (via `HealthStatusDot`,
+see below), `Timeline`'s tool-call status pill.
+
+### Backend health status is a context, not a prop — don't thread it back through `ChatPanel`
+
+`frontend/src/state/HealthContext.tsx`'s `HealthProvider` (mounted once in `App.tsx`, wrapping
+`ChatProvider`) owns the `/health/agent` poll (`HealthDot`'s `useEffect`, 15s interval) and
+exposes the current `boolean | null` via `useHealthOk()`. `ChatPanel`'s header renders a small
+leaf, `HealthStatusDot` (defined in `ChatPanel.tsx`, next to `ChatPanelInner`), which is the
+*only* thing that calls `useHealthOk()`.
+
+This used to be a `healthOk` prop threaded from `App` into `ChatPanel`/`ChatPanelInner`. Nothing
+in that tree is wrapped in `React.memo`, so every health-poll flip (healthy → unhealthy or back)
+forced a full re-render of the entire chat panel — `Transcript`, `Composer`, `InfoPanel`, all of
+it — just to recolor one 8px dot. Isolating the state into a context consumed only by the leaf
+component means a health flip now re-renders `HealthStatusDot` alone. If you add another
+frequently-changing, peripheral piece of state (anything polled or streamed independently of chat
+state), give it the same treatment — a dedicated context/leaf consumer — rather than passing it as
+a prop into `ChatPanel`.
 
 ## `Avatar` — role initials
 
