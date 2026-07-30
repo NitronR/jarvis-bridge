@@ -82,10 +82,11 @@ describe("<ChatPanel>", () => {
           </ChatProvider>
         </ToastProvider>,
       );
-      // toLocaleString() digit grouping is locale-dependent (e.g. Indian
-      // grouping renders 1000000 as "10,00,000"), so match on the
-      // context-bar prefix/suffix rather than a hardcoded grouping.
-      await waitFor(() => expect(document.body.textContent).toMatch(/Context: 44,042/));
+      // toLocaleString() digit grouping is locale-dependent for large numbers
+      // (e.g. Indian grouping renders 1000000 as "10,00,000"), but 44042 groups
+      // the same way in both — safe to match literally. Cost lives in
+      // InfoPanel's Usage card, not the Composer's context pill.
+      await waitFor(() => expect(document.body.textContent).toMatch(/44,042/));
       expect(document.body.textContent).toMatch(/\(4%\)/);
       expect(document.body.textContent).toMatch(/\$0\.13/);
     });
@@ -223,7 +224,7 @@ describe("<ChatPanel>", () => {
       await waitFor(() => expect(screen.getAllByLabelText("Edit title").length).toBeGreaterThanOrEqual(1));
       expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
       expect(screen.getByText("Model One")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Auto-approve" })).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: "Auto-approve" })).toBeInTheDocument();
     });
 
     it("calls /chat/model when a different model is selected in the Composer", async () => {
@@ -278,8 +279,8 @@ describe("<ChatPanel>", () => {
           </ChatProvider>
         </ToastProvider>,
       );
-      await waitFor(() => expect(screen.getByRole("button", { name: "Auto-approve" })).toBeInTheDocument());
-      expect(screen.getByRole("button", { name: "Auto-approve" })).toBeDisabled();
+      await waitFor(() => expect(screen.getByRole("switch", { name: "Auto-approve" })).toBeInTheDocument());
+      expect(screen.getByRole("switch", { name: "Auto-approve" })).toBeDisabled();
     });
   });
 });
