@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from "react";
+import { useLayoutEffect } from "react";
 import { Message, type MessageEntry } from "./Message";
 import type { ChatPatch } from "../api/types";
 import { useScrollButtons } from "../hooks/useScrollButtons";
@@ -19,14 +19,18 @@ export interface TranscriptProps {
 export function Transcript(props: TranscriptProps) {
   const { scrollRef, showTop, showBottom, scrollToTop, scrollToBottom } = useScrollButtons();
   const follow = props.follow ?? true;
+  // showBottom reflects the position from the last real scroll event, i.e.
+  // where the user was sitting *before* this render's new entries landed —
+  // exactly what we need to decide whether to stick to the new bottom.
+  const isAtBottom = !showBottom;
   useLayoutEffect(() => {
-    if (!follow || !scrollRef.current) return;
+    if (!follow || !isAtBottom || !scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     const raf = requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     });
     return () => cancelAnimationFrame(raf);
-  }, [props.entries, follow, scrollRef]);
+  }, [props.entries, follow, isAtBottom, scrollRef]);
   if (props.loading) {
     return (
       <div className={styles.transcriptWrap}>
