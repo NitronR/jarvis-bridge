@@ -64,10 +64,12 @@ the source session's cwd, not the default workspace".
 
 Two related, easy-to-regress details about `GET /chat/init` in `src/server.ts`:
 
-- **cwd**: `createSession`/`loadSession` are always called with `cwd: requestedCwd ?? workspace`,
-  never `undefined`. Passing `undefined` falls through to `AcpAgentBackend`'s own fallback,
+- **cwd**: `createSession`/`loadSession` are always called with a concrete cwd, never
+  `undefined`. Passing `undefined` falls through to `AcpAgentBackend`'s own fallback,
   `process.cwd()` — the *server process's launch directory*, not the configured
-  `JARVIS_BRIDGE_WORKSPACE`. Fixed 2026-07-13.
+  `JARVIS_BRIDGE_WORKSPACE`. Fixed 2026-07-13. On resume the cwd is resolved in three steps
+  (see the section below): the `cwd` query param, then the persisted `session_metadata.json`
+  entry, then `registry.resolveSessionCwd()`, with `workspace` only as the last resort.
 - **backend**: when resuming (`sessionId` present in the query), the backend used is resolved
   via `registry.findSession(sessionId)` — the backend that actually owns the session — not
   `registry.getDefaultBackend()`. If the default backend was changed at runtime (via
@@ -84,15 +86,101 @@ Two related, easy-to-regress details about `GET /chat/init` in `src/server.ts`:
   `useChat.ts`), which passes the current tab's `cwd`/`backend`/`model` as one-shot URL params.
   This call must stay wrapped in `try`/`catch` (ignore on failure), mirroring the same
   best-effort pin already done inside `AcpAgentBackend.createSession` (`src/agent/acp/index.ts`)
-  and the `try`/`catch` in `POST /chat/model`. Not every backend supports `session/set_model`
-  — the Claude ACP backend rejects it with `AcpRequestError: "Method not found":
-  session/set_model` — and until 2026-07-15 this one call site had no `try`/`catch`, so that
-  rejection propagated uncaught, 500'd the whole `/chat/init` request, and the frontend's error
-  path (correctly) tore down the session and stripped the URL params. From the user's
-  perspective this looked like "cmd-click new chat doesn't work" (bare URL, no model shown,
-  fork disabled) with no server-side hint beyond an HTML 500 page — the two other
-  `setSessionModel` call sites already handled this defensively, only this one didn't. Fixed
-  2026-07-15.
+  and the `try`/`catch` in `POST /chat/model`. Not every backend supports model switching, and
+  until 2026-07-15 this one call site had no `try`/`catch`, so a rejection propagated uncaught,
+  500'd the whole `/chat/init` request, and the frontend's error path (correctly) tore down the
+  session and stripped the URL params. From the user's perspective this looked like "cmd-click
+  new chat doesn't work" (bare URL, no model shown, fork disabled) with no server-side hint
+  beyond an HTML 500 page — the two other `setSessionModel` call sites already handled this
+  defensively, only this one didn't. Fixed 2026-07-15.
+
+## Resuming a session means finding its cwd first — `session/load` is per-project
+
+Claude's `session/load` resolves a session inside the project directory derived from the `cwd`
+it's called with. Ask for the right session id under the wrong cwd and it answers
+`-32002 "Resource not found: <sessionId>"` — the session is perfectly loadable, just not from
+there. So `GET /chat/init?sessionId=…` has to know the session's *own* cwd before it can load
+it, and until 2026-07-30 it only had two places to look:
+
+1. the `cwd` query param — a one-shot handoff the frontend strips from the URL once consumed;
+2. `sessionConfig.getSessionCwd()`, which was only ever written when a session was **created**
+   through the gateway, never on resume.
+
+Anything else fell back to `workspace`. That covers workspace chats and nothing else, so
+resuming a chat that lives in another directory — one started by the agent's own CLI, or
+created before cwd persistence existed, or reached from a tab whose `?cwd=` had already been
+stripped — sent `session/load` at the wrong project, the rejection propagated uncaught out of
+`asyncRoute`, and Express's default handler answered an HTML 500 with a raw stack trace. The
+frontend's error path then (correctly) dropped the session id, so the symptom was "opening this
+URL just gives me a new empty chat", with the real cause only visible in `gateway.log`.
+
+Three changes, all on 2026-07-30:
+
+- **`AgentBackend.lookupSessionCwd(sessionId)`** (`src/agent/acp/index.ts`) answers "which cwd
+  is this one session filed under?" from the raw `session/list`, deliberately **not** filtered
+  by this backend instance's own cwd. `listSessions()` keeps that filter — the two now share a
+  private `fetchSessionList()`. The distinction is the point: browsing stays scoped to the
+  workspace you're in (see `docs/agent-claude-code.md`), while a session the caller named
+  explicitly can still be located. `registry.resolveSessionCwd()` fans this out across profiles
+  (asking each profile's *default* backend is enough — the agent's session index is
+  machine-global, not per-connection) and returns the owning profile too, so the resume routes
+  to the right backend as well as the right directory.
+- **`/chat/init` persists the cwd it resumed under**, not just the one it created under. Later
+  plain resumes of the same tab then skip the lookup entirely.
+- **A failed `loadSession` is a 404 in the JSON contract**, not an uncaught throw. The frontend
+  can't tell an HTML 500 from a gateway outage; a `{ "error": "session not found: …" }` body
+  lets it clear the stale `?sessionId` deliberately.
+
+Two consequences worth keeping in mind:
+
+- `AcpAgentBackend.loadSession` registers the session in `this.sessions`/`this.sessionObjects`
+  *before* sending the request (replay notifications arrive in flight — see the top of this
+  file). That registration is now rolled back in a `catch`. Without the rollback a failed load
+  leaves a session object with no agent-side counterpart: `getSession()` hands it out,
+  `/chat/init` takes its resident-session shortcut instead of retrying the load, and a prompt
+  sent to it is never answered.
+- Resuming a session in another directory spawns a backend for that cwd, and `listSessions()`
+  fans out over every spawned per-cwd backend — so that directory's other sessions become
+  visible in Past Chats, exactly as they do when you open the folder via the picker. Opening a
+  folder is what makes it browsable; the resume path is no different.
+
+## Switching the model is `session/set_config_option`, not `session/set_model`
+
+The model picker is one entry in the `configOptions[]` array that `session/new` and
+`session/load` return (`id: "model"`, `category: "model"`, `currentValue` + flat `options[]`)
+— which is already how `parseSessionConfig` reads the *available* models. Writing it goes
+through the matching setter:
+
+```
+→ session/set_config_option { sessionId, configId: "model", value: <modelId> }
+← { configOptions: [ ...every option, with refreshed currentValue... ] }
+```
+
+`session/set_model` is a **pre-`configOptions` spelling that no shipping agent implements**.
+Both backends reject it with `-32601` (`AcpRequestError: "Method not found":
+session/set_model`): confirmed against `@agentclientprotocol/claude-agent-acp` 0.63.0 (its
+`setSessionConfigOption` handler + `MODEL_CONFIG_ID = "model"`) and opencode 1.18.4 (whose
+binary exports `session/set_config_option`, `session/set_mode`, and a legacy
+`session/set_model`). Because `setSessionModel`'s failures are swallowed at every call site
+(see the `/chat/init` note above and `POST /chat/model`'s `try`/`catch`), sending the wrong
+method looked like "the dropdown snaps back" with the only visible hint being a 400 body from
+`POST /chat/model`. Fixed 2026-07-29: `setSessionModel` sends `session/set_config_option`
+first and only falls back to `session/set_model` on `-32601`, for agents that report
+`configOptions` but still accept just the old setter.
+
+Two consequences worth preserving:
+
+- The response is the agent's **whole refreshed option set**, so `setSessionModel` adopts
+  `currentModelId`/`rawConfigOptions` from it instead of assuming the requested id stuck. An
+  agent may resolve a value to a different concrete model (Claude's adapter resolves aliases
+  like `opus` via `resolveModelPreference`), so `POST /chat/model` persists and returns the
+  backend's resolved `current`, not the requested `modelId` — a persisted override that
+  disagrees with the agent's own state would be re-applied and re-resolved on every resume.
+- `test/fixtures/fake-streaming-agent.cjs` used to answer `session/set_model` with `null`,
+  which is why the whole test suite stayed green through this bug. It now mirrors the real
+  agents (`set_config_option` mutates its config state and echoes `configOptions` back;
+  `session/set_model` is `-32601` unless `X_FAKE_AGENT_LEGACY_SET_MODEL=true`). Keep it that
+  way — a fixture that accepts methods real agents don't is what hid this for a release.
 
 ## `resolveSessionEntry` (usage/model/auto-approve/steer/fork) needs the same cwd fallback `/chat/init` has
 

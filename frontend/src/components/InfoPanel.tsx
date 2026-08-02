@@ -88,7 +88,7 @@ export function InfoPanel(props: InfoPanelProps) {
           </span>
         </div>
         <div className={styles.stackRow}>
-          <span className={styles.key}>ID</span>
+          <span className={styles.key}>Session ID</span>
           <span className={styles.valRow}>
             <span className={styles.val}>{state.sessionId ?? "—"}</span>
             {state.sessionId && (
@@ -96,6 +96,12 @@ export function InfoPanel(props: InfoPanelProps) {
                 <CopyIcon />
               </button>
             )}
+          </span>
+        </div>
+        <div className={styles.stackRow}>
+          <span className={styles.key}>Backend</span>
+          <span className={styles.valRow}>
+            <span className={styles.val}>{state.backendName ?? "—"}</span>
           </span>
         </div>
       </div>

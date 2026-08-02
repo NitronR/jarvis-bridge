@@ -40,6 +40,9 @@ export const ACP_PROTOCOL_VERSION = 1;
 export const CLIENT_INFO = { name: "jarvis-bridge", version: "0.1.0" };
 const WRAPPED_USER_MESSAGE_MARKER = "User message: ";
 const STEER_EXTENSION_KEY = "jarvis-bridge/steer";
+// The `configOptions[]` entry that holds the model selector, per the ACP spec.
+const MODEL_CONFIG_ID = "model";
+const JSONRPC_METHOD_NOT_FOUND = -32601;
 
 // ── Per-session state ────────────────────────────────────────────────────
 
@@ -445,11 +448,22 @@ export class AcpAgentBackend implements AgentBackend {
     this.sessions.set(sessionId, ctx);
     const sessionObj = new AcpAgentSession(this, sessionId, ctx);
     this.sessionObjects.set(sessionId, sessionObj);
-    const res = (await this.conn.sendRequest("session/load", {
-      sessionId,
-      cwd,
-      mcpServers: [],
-    })) as SessionConfigResponse & { sessionId?: string };
+    let res: SessionConfigResponse & { sessionId?: string };
+    try {
+      res = (await this.conn.sendRequest("session/load", {
+        sessionId,
+        cwd,
+        mcpServers: [],
+      })) as SessionConfigResponse & { sessionId?: string };
+    } catch (err) {
+      // Roll back the pre-registration above. Left in place it's a session
+      // object with no agent-side counterpart: getSession() would hand it out,
+      // /chat/init would take its resident-session shortcut instead of
+      // retrying the load, and a prompt sent to it would never be answered.
+      this.sessions.delete(sessionId);
+      this.sessionObjects.delete(sessionId);
+      throw err;
+    }
     const parsed = parseSessionConfig(res);
     ctx.availableModels = parsed.models.available;
     ctx.currentModelId = parsed.models.current;
@@ -462,7 +476,9 @@ export class AcpAgentBackend implements AgentBackend {
     return sessionObj;
   }
 
-  async listSessions(): Promise<ChatSessionSummary[]> {
+  private async fetchSessionList(): Promise<
+    Array<{ sessionId: string; title?: string; updatedAt?: string; cwd?: string }>
+  > {
     const res = (await this.conn.sendRequest("session/list", {})) as {
       sessions?: Array<{
         sessionId?: string;
@@ -471,10 +487,25 @@ export class AcpAgentBackend implements AgentBackend {
         cwd?: string;
       }>;
     };
-    return (res.sessions ?? [])
-      .filter((s): s is { sessionId: string; title?: string; updatedAt?: string; cwd?: string } =>
+    return (res.sessions ?? []).filter(
+      (s): s is { sessionId: string; title?: string; updatedAt?: string; cwd?: string } =>
         Boolean(s.sessionId),
-      )
+    );
+  }
+
+  // Which cwd does this one session live in? Unlike listSessions() this is
+  // deliberately not filtered to this backend's own cwd: it answers for a
+  // session the caller already named, so /chat/init can resume a chat the
+  // gateway has no persisted cwd for (created by the agent's own CLI, or before
+  // cwd persistence existed) under the cwd its agent actually stored it in.
+  // Browsing stays cwd-scoped — see listSessions() below.
+  async lookupSessionCwd(sessionId: string): Promise<string | null> {
+    const hit = (await this.fetchSessionList()).find((s) => s.sessionId === sessionId);
+    return hit?.cwd ?? null;
+  }
+
+  async listSessions(): Promise<ChatSessionSummary[]> {
+    return (await this.fetchSessionList())
       // Claude's session/list returns the user's entire global session history
       // across every project, not scoped to this backend's workspace — filter
       // to this cwd. Sessions that don't report a cwd (e.g. opencode) pass
@@ -544,9 +575,36 @@ export class AcpAgentBackend implements AgentBackend {
     if (!ctx.availableModels.some((m) => m.modelId === modelId)) {
       throw new Error(`unknown modelId: ${modelId}`);
     }
-    await this.conn.sendRequest("session/set_model", { sessionId, modelId });
-    ctx.currentModelId = modelId;
-    console.log(`[ACP] setSessionModel sessionId=${sessionId} modelId=${modelId}`);
+    // The model is a session *config option* (`configId: "model"`, the same
+    // entry `parseSessionConfig` reads the picker out of), not a method of its
+    // own: `session/set_model` is a pre-configOptions ACP spelling that neither
+    // shipping agent implements — Claude's adapter and opencode both reject it
+    // with -32601 `"Method not found": session/set_model`, which is what made
+    // the model picker silently no-op. Keep the legacy method as a fallback for
+    // agents that report configOptions but only accept the old setter.
+    let res: SessionConfigResponse | undefined;
+    try {
+      res = (await this.conn.sendRequest("session/set_config_option", {
+        sessionId,
+        configId: MODEL_CONFIG_ID,
+        value: modelId,
+      })) as SessionConfigResponse;
+    } catch (err) {
+      if (!(err instanceof AcpRequestError) || err.code !== JSONRPC_METHOD_NOT_FOUND) throw err;
+      await this.conn.sendRequest("session/set_model", { sessionId, modelId });
+    }
+    // set_config_option answers with the agent's own refreshed view of every
+    // option — adopt it rather than assuming the requested id stuck, since an
+    // agent may resolve an alias to a different concrete model.
+    const parsed = res?.configOptions?.length ? parseSessionConfig(res) : null;
+    if (parsed && parsed.models.available.length > 0) {
+      ctx.availableModels = parsed.models.available;
+      ctx.currentModelId = parsed.models.current;
+      ctx.rawConfigOptions = parsed.rawConfigOptions;
+    } else {
+      ctx.currentModelId = modelId;
+    }
+    console.log(`[ACP] setSessionModel sessionId=${sessionId} modelId=${modelId} → current=${ctx.currentModelId}`);
   }
 
   async queryUsage(): Promise<UsageTotals["rate_limits"] | null> {
@@ -727,7 +785,7 @@ function parseSessionConfig(res: SessionConfigResponse | undefined): {
   const rawConfigOptions = (opts ?? [])
     .filter((o): o is { id: string; currentValue?: string; options?: Array<{ value?: string; name?: string }> } => typeof o.id === "string")
     .map((o) => ({ id: o.id, currentValue: o.currentValue, options: o.options ?? [] }));
-  const modelOpt = rawConfigOptions.find((o) => o.id === "model");
+  const modelOpt = rawConfigOptions.find((o) => o.id === MODEL_CONFIG_ID);
   const available = (modelOpt?.options ?? [])
     .filter((o): o is { value: string; name?: string } => typeof o.value === "string")
     .map((o) => ({ modelId: o.value, name: o.name ?? o.value }));

@@ -201,6 +201,65 @@ describe("AcpAgentBackend.listSessions — cwd scoping", () => {
   });
 });
 
+describe("AcpAgentBackend.lookupSessionCwd", () => {
+  // Counterpart to the cwd scoping above: listSessions() must stay scoped to
+  // this backend's own cwd, but resuming a session the user explicitly asked
+  // for by id needs to find out *which* cwd it lives in — Claude's session/load
+  // is per-project and answers "Resource not found" under any other cwd.
+  test("resolves the cwd of a session outside this backend's own cwd", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_SESSION_LIST: JSON.stringify([
+        { sessionId: "s-here", cwd: process.cwd() },
+        { sessionId: "s-elsewhere", cwd: "/some/other/project" },
+      ]),
+    });
+    try {
+      assert.equal(await backend.lookupSessionCwd("s-elsewhere"), "/some/other/project");
+      assert.equal(await backend.lookupSessionCwd("s-here"), process.cwd());
+      // ...without widening what the session list itself exposes.
+      const listed = (await backend.listSessions()).map((s) => s.sessionId);
+      assert.deepEqual(listed, ["s-here"]);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("returns null for a session the agent doesn't know, or one with no cwd", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_SESSION_LIST: JSON.stringify([{ sessionId: "s-no-cwd" }]),
+    });
+    try {
+      assert.equal(await backend.lookupSessionCwd("s-unknown"), null);
+      assert.equal(await backend.lookupSessionCwd("s-no-cwd"), null);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
+describe("AcpAgentBackend.loadSession — failure cleanup", () => {
+  // loadSession registers the session in this.sessions BEFORE sending
+  // session/load (replay notifications arrive while the request is in flight —
+  // see docs/acp-notes.md). If the request then fails, that registration has to
+  // be rolled back, or the backend keeps handing out a session object with no
+  // agent-side counterpart: /chat/send to it would hang, and /chat/init would
+  // short-circuit to the resident-session branch instead of retrying the load.
+  test("a rejected session/load leaves no ghost session registered", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_SESSION_LOAD_ERROR: JSON.stringify({
+        code: -32002,
+        message: "Resource not found: s-gone",
+      }),
+    });
+    try {
+      await assert.rejects(() => backend.loadSession("s-gone", { cwd: process.cwd() }), /Resource not found/);
+      assert.equal(backend.getSession("s-gone"), null);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+});
+
 describe("AcpAgentBackend — auto-approve permission selection", () => {
   // Live-probe regression (docs/agent-claude-code.md): the real Claude adapter's
   // "allow once" option has optionId "allow" with kind "allow_once" — optionId and
@@ -617,6 +676,64 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
       assert.equal(raw?.rawConfigOptions?.find((o) => o.id === "effort")?.currentValue, "medium");
     } finally {
       await backend.shutdown();
+    }
+  });
+
+  test("setSessionModel switches the model via session/set_config_option, not the legacy session/set_model", async () => {
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    const backend = await newBackend({ X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await backend.setSessionModel(session.id, "another");
+      assert.equal(backend.getSessionModels(session.id)?.current, "another");
+      const log = fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      const setCall = log.find((e: { method: string }) => e.method === "session/set_config_option");
+      assert.ok(setCall, "model switching must go through session/set_config_option");
+      assert.equal(setCall.params.configId, "model");
+      assert.equal(setCall.params.value, "another");
+      assert.equal(setCall.params.sessionId, session.id);
+    } finally {
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
+
+  test("setSessionModel adopts the agent's own refreshed configOptions from the response", async () => {
+    const backend = await newBackend();
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await backend.setSessionModel(session.id, "another");
+      // The response carries the full option set — the raw snapshot must move
+      // with it, not go stale on the session/new values.
+      const raw = backend.getSessionRawConfig(session.id);
+      assert.equal(raw?.rawConfigOptions?.find((o) => o.id === "model")?.currentValue, "another");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("setSessionModel falls back to session/set_model for agents that only speak the legacy method", async () => {
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    const backend = await newBackend({
+      X_FAKE_AGENT_LEGACY_SET_MODEL: "true",
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await backend.setSessionModel(session.id, "another");
+      assert.equal(backend.getSessionModels(session.id)?.current, "another");
+      const log = fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      assert.ok(
+        log.some((e: { method: string }) => e.method === "session/set_config_option"),
+        "the modern method must be tried first",
+      );
+      assert.ok(
+        log.some((e: { method: string }) => e.method === "session/set_model"),
+        "a -32601 from set_config_option must fall back to the legacy method",
+      );
+    } finally {
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
     }
   });
 });

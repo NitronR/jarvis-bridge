@@ -78,6 +78,10 @@ function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/ba
       const cwd = backend.createdWithCwd.get(sessionId) ?? "";
       return { backend, backendName: "fake", cwd, summary: { sessionId } };
     },
+    resolveSessionCwd: async (sessionId: string) => {
+      const cwd = await backend.lookupSessionCwd(sessionId);
+      return cwd ? { backendName: "fake", cwd } : null;
+    },
     getSession: async (sessionId: string) => backend.getSession(sessionId),
     deleteSession: async (sessionId: string) => {
       const s = backend.getSession(sessionId);
@@ -756,6 +760,7 @@ test("GET /chat/usage falls back to the persisted session cwd when findSession's
       // Simulates the cwd-index miss: the session exists on this backend,
       // but findSession's cwd-filtered lookup can no longer see it.
       findSession: async () => null,
+      resolveSessionCwd: async () => null,
       getSession: async (sessionId: string) => backend.getSession(sessionId),
       deleteSession: async () => {},
       shutdown: async () => {},
@@ -783,6 +788,55 @@ test("GET /chat/usage falls back to the persisted session cwd when findSession's
     if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
     await fs.rm(ws, { recursive: true, force: true });
   }
+});
+
+test("GET /chat/init resumes a session in the cwd the backend reports, not the workspace fallback", async () => {
+  // Regression: a session the gateway has no persisted cwd for (created by the
+  // agent's own CLI, or before cwd persistence landed) used to be resumed under
+  // the workspace fallback. Claude's session/load is per-project, so that
+  // answers "Resource not found" and /chat/init 500'd with a raw stack trace.
+  const home = await mkWorkspace();
+  const backend = new FakeBackend({ loadableSessions: { "sess-elsewhere": home } });
+  try {
+    await withServer(async () => ({
+      backend,
+      fn: async (url) => {
+        const res = await fetch(`${url}/chat/init?sessionId=sess-elsewhere`);
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as { ok: boolean; cwd: string; resumed: boolean };
+        assert.equal(body.ok, true);
+        assert.equal(body.resumed, true);
+        assert.equal(path.resolve(body.cwd), path.resolve(home));
+        assert.equal(path.resolve(backend.loadedWithCwd.at(-1)!.cwd!), path.resolve(home));
+
+        // The resolved cwd is persisted, so a later plain resume of the same
+        // tab doesn't have to ask the agent again (and keeps working even if
+        // the lookup is unavailable).
+        const again = await fetch(`${url}/chat/init?sessionId=sess-elsewhere`);
+        assert.equal(again.status, 200);
+        assert.equal(path.resolve(((await again.json()) as { cwd: string }).cwd), path.resolve(home));
+        assert.equal(backend.lookupSessionCwdCalls.length, 1);
+      },
+    }));
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("GET /chat/init answers 404 JSON when the session can't be loaded", async () => {
+  // The failure has to stay inside the JSON contract: Express's default error
+  // handler would answer an HTML 500 with a stack trace, which the frontend
+  // can't distinguish from a gateway outage.
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/init?sessionId=sess-gone`);
+      assert.equal(res.status, 404);
+      assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+      const body = (await res.json()) as { error?: string };
+      assert.match(body.error ?? "", /session not found/i);
+    },
+  }));
 });
 
 test("POST /chat/auto-approve sets and clears the override", async () => {

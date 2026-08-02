@@ -1,6 +1,7 @@
 // Minimal in-memory AgentBackend for tests. Mirrors the parts of the
 // AcpAgentBackend surface that the gateway's HTTP layer actually uses.
 
+import path from "node:path";
 import type {
   ActiveTurnHandle,
   AgentBackend,
@@ -89,6 +90,11 @@ export interface FakeBackendOptions {
   initialSessionId?: string;
   initialSessionPatches?: ChatPatch[];
   listSessions?: ChatSessionSummary[];
+  // Sessions the agent knows about but which aren't resident in this process,
+  // mapped to the cwd they live in. Mirrors Claude's per-project session
+  // storage: session/load only resolves the session when it's asked for under
+  // the right cwd, and answers "Resource not found" under any other.
+  loadableSessions?: Record<string, string>;
   steerSupported?: boolean;
   patchDelayMs?: number;
   // Present (even if it throws) to exercise the supported path; omitted
@@ -156,9 +162,30 @@ export class FakeBackend implements AgentBackend {
   }
   async loadSession(sessionId: string, opts?: { cwd?: string }) {
     const s = this.sessions.get(sessionId);
-    if (!s) throw new Error(`unknown session: ${sessionId}`);
+    if (s) {
+      this.loadedWithCwd.push({ sessionId, cwd: opts?.cwd });
+      return s;
+    }
+    const homeCwd = this.opts.loadableSessions?.[sessionId];
+    if (homeCwd === undefined) throw new Error(`unknown session: ${sessionId}`);
+    // Record the attempt before the cwd check so tests can assert *which* cwd
+    // the gateway resumed under, including the failing ones.
     this.loadedWithCwd.push({ sessionId, cwd: opts?.cwd });
-    return s;
+    if (!opts?.cwd || path.resolve(opts.cwd) !== path.resolve(homeCwd)) {
+      throw new Error(`Resource not found: ${sessionId}`);
+    }
+    const loaded = new FakeSession(
+      sessionId,
+      this.opts.initialSessionPatches ?? [],
+      this.opts.patchDelayMs ?? 0,
+    );
+    this.sessions.set(sessionId, loaded);
+    return loaded;
+  }
+  public lookupSessionCwdCalls: string[] = [];
+  async lookupSessionCwd(sessionId: string): Promise<string | null> {
+    this.lookupSessionCwdCalls.push(sessionId);
+    return this.opts.loadableSessions?.[sessionId] ?? null;
   }
   async listSessions() {
     return this.listSessionsResult ?? Array.from(this.sessions.values()).map((s) => ({

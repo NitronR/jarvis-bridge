@@ -4,6 +4,9 @@ import styles from "./WorkspacesDrawer.module.css";
 export interface WorkspacesDrawerProps {
   open: boolean;
   recentWorkspaces: string[];
+  backends?: string[];
+  backend?: string;
+  onBackendChange?: (name: string) => void;
   onClose: () => void;
   onOpenInWorkspace: (cwd: string) => void;
   onOpenInNewTab: (cwd: string) => void;
@@ -20,6 +23,9 @@ function basename(p: string): string {
 export function WorkspacesDrawer({
   open,
   recentWorkspaces,
+  backends = [],
+  backend,
+  onBackendChange,
   onClose,
   onOpenInWorkspace,
   onOpenInNewTab,
@@ -58,6 +64,21 @@ export function WorkspacesDrawer({
           </button>
         </header>
         <div className={styles.pickerBar}>
+          {backends.length > 1 && (
+            <label className={styles.backendRow}>
+              <span className={styles.backendLabel}>Backend</span>
+              <select
+                className={styles.backendSelect}
+                value={backend ?? ""}
+                onChange={(e) => onBackendChange?.(e.target.value)}
+                aria-label="Backend for new chat"
+              >
+                {backends.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             className={styles.pickerButton}
@@ -89,6 +110,7 @@ export function WorkspacesDrawer({
             ))}
           </ul>
         )}
+        <footer className={styles.hint}>Cmd/Ctrl-click a workspace to open it in a new tab</footer>
       </aside>
     </div>
   );

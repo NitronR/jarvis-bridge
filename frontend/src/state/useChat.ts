@@ -4,8 +4,28 @@ import type { ChatHistoryEntry, ChatPatch, ImageAttachment } from "../api/types"
 import { useChatContext } from "./ChatContext";
 
 export type TranscriptEntry =
-  | { role: "user"; text: string; images?: ImageAttachment[]; queued?: boolean }
-  | { role: "assistant"; patches: ChatPatch[] };
+  | { role: "user"; text: string; images?: ImageAttachment[]; queued?: boolean; queueId?: string }
+  | { role: "assistant"; patches: ChatPatch[]; streamId?: string };
+
+interface QueuedMessage {
+  id: string;
+  text: string;
+  images: ImageAttachment[];
+}
+
+// Appends a streaming patch to the transcript entry tagged with `streamId`.
+// Patches target the streaming entry by id, not by "the trailing entry": a
+// queued message is appended *below* the in-flight reply, so tail-targeting
+// would mistake that queued entry for the streaming one and silently drop
+// every patch — the stream would look frozen even while the backend keeps
+// sending. Position-based targeting had the same failure for steer messages.
+function appendPatchToStream(cur: TranscriptEntry[], streamId: string, patch: ChatPatch): TranscriptEntry[] {
+  const next = cur.slice();
+  const idx = next.findIndex((e) => e.role === "assistant" && e.streamId === streamId);
+  if (idx === -1) return cur;
+  next[idx] = { role: "assistant", patches: [...next[idx].patches, patch], streamId };
+  return next;
+}
 
 function historyToTranscript(history: ChatHistoryEntry[]): TranscriptEntry[] {
   return history.map((h) =>
@@ -20,6 +40,8 @@ export interface UseChatResult {
   busy: boolean;
   transcript: TranscriptEntry[];
   sendMessage: (text: string, images?: ImageAttachment[]) => Promise<void>;
+  enqueueMessage: (text: string, images?: ImageAttachment[]) => void;
+  dequeueMessage: (queueId: string) => void;
   cancel: () => void;
   sendSteer: (text: string) => Promise<void>;
   resolveApproval: (requestId: string, optionId: string) => Promise<void>;
@@ -29,9 +51,9 @@ export interface UseChatResult {
     content?: Record<string, unknown>,
   ) => Promise<void>;
   startNewChat: (opts?: { fork?: boolean }) => Promise<void>;
-  startNewChatInWorkspace: (cwd: string) => Promise<void>;
+  startNewChatInWorkspace: (cwd: string, backend?: string) => Promise<void>;
   openSessionInNewTab: (sessionId: string) => void;
-  openWorkspaceInNewTab: (cwd: string) => void;
+  openWorkspaceInNewTab: (cwd: string, backend?: string) => void;
   openNewChatInNewTab: () => void;
   switchSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -51,9 +73,22 @@ export function useChat(): UseChatResult {
   // cancel the backend turn (see switchSession/startNewChat/
   // startNewChatInWorkspace) — only the former should.
   const sendingRef = useRef(false);
+  // FIFO queue of messages to send once the current turn finishes. Only the
+  // ref matters for logic (the drain effect reads it synchronously); the
+  // queued entries themselves render via the transcript's `queued` flags.
+  const queueSeqRef = useRef(0);
+  const queueRef = useRef<QueuedMessage[]>([]);
+  const streamSeqRef = useRef(0);
 
   useEffect(() => {
-    if (ctx.state.sessionId) setTranscript(historyToTranscript(ctx.state.history));
+    if (!ctx.state.sessionId) return;
+    // History-derived entries come first; anything still queued locally is
+    // kept at the tail (it isn't part of the backend's history yet), so a
+    // re-init mid-queue (e.g. the error resync below) doesn't drop them.
+    setTranscript((cur) => [
+      ...historyToTranscript(ctx.state.history),
+      ...cur.filter((e) => e.role === "user" && e.queued),
+    ]);
   }, [ctx.state.sessionId, ctx.state.history]);
 
   useEffect(() => {
@@ -61,12 +96,19 @@ export function useChat(): UseChatResult {
     ctx.setBusy(true);
     // /chat/stream always replays this turn's complete buffered patch list as
     // its first batch (see src/server.ts's GET /chat/stream), and the
-    // transcript's trailing entry was already seeded from history with that
-    // same buffered content — clear it here so the replay doesn't double up.
+    // transcript's last assistant entry was already seeded from history with
+    // that same buffered content — clear it here so the replay doesn't double
+    // up. Target by streamId (not position) so the reply keeps updating even
+    // while queued messages sit below it at the tail.
+    const streamId = `stream-${++streamSeqRef.current}`;
     setTranscript((cur) => {
       const next = cur.slice();
-      const last = next[next.length - 1];
-      if (last && last.role === "assistant") next[next.length - 1] = { role: "assistant", patches: [] };
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i].role === "assistant") {
+          next[i] = { role: "assistant", patches: [], streamId };
+          break;
+        }
+      }
       return next;
     });
     sseRef.current?.abort();
@@ -75,14 +117,8 @@ export function useChat(): UseChatResult {
       null,
       {
         onPatch: (patch) => {
-          setTranscript((cur) => {
-            const next = cur.slice();
-            const last = next[next.length - 1];
-            if (!last || last.role !== "assistant") return cur;
-            next[next.length - 1] = { role: "assistant", patches: [...last.patches, patch] };
-            if (patch.type === "slash-commands") ctx.setSlashCommands(patch.commands);
-            return next;
-          });
+          setTranscript((cur) => appendPatchToStream(cur, streamId, patch));
+          if (patch.type === "slash-commands") ctx.setSlashCommands(patch.commands);
         },
         onDone: () => { ctx.setBusy(false); sseRef.current = null; },
         onError: () => {
@@ -91,7 +127,7 @@ export function useChat(): UseChatResult {
           // The turn may have finished in the window between /chat/init
           // reporting activeTurn: true and this /chat/stream request
           // landing (a 404 surfaces here as onError). We already cleared
-          // the trailing assistant entry above expecting the stream to
+          // the turn's assistant entry above expecting the stream to
           // repopulate it, so without a resync the user is left staring at
           // a blanked-out entry even though the real (now-settled) history
           // still exists on the backend. Re-init to fetch and render it.
@@ -102,13 +138,14 @@ export function useChat(): UseChatResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.state.sessionId, ctx.state.activeTurn]);
 
-  const sendMessage = useCallback(
-    async (text: string, images: ImageAttachment[] = []) => {
+  // Low-level: opens the /chat/send stream for a turn whose user and assistant
+  // entries are already present in the transcript (appended by sendMessage, or
+  // by the drain effect's promotion). onPatch/onDone/onError write to the
+  // assistant entry tagged `streamId`, which may not be the trailing entry —
+  // queued messages appended below it must not stall the stream.
+  const streamTurn = useCallback(
+    (streamId: string, text: string, images: ImageAttachment[] = []) => {
       if (!ctx.state.sessionId) return;
-      const userEntry: TranscriptEntry =
-        images.length > 0 ? { role: "user", text, images } : { role: "user", text };
-      const assistantEntry: TranscriptEntry = { role: "assistant", patches: [] };
-      setTranscript((cur) => [...cur, userEntry, assistantEntry]);
       ctx.setBusy(true);
       sendingRef.current = true;
 
@@ -118,24 +155,19 @@ export function useChat(): UseChatResult {
         { message: text, sessionId: ctx.state.sessionId, images },
         {
           onPatch: (patch) => {
-            setTranscript((cur) => {
-              const next = cur.slice();
-              const last = next[next.length - 1];
-              if (!last || last.role !== "assistant") return cur;
-              next[next.length - 1] = { role: "assistant", patches: [...last.patches, patch] };
-              if (patch.type === "slash-commands") ctx.setSlashCommands(patch.commands);
-              return next;
-            });
+            setTranscript((cur) => appendPatchToStream(cur, streamId, patch));
+            if (patch.type === "slash-commands") ctx.setSlashCommands(patch.commands);
           },
           onDone: () => { ctx.setBusy(false); sendingRef.current = false; ctx.setUnread(true); sseRef.current = null; },
           onError: (err) => {
             setTranscript((cur) => {
               const next = cur.slice();
-              const last = next[next.length - 1];
-              if (!last || last.role !== "assistant") return cur;
-              next[next.length - 1] = {
+              const idx = next.findIndex((e) => e.role === "assistant" && e.streamId === streamId);
+              if (idx === -1) return cur;
+              next[idx] = {
                 role: "assistant",
-                patches: [...last.patches, { type: "error", message: err.message }, { type: "done" }],
+                patches: [...next[idx].patches, { type: "error", message: err.message }, { type: "done" }],
+                streamId,
               };
               return next;
             });
@@ -148,6 +180,61 @@ export function useChat(): UseChatResult {
     },
     [ctx],
   );
+
+  const sendMessage = useCallback(
+    async (text: string, images: ImageAttachment[] = []) => {
+      if (!ctx.state.sessionId) return;
+      const streamId = `stream-${++streamSeqRef.current}`;
+      const userEntry: TranscriptEntry =
+        images.length > 0 ? { role: "user", text, images } : { role: "user", text };
+      const assistantEntry: TranscriptEntry = { role: "assistant", patches: [], streamId };
+      setTranscript((cur) => [...cur, userEntry, assistantEntry]);
+      streamTurn(streamId, text, images);
+    },
+    [streamTurn],
+  );
+
+  const enqueueMessage = useCallback(
+    (text: string, images: ImageAttachment[] = []) => {
+      const id = `queued-${++queueSeqRef.current}`;
+      queueRef.current = [...queueRef.current, { id, text, images }];
+      setTranscript((cur) => [...cur, { role: "user", text, images, queued: true, queueId: id }]);
+    },
+    [],
+  );
+
+  const dequeueMessage = useCallback(
+    (queueId: string) => {
+      queueRef.current = queueRef.current.filter((q) => q.id !== queueId);
+      setTranscript((cur) => cur.filter((e) => e.role !== "user" || e.queueId !== queueId));
+    },
+    [],
+  );
+
+  const clearQueue = useCallback(() => {
+    queueRef.current = [];
+    setTranscript((cur) => cur.filter((e) => e.role !== "user" || !e.queued));
+  }, []);
+
+  // Drains the FIFO queue one message at a time: once the current turn is no
+  // longer busy, promote the oldest queued entry to a real sent message and
+  // stream it. Each drained /chat/send drives busy back to true, so the next
+  // queued message only starts after the previous response completes. The
+  // transcript is rebuilt so the promoted message and its reply sit above the
+  // still-queued entries (which stay at the tail, below the live stream).
+  useEffect(() => {
+    if (ctx.state.busy || queueRef.current.length === 0) return;
+    const next = queueRef.current[0];
+    queueRef.current = queueRef.current.slice(1);
+    const streamId = `stream-${++streamSeqRef.current}`;
+    setTranscript((cur) => {
+      const promoted: TranscriptEntry = { role: "user", text: next.text, images: next.images };
+      const settled = cur.filter((e) => e.role !== "user" || !e.queued);
+      const stillQueued = cur.filter((e) => e.role === "user" && e.queued && e.queueId !== next.id);
+      return [...settled, promoted, { role: "assistant", patches: [], streamId }, ...stillQueued];
+    });
+    streamTurn(streamId, next.text, next.images);
+  }, [ctx.state.busy, streamTurn]);
 
   const cancel = useCallback(() => {
     sseRef.current?.abort();
@@ -190,13 +277,14 @@ export function useChat(): UseChatResult {
     [ctx],
   );
 
-  const startNewChatInWorkspace = useCallback(async (cwd: string) => {
+  const startNewChatInWorkspace = useCallback(async (cwd: string, backend?: string) => {
     if (ctx.state.busy) { if (sendingRef.current) cancel(); else detachOnly(); }
+    clearQueue();
     setTranscript([]);
-    await ctx.init(null, cwd);
+    await ctx.init(null, cwd, backend);
     const base = cwd.split("/").filter(Boolean).pop() ?? cwd;
     ctx.setTitle(`Chat: ${base}`);
-  }, [ctx, cancel, detachOnly]);
+  }, [ctx, cancel, detachOnly, clearQueue]);
 
   const openSessionInNewTab = useCallback((sessionId: string) => {
     const params = new URLSearchParams();
@@ -205,9 +293,10 @@ export function useChat(): UseChatResult {
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  const openWorkspaceInNewTab = useCallback((cwd: string) => {
+  const openWorkspaceInNewTab = useCallback((cwd: string, backend?: string) => {
     const params = new URLSearchParams();
     params.set("cwd", cwd);
+    if (backend) params.set("backend", backend);
     const url = `${window.location.pathname}?${params.toString()}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
@@ -223,17 +312,19 @@ export function useChat(): UseChatResult {
 
   const switchSession = useCallback(async (sessionId: string) => {
     if (ctx.state.busy) { if (sendingRef.current) cancel(); else detachOnly(); }
+    clearQueue();
     setTranscript([]);
     await ctx.init(sessionId);
-  }, [ctx, cancel, detachOnly]);
+  }, [ctx, cancel, detachOnly, clearQueue]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     await fetchJSON(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
     if (sessionId === ctx.state.sessionId) {
+      clearQueue();
       setTranscript([]);
       await ctx.init(null);
     }
-  }, [ctx]);
+  }, [ctx, clearQueue]);
 
   const forkCurrent = useCallback(async () => {
     if (!ctx.state.sessionId) return;
@@ -253,10 +344,11 @@ export function useChat(): UseChatResult {
       return;
     }
     if (ctx.state.busy) { if (sendingRef.current) cancel(); else detachOnly(); }
+    clearQueue();
     setTranscript([]);
     await ctx.init(null, ctx.state.cwd ?? undefined, ctx.state.backendName ?? undefined);
     ctx.setTitle("New chat");
-  }, [ctx, cancel, detachOnly, forkCurrent]);
+  }, [ctx, cancel, detachOnly, forkCurrent, clearQueue]);
 
   const setModel = useCallback(async (modelId: string) => {
     if (!ctx.state.sessionId) return;
@@ -291,6 +383,8 @@ export function useChat(): UseChatResult {
     busy: ctx.state.busy,
     transcript,
     sendMessage,
+    enqueueMessage,
+    dequeueMessage,
     cancel,
     sendSteer,
     resolveApproval,

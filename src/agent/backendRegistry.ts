@@ -28,6 +28,7 @@ export interface BackendRegistry {
   getBackend(name: string, cwd?: string): Promise<AgentBackend>;
   listSessions(): Promise<RegistrySessionEntry[]>;
   findSession(sessionId: string): Promise<RegistrySessionEntry | null>;
+  resolveSessionCwd(sessionId: string): Promise<{ backendName: string; cwd: string } | null>;
   getSession(sessionId: string): Promise<AgentSession | null>;
   deleteSession(sessionId: string): Promise<void>;
   shutdown(): Promise<void>;
@@ -174,6 +175,36 @@ export async function createBackendRegistry(opts: {
             cwd: hit.cwd,
             summary: hit.summary,
           };
+        }
+      }
+      return null;
+    },
+    // Last-resort owner lookup for a session findSession() can't see, used by
+    // /chat/init when nothing has persisted the session's cwd. findSession()
+    // only fans out over backend instances already spawned for some cwd, and
+    // each one's listSessions() is scoped to that cwd — so a session stored
+    // under a directory this process has never opened is invisible there, and
+    // resuming it under the workspace fallback fails ("Resource not found",
+    // since Claude's session/load is per-project). Asking each profile's
+    // default backend for that one session's cwd is enough: the agent's own
+    // session index is machine-global, not per-connection.
+    async resolveSessionCwd(sessionId: string): Promise<{ backendName: string; cwd: string } | null> {
+      for (const name of profiles.map((p) => p.name)) {
+        let pool: BackendPool;
+        try {
+          pool = await getPool(name);
+        } catch {
+          continue;
+        }
+        const backend = pool.getDefaultBackend();
+        if (!backend.lookupSessionCwd) continue;
+        try {
+          const cwd = await backend.lookupSessionCwd(sessionId);
+          if (cwd) return { backendName: name, cwd };
+        } catch {
+          // Agent may be down or may not support session/list — skip, same
+          // best-effort contract as listSessions().
+          continue;
         }
       }
       return null;

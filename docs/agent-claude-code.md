@@ -174,6 +174,33 @@ UI; most won't, unless the user (or jarvis-bridge) switches modes.
 **Request:** `{ "sessionId": "...", "modeId": "default" }` — confirmed working; switches the session out
 of `auto` classifier-approval into per-call `session/request_permission` prompts.
 
+### `session/set_config_option` — the only way to switch models
+
+**⚠️ Confirmed gap, fixed 2026-07-29.** There is **no `session/set_model`** on this adapter; it answers
+`-32601 "Method not found": session/set_model`. The model is written back through the same
+`configOptions` entry it's read from:
+
+**Request:** `{ "sessionId": "...", "configId": "model", "value": "sonnet" }`
+**Response:** `{ "configOptions": [ ...all four options, with refreshed currentValue... ] }`
+
+Live-probed against `@agentclientprotocol/claude-agent-acp` 0.63.0 (isolated gateway,
+`JARVIS_BRIDGE_SYSTEM_DIR` pointed at a scratch dir): `POST /chat/model` `opus[1m]` → `sonnet` → `haiku`
+each returned `{"ok":true,"current":"<new>"}`, `GET /chat/model` agreed, and re-resuming the session
+came back on the persisted `haiku` instead of snapping to `opus[1m]`. Two adapter behaviors worth
+knowing, both in its `setSessionConfigOption` handler:
+
+- **Values are resolved, not just validated.** For `configId: "model"` a value that doesn't match an
+  option exactly falls through to `resolveModelPreference`, so friendly aliases (`"opus"`, `"sonnet"`)
+  are accepted and land on a concrete model — which is why `setSessionModel` adopts `currentValue` from
+  the response rather than assuming the requested id stuck.
+- **A closed query stream is a hard error.** Once the session's SDK query has ended (`queryClosed`),
+  set_config_option throws the same "session ended" internal error `prompt()`/`cancel()` give — a model
+  switch on a dead session fails rather than silently applying to nothing.
+
+`configId: "fast"` is a boolean-valued option (`{ value: true, type: "boolean" }`, or an `"on"`/`"off"`
+select for clients that didn't opt into boolean options) — don't assume every config option takes a
+string value id. See `docs/acp-notes.md` for the client-side contract and the legacy fallback.
+
 ### `session/list`
 
 **⚠️ Confirmed gap, fixed in this task:** Claude's `session/list` returns the user's **entire session
@@ -188,6 +215,25 @@ history, not just sessions created through jarvis-bridge. **Fixed** in `AcpAgent
 (the `undefined` branch keeps opencode's behavior unchanged, since opencode doesn't report `cwd` per
 session and already scopes server-side). Regression test:
 `src/agent/acp/index.test.ts` → `AcpAgentBackend.listSessions — cwd scoping`.
+
+That filter is about the **browse** surface only. Locating one explicitly-named session still needs
+the unfiltered list — see `lookupSessionCwd` under `session/load` below.
+
+### `session/load` — resolves per project, so the cwd must match
+
+**⚠️ Confirmed gap, fixed 2026-07-30.** Unlike `session/list`, `session/load` is scoped to the project
+directory derived from the `cwd` the request carries. A session id that's perfectly valid answers
+`-32002 "Resource not found: <sessionId>"` when loaded under any other cwd — confirmed live: the same
+session id that 500'd `/chat/init` under the `~/.jarvis-bridge` workspace fallback loaded fine (8 history
+entries replayed) once asked for under `/Users/…/Desktop/repos/chimera-backend`, the directory its
+transcript actually lives in (`~/.claude/projects/-Users-…-chimera-backend/<sessionId>.jsonl`).
+
+So the cwd isn't a detail of the resume — it's part of the lookup key. `AcpAgentBackend.lookupSessionCwd()`
+reads it back out of the **unfiltered** `session/list` (the one place the cwd scoping above is
+deliberately not applied, since the caller already named the session), and `/chat/init` uses it before
+falling back to the workspace. See `docs/acp-notes.md` for the full resolution order and why a failed
+load now answers 404 instead of throwing. Regression tests: `src/agent/acp/index.test.ts` →
+`AcpAgentBackend.lookupSessionCwd` and `AcpAgentBackend.loadSession — failure cleanup`.
 
 ### `session/delete`
 

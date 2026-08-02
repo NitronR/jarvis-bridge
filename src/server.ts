@@ -68,10 +68,29 @@ export function createServer(opts: CreateServerOptions): Express {
     let resumed = false;
     let effectiveCwd: string;
     if (q.sessionId) {
-      effectiveCwd = requestedCwd ?? opts.sessionConfig?.getSessionCwd(q.sessionId) ?? workspace;
+      // Resume has to run in the cwd the session was stored under: Claude's
+      // session/load is per-project and answers "Resource not found" anywhere
+      // else. When neither the request nor our own metadata knows it (a chat
+      // started by the agent's own CLI, or before cwd persistence existed),
+      // ask the agents where they filed it rather than falling back to the
+      // workspace, which is what used to 500 the whole request.
+      let located: { backendName: string; cwd: string } | null = null;
+      let knownCwd = requestedCwd ?? opts.sessionConfig?.getSessionCwd(q.sessionId);
+      if (!knownCwd) {
+        located = await registry.resolveSessionCwd(q.sessionId);
+        if (located) {
+          knownCwd = located.cwd;
+          console.log(`[INIT] resolved cwd for ${q.sessionId} → ${located.cwd} (${located.backendName})`);
+        }
+      }
+      effectiveCwd = knownCwd ?? workspace;
       const owner = await registry.findSession(q.sessionId);
-      backend = owner ? owner.backend : await registry.getDefaultBackend(effectiveCwd);
-      backendName = owner ? owner.backendName : registry.getDefaultBackendName();
+      backend = owner
+        ? owner.backend
+        : located
+          ? await registry.getBackend(located.backendName, effectiveCwd)
+          : await registry.getDefaultBackend(effectiveCwd);
+      backendName = owner ? owner.backendName : located ? located.backendName : registry.getDefaultBackendName();
       const resident = owner ? await registry.getSession(q.sessionId) : null;
       const liveTurn = resident?.getActiveTurn?.() ?? null;
       if (liveTurn) {
@@ -84,8 +103,25 @@ export function createServer(opts: CreateServerOptions): Express {
         session = resident!;
         resumed = true;
       } else if (backend.loadSession) {
-        console.log(`[INIT] loadSession sessionId=${q.sessionId}`);
-        session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd });
+        console.log(`[INIT] loadSession sessionId=${q.sessionId} cwd=${effectiveCwd}`);
+        try {
+          session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd });
+        } catch (err) {
+          // The agent doesn't have this session (deleted, or belongs to a cwd
+          // we couldn't resolve). Answer inside the JSON contract so the
+          // frontend can drop the stale ?sessionId and start a fresh chat,
+          // instead of Express's default HTML 500 + stack trace.
+          const detail = err instanceof Error ? err.message : String(err);
+          console.log(`[INIT]   loadSession failed: ${detail}`);
+          res.status(404).json({ error: `session not found: ${detail}` });
+          return;
+        }
+        // Remember where it actually loaded from, so the next plain resume of
+        // this tab skips the lookup (and still works if the agent's session
+        // index is unavailable).
+        if (opts.sessionConfig?.getSessionCwd(q.sessionId) !== effectiveCwd) {
+          await opts.sessionConfig?.setSessionCwd(q.sessionId, effectiveCwd);
+        }
         const storedModel = opts.sessionConfig?.getModelOverride(q.sessionId);
         console.log(`[INIT]   storedModel=${storedModel ?? "(none)"}`);
         if (storedModel) {
@@ -388,10 +424,16 @@ export function createServer(opts: CreateServerOptions): Express {
     try {
       console.log(`[MODEL] POST /chat/model sessionId=${body.sessionId} modelId=${body.modelId}`);
       await entry.backend.setSessionModel(body.sessionId, body.modelId);
-      console.log(`[MODEL]   setSessionModel OK, persisting override`);
-      await opts.sessionConfig?.setModelOverride(body.sessionId, body.modelId);
+      // Persist/report what the backend ended up on, not what was asked for —
+      // an agent may resolve the requested id to a different concrete model,
+      // and a persisted override that disagrees with the agent's own state gets
+      // re-applied (and re-resolved) on every resume.
+      const current =
+        entry.backend.getSessionModels?.(body.sessionId)?.current ?? body.modelId;
+      console.log(`[MODEL]   setSessionModel OK, persisting override ${current}`);
+      await opts.sessionConfig?.setModelOverride(body.sessionId, current);
       console.log(`[MODEL]   override persisted`);
-      res.json({ ok: true, current: body.modelId });
+      res.json({ ok: true, current });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: message });

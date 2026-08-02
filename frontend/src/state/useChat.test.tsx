@@ -2,9 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import type { ReactNode } from "react";
 import { renderHook, act } from "@testing-library/react";
 import { ChatProvider } from "./ChatContext";
-import { useChat } from "./useChat";
+import { useChat, type TranscriptEntry } from "./useChat";
 import * as client from "../api/client";
-import type { ChatInitResponse, ChatPatch } from "../api/types";
+import type { ChatInitResponse, ChatPatch, ImageAttachment } from "../api/types";
+
+type QueuedUserEntry = Extract<TranscriptEntry, { role: "user" }> & { queued: true; queueId: string };
+
+function queuedEntries(transcript: TranscriptEntry[]): QueuedUserEntry[] {
+  return transcript.filter(
+    (e): e is QueuedUserEntry => e.role === "user" && !!e.queued && !!e.queueId,
+  );
+}
 
 const baseInit: ChatInitResponse = {
   ok: true,
@@ -253,5 +261,147 @@ describe("useChat", () => {
 
     expect(result.current.busy).toBe(false);
     expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/init?sessionId=sess-1");
+  });
+
+  describe("message queueing", () => {
+    // Captures each fetchSSE call's handlers so tests can drive turn
+    // completion manually (onDone) and inspect what was sent.
+    function manualSSEMock() {
+      const calls: {
+        url: string;
+        body: unknown;
+        handlers: { onPatch: (p: ChatPatch) => void; onDone?: () => void; onError?: (e: Error) => void };
+      }[] = [];
+      fetchSSESpy = vi.spyOn(client, "fetchSSE").mockImplementation((url, body, handlers) => {
+        calls.push({ url: String(url), body, handlers });
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      return calls;
+    }
+
+    it("renders queued messages in the transcript with a queued flag and lets dequeueMessage remove them", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+      manualSSEMock();
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+      await act(async () => { await result.current.sendMessage("first"); });
+
+      act(() => result.current.enqueueMessage("second"));
+      act(() => result.current.enqueueMessage("third"));
+
+      const queued = queuedEntries(result.current.transcript);
+      expect(queued.map((e) => e.text)).toEqual(["second", "third"]);
+      const secondId = queued[0].queueId;
+      expect(secondId).toBeTruthy();
+
+      act(() => result.current.dequeueMessage(secondId!));
+      expect(result.current.transcript.some((e) => e.role === "user" && e.text === "second")).toBe(false);
+      expect(queuedEntries(result.current.transcript)).toHaveLength(1);
+    });
+
+    it("keeps streaming the in-flight reply while a queued message sits below it", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+      const calls = manualSSEMock();
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+      await act(async () => { await result.current.sendMessage("first"); });
+
+      act(() => result.current.enqueueMessage("second"));
+      // The transcript's tail is now the queued user entry, not the streaming
+      // reply — patches for the in-flight turn must still land on it instead
+      // of being dropped as if the stream had stalled.
+      act(() => calls[0].handlers.onPatch({ type: "text-delta", index: 0, delta: " hi" }));
+      act(() => calls[0].handlers.onPatch({ type: "text-delta", index: 0, delta: " there" }));
+
+      const assistant = result.current.transcript.find((e) => e.role === "assistant");
+      if (assistant?.role === "assistant") {
+        expect(assistant.patches).toHaveLength(2);
+      }
+      expect(queuedEntries(result.current.transcript).map((e) => e.text)).toEqual(["second"]);
+    });
+
+    it("drains queued messages one-by-one after the current turn finishes", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+      const calls = manualSSEMock();
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+      await act(async () => { await result.current.sendMessage("first"); });
+      expect(result.current.busy).toBe(true);
+
+      act(() => result.current.enqueueMessage("second"));
+      act(() => result.current.enqueueMessage("third"));
+      expect(calls).toHaveLength(1); // only the initial send started so far
+
+      // Current turn completes -> the oldest queued message is sent next.
+      await act(async () => { calls[0].handlers.onDone?.(); });
+      expect(calls).toHaveLength(2);
+      expect((calls[1].body as { message: string }).message).toBe("second");
+      expect(result.current.busy).toBe(true);
+      const stillQueued = queuedEntries(result.current.transcript);
+      expect(stillQueued).toHaveLength(1);
+      expect(stillQueued[0].text).toBe("third");
+
+      // Next turn completes -> the remaining queued message is sent.
+      await act(async () => { calls[1].handlers.onDone?.(); });
+      expect(calls).toHaveLength(3);
+      expect((calls[2].body as { message: string }).message).toBe("third");
+
+      await act(async () => { calls[2].handlers.onDone?.(); });
+      expect(result.current.busy).toBe(false);
+      expect(queuedEntries(result.current.transcript)).toHaveLength(0);
+    });
+
+    it("skips a dequeued message and sends the rest of the queue in order", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+      const calls = manualSSEMock();
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+      await act(async () => { await result.current.sendMessage("first"); });
+
+      act(() => result.current.enqueueMessage("second"));
+      act(() => result.current.enqueueMessage("third"));
+      const secondId = queuedEntries(result.current.transcript).find((e) => e.text === "second")?.queueId;
+      act(() => result.current.dequeueMessage(secondId!));
+
+      await act(async () => { calls[0].handlers.onDone?.(); });
+      expect(calls).toHaveLength(2);
+      expect((calls[1].body as { message: string }).message).toBe("third");
+    });
+
+    it("sends queued messages with their attachments", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+      const calls = manualSSEMock();
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+      await act(async () => { await result.current.sendMessage("first"); });
+
+      const img: ImageAttachment = { data: "abc", mimeType: "image/png", filename: "a.png" };
+      act(() => result.current.enqueueMessage("second", [img]));
+      expect(queuedEntries(result.current.transcript)[0].images).toEqual([img]);
+
+      await act(async () => { calls[0].handlers.onDone?.(); });
+      expect((calls[1].body as { message: string; images: ImageAttachment[] }).images).toEqual([img]);
+    });
+
+    it("clears the queue when starting a new chat", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+      const calls = manualSSEMock();
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+      await act(async () => { await result.current.sendMessage("first"); });
+      act(() => result.current.enqueueMessage("second"));
+
+      await act(async () => { await result.current.startNewChat(); });
+      // The new chat's init would re-run; assert the queue didn't leak across
+      // sessions by confirming nothing extra was streamed for the old queue.
+      expect(queuedEntries(result.current.transcript)).toHaveLength(0);
+      expect(calls).toHaveLength(1);
+    });
   });
 });

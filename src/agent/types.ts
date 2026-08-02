@@ -93,6 +93,12 @@ export interface AgentBackend {
     opts?: CreateSessionOptions,
   ): Promise<AgentSession>;
   listSessions?(): Promise<ChatSessionSummary[]>;
+  // Resolve which cwd a single, explicitly-named session lives in — deliberately
+  // NOT scoped to this backend instance's own cwd the way listSessions() is.
+  // Resuming a session by id needs the cwd its agent stored it under (Claude's
+  // session/load is per-project and rejects any other cwd); scoping the browse
+  // surface is listSessions()'s job, and stays that way.
+  lookupSessionCwd?(sessionId: string): Promise<string | null>;
   forkSession?(
     sessionId: string,
     opts?: CreateSessionOptions,

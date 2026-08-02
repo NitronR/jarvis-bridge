@@ -27,7 +27,7 @@ export interface ComposerProps {
   onSend: (text: string) => void;
   onSteer: (text: string) => Promise<void>;
   onCancel: () => Promise<void>;
-  onQueue: (text: string) => Promise<void>;
+  onQueue: (text: string, images?: ImageAttachment[]) => Promise<void>;
   onToggleSteer: () => void;
 }
 
@@ -56,7 +56,7 @@ export function Composer(props: ComposerProps) {
 
   const dispatch = (trimmed: string) => {
     if (steerEnabled) void onSteer(trimmed);
-    else if (busy) void onQueue(trimmed);
+    else if (busy) void onQueue(trimmed, attachments);
     else onSend(trimmed);
   };
 
@@ -92,7 +92,7 @@ export function Composer(props: ComposerProps) {
   const queueClick = () => {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
-    void onQueue(trimmed);
+    void onQueue(trimmed, attachments);
     setText("");
   };
 

@@ -163,4 +163,73 @@ describe("<WorkspacesDrawer>", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("does not render a backend selector when fewer than two backends are available", () => {
+    render(
+      <WorkspacesDrawer
+        open={true}
+        recentWorkspaces={["/a/b/c"]}
+        backends={["opencode"]}
+        backend="opencode"
+        onBackendChange={vi.fn()}
+        onClose={vi.fn()}
+        onOpenInWorkspace={vi.fn()}
+        onOpenInNewTab={vi.fn()}
+        onPickFolder={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText(/backend for new chat/i)).not.toBeInTheDocument();
+  });
+
+  it("renders a backend selector with the current selection when multiple backends are available", () => {
+    render(
+      <WorkspacesDrawer
+        open={true}
+        recentWorkspaces={["/a/b/c"]}
+        backends={["opencode", "claude"]}
+        backend="opencode"
+        onBackendChange={vi.fn()}
+        onClose={vi.fn()}
+        onOpenInWorkspace={vi.fn()}
+        onOpenInNewTab={vi.fn()}
+        onPickFolder={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText(/backend for new chat/i) as HTMLSelectElement;
+    expect(select).toBeInTheDocument();
+    expect(select.value).toBe("opencode");
+  });
+
+  it("calls onBackendChange when the backend selector is changed", () => {
+    const onBackendChange = vi.fn();
+    render(
+      <WorkspacesDrawer
+        open={true}
+        recentWorkspaces={["/a/b/c"]}
+        backends={["opencode", "claude"]}
+        backend="opencode"
+        onBackendChange={onBackendChange}
+        onClose={vi.fn()}
+        onOpenInWorkspace={vi.fn()}
+        onOpenInNewTab={vi.fn()}
+        onPickFolder={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/backend for new chat/i), { target: { value: "claude" } });
+    expect(onBackendChange).toHaveBeenCalledWith("claude");
+  });
+
+  it("shows a hint that a workspace can be opened in a new tab", () => {
+    render(
+      <WorkspacesDrawer
+        open={true}
+        recentWorkspaces={["/a/b/c"]}
+        onClose={vi.fn()}
+        onOpenInWorkspace={vi.fn()}
+        onOpenInNewTab={vi.fn()}
+        onPickFolder={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/cmd\/ctrl-click a workspace to open it in a new tab/i)).toBeInTheDocument();
+  });
 });

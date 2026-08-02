@@ -111,7 +111,7 @@ describe("<Composer>", () => {
     saveQuickPhrases(["run the tests"]);
     render(<Composer {...baseProps} busy={true} onQueue={onQueue} />);
     fireEvent.click(screen.getByRole("button", { name: "run the tests" }));
-    expect(onQueue).toHaveBeenCalledWith("run the tests");
+    expect(onQueue).toHaveBeenCalledWith("run the tests", []);
   });
 
   it("clears the textarea after clicking Queue, matching the Enter-to-queue path", () => {
@@ -120,8 +120,18 @@ describe("<Composer>", () => {
     const textarea = screen.getByPlaceholderText(/queue a message/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "run the tests" } });
     fireEvent.click(screen.getByText("Queue"));
-    expect(onQueue).toHaveBeenCalledWith("run the tests");
+    expect(onQueue).toHaveBeenCalledWith("run the tests", []);
     expect(textarea.value).toBe("");
+  });
+
+  it("passes the current attachments through onQueue so queued messages keep their images", () => {
+    const onQueue = vi.fn();
+    const attachments: ImageAttachment[] = [{ data: "abc", mimeType: "image/png", filename: "a.png" }];
+    render(<Composer {...baseProps} busy={true} attachments={attachments} onQueue={onQueue} />);
+    const textarea = screen.getByPlaceholderText(/queue a message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "look at this" } });
+    fireEvent.click(screen.getByText("Queue"));
+    expect(onQueue).toHaveBeenCalledWith("look at this", attachments);
   });
 
   it("steers with a quick phrase instead of sending it while steering", () => {

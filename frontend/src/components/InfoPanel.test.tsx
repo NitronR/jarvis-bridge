@@ -48,6 +48,17 @@ describe("<InfoPanel>", () => {
     expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
   });
 
+  it("labels the session id field and renders the current backend", () => {
+    renderPanel(<InfoPanel {...baseProps} />);
+    expect(screen.getByText("Session ID")).toBeInTheDocument();
+    expect(screen.getByText("fake")).toBeInTheDocument();
+  });
+
+  it("shows a dash for the backend when none is set", () => {
+    renderPanel(<InfoPanel {...baseProps} state={{ ...baseState, backendName: null }} />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
   it("does not render a Usage card when no usage is passed", () => {
     renderPanel(<InfoPanel {...baseProps} />);
     expect(screen.queryByText("Usage")).not.toBeInTheDocument();

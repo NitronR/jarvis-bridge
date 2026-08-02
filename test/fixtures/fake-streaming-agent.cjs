@@ -24,6 +24,11 @@
 //                            the real Claude adapter's shape: a generic top-level
 //                            message ("Internal error") with the useful detail nested
 //                            under data.details.
+//   X_FAKE_AGENT_SESSION_LOAD_ERROR — JSON { code, message } to return as a
+//                            session/load error response instead of success. Mirrors the
+//                            real Claude adapter refusing a session that doesn't live
+//                            under the cwd this connection was spawned with
+//                            ("Resource not found: <sessionId>").
 //   X_FAKE_AGENT_REPLAY_UPDATES — JSON array of session/update `update` bodies (e.g.
 //                            { sessionUpdate: "agent_message_chunk", content: {...} })
 //                            emitted as notifications while session/load is still
@@ -37,6 +42,12 @@
 //   X_FAKE_AGENT_ELICITATION_RESULT_FILE — path to write the client's
 //                            elicitation/create response as JSON, for the test to
 //                            assert against.
+//   X_FAKE_AGENT_LEGACY_SET_MODEL — "true" to emulate an older agent that only
+//                            speaks the pre-configOptions `session/set_model`
+//                            method and rejects `session/set_config_option`.
+//                            Default (false) mirrors both shipping agents
+//                            (Claude adapter, opencode): set_config_option works
+//                            and session/set_model is "Method not found".
 
 const readline = require("node:readline");
 const fs = require("node:fs");
@@ -60,6 +71,29 @@ const delayMs = parseInt(process.env.X_FAKE_AGENT_DELAY_MS || "20", 10);
 const advertiseDelete = process.env.X_FAKE_AGENT_SESSION_DELETE === "true";
 const advertisePromptQueueing = process.env.X_FAKE_AGENT_PROMPT_QUEUEING === "true";
 const claudeStyleConfig = process.env.X_FAKE_AGENT_CLAUDE_STYLE_CONFIG === "true";
+const legacySetModel = process.env.X_FAKE_AGENT_LEGACY_SET_MODEL === "true";
+
+// Mutable session config state, so a set_config_option round trip is visible to
+// a later session/load — same as a real agent.
+const configOptions = claudeStyleConfig
+  ? [
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "claude-fake", options: [{ value: "claude-fake", name: "Claude Fake" }] },
+      { id: "effort", name: "Effort", type: "select", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
+    ]
+  : [
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "fake-model",
+        options: [
+          { value: "fake-model", name: "Fake Model" },
+          { value: "another", name: "Another Model" },
+        ],
+      },
+    ];
+const modes = { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] };
 
 let permissionOptions = null;
 try {
@@ -86,6 +120,14 @@ try {
   sessionDeleteError = null;
 }
 
+let sessionLoadError = null;
+try {
+  const raw = process.env.X_FAKE_AGENT_SESSION_LOAD_ERROR;
+  if (raw) sessionLoadError = JSON.parse(raw);
+} catch {
+  sessionLoadError = null;
+}
+
 let replayUpdates = [];
 try {
   const raw = process.env.X_FAKE_AGENT_REPLAY_UPDATES;
@@ -104,9 +146,9 @@ try {
 const elicitationResultFile = process.env.X_FAKE_AGENT_ELICITATION_RESULT_FILE || null;
 
 const eventLogFile = process.env.X_FAKE_AGENT_EVENT_LOG_FILE || null;
-function logEvent(method) {
+function logEvent(method, params) {
   if (!eventLogFile) return;
-  fs.appendFileSync(eventLogFile, JSON.stringify({ method, t: Date.now() }) + "\n");
+  fs.appendFileSync(eventLogFile, JSON.stringify({ method, params, t: Date.now() }) + "\n");
 }
 
 let nextId = 1;
@@ -276,7 +318,7 @@ rl.on("line", async (line) => {
     return;
   }
 
-  logEvent(msg.method);
+  logEvent(msg.method, msg.params);
   switch (msg.method) {
     case "initialize":
       reply(msg.id, {
@@ -292,30 +334,15 @@ rl.on("line", async (line) => {
       break;
     case "session/new":
       reply(msg.id, claudeStyleConfig
-        ? {
-            sessionId: makeSessionId(),
-            modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
-            configOptions: [
-              { id: "model", currentValue: "claude-fake", options: [{ value: "claude-fake", name: "Claude Fake" }] },
-              { id: "effort", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
-            ],
-          }
-        : {
-            sessionId: makeSessionId(),
-            configOptions: [
-              {
-                id: "model",
-                currentValue: "fake-model",
-                options: [
-                  { value: "fake-model", name: "Fake Model" },
-                  { value: "another", name: "Another Model" },
-                ],
-              },
-            ],
-          });
+        ? { sessionId: makeSessionId(), modes, configOptions }
+        : { sessionId: makeSessionId(), configOptions });
       break;
     case "session/load": {
       const sid = msg.params?.sessionId ?? makeSessionId();
+      if (sessionLoadError) {
+        replyError(msg.id, sessionLoadError.code, sessionLoadError.message);
+        break;
+      }
       for (const update of replayUpdates) {
         emit({
           jsonrpc: "2.0",
@@ -324,27 +351,8 @@ rl.on("line", async (line) => {
         });
       }
       reply(msg.id, claudeStyleConfig
-        ? {
-            sessionId: sid,
-            modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
-            configOptions: [
-              { id: "model", currentValue: "claude-fake", options: [{ value: "claude-fake", name: "Claude Fake" }] },
-              { id: "effort", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
-            ],
-          }
-        : {
-            sessionId: sid,
-            configOptions: [
-              {
-                id: "model",
-                currentValue: "fake-model",
-                options: [
-                  { value: "fake-model", name: "Fake Model" },
-                  { value: "another", name: "Another Model" },
-                ],
-              },
-            ],
-          });
+        ? { sessionId: sid, modes, configOptions }
+        : { sessionId: sid, configOptions });
       break;
     }
     case "session/list":
@@ -360,7 +368,35 @@ rl.on("line", async (line) => {
         reply(msg.id, {});
       }
       break;
+    case "session/set_config_option": {
+      if (legacySetModel) {
+        replyError(msg.id, -32601, `Method not found: ${msg.method}`);
+        break;
+      }
+      const option = configOptions.find((o) => o.id === msg.params?.configId);
+      if (!option) {
+        replyError(msg.id, -32602, `Unknown config option: ${msg.params?.configId}`);
+        break;
+      }
+      if (!option.options.some((o) => o.value === msg.params?.value)) {
+        replyError(msg.id, -32602, `Invalid value for config option ${option.id}: ${msg.params?.value}`);
+        break;
+      }
+      option.currentValue = msg.params.value;
+      reply(msg.id, { configOptions });
+      break;
+    }
     case "session/set_model":
+      // The legacy, pre-configOptions spelling. Both shipping agents reject it,
+      // so the fixture does too unless explicitly asked to emulate an old one.
+      if (!legacySetModel) {
+        replyError(msg.id, -32601, `Method not found: ${msg.method}`);
+        break;
+      }
+      {
+        const option = configOptions.find((o) => o.id === "model");
+        if (option) option.currentValue = msg.params?.modelId;
+      }
       reply(msg.id, null);
       break;
     case "session/cancel":

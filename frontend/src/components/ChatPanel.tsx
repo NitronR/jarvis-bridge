@@ -12,7 +12,7 @@ import { SettingsDialog } from "./SettingsDialog";
 import { ChatsDrawer } from "./ChatsDrawer";
 import { WorkspacesDrawer } from "./WorkspacesDrawer";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
-import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow } from "../api/types";
+import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow, DefaultBackendState } from "../api/types";
 import styles from "./ChatPanel.module.css";
 import { Button } from "./ui/Button";
 import { Select } from "./ui/Select";
@@ -105,6 +105,8 @@ function ChatPanelInner() {
   }, []);
   const [pastChatsOpen, setPastChatsOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
+  const [availableBackends, setAvailableBackends] = useState<string[]>([]);
+  const [workspaceBackend, setWorkspaceBackend] = useState<string>(() => ctx.state.backendName ?? "");
   const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => loadRecentWorkspaces());
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [steerEnabled, setSteerEnabled] = useState(false);
@@ -115,7 +117,6 @@ function ChatPanelInner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [manualRateLimits, setManualRateLimits] = useState<Record<string, RateLimitWindow> | undefined>();
   const [refreshingUsage, setRefreshingUsage] = useState(false);
-  const queueRef = useRef<string | null>(null);
 
   const latestUsage = useMemo((): UsageTotals | undefined => {
     for (let i = chat.transcript.length - 1; i >= 0; i--) {
@@ -357,23 +358,17 @@ function ChatPanelInner() {
     void chat.setAutoApprove(!ctx.state.autoApprove.effective);
   }, [chat, ctx]);
 
-  const onQueue = useCallback(async (text: string) => {
-    queueRef.current = text;
-    toast.push("Queued for after current turn", "info");
-  }, [toast]);
+  const onQueue = useCallback(
+    async (text: string, images: ImageAttachment[] = []) => {
+      setAttachments([]);
+      chat.enqueueMessage(text, images);
+    },
+    [chat],
+  );
 
   const onSteerComposer = useCallback(async (text: string) => {
     await chat.sendSteer(text);
   }, [chat]);
-
-  useEffect(() => {
-    if (!chat.busy && queueRef.current) {
-      const next = queueRef.current;
-      queueRef.current = null;
-      setAttachments([]);
-      void chat.sendMessage(next);
-    }
-  }, [chat.busy, chat]);
 
   // Composer's Steer button now only renders while busy — if steerEnabled
   // stayed true across a turn ending, there'd be no visible control left to
@@ -445,22 +440,22 @@ function ChatPanelInner() {
   }, [ctx]);
 
   const startInCwd = useCallback(
-    async (cwd: string) => {
-      await chat.startNewChatInWorkspace(cwd);
+    async (cwd: string, backend?: string) => {
+      await chat.startNewChatInWorkspace(cwd, backend);
       setRecentWorkspaces(pushRecentWorkspace(cwd));
     },
     [chat],
   );
 
   const openWorkspaceInNewTab = useCallback(
-    (cwd: string) => {
+    (cwd: string, backend?: string) => {
       setRecentWorkspaces(pushRecentWorkspace(cwd));
-      chat.openWorkspaceInNewTab(cwd);
+      chat.openWorkspaceInNewTab(cwd, backend);
     },
     [chat],
   );
 
-  const onPickFolder = useCallback(async () => {
+  const onPickFolder = useCallback(async (backend?: string) => {
     setPickingFolder(true);
     try {
       const initialCwd = recentWorkspaces[0];
@@ -474,7 +469,7 @@ function ChatPanelInner() {
       }
       if (res.data.cancelled || !res.data.cwd) return;
       setWorkspacesOpen(false);
-      await startInCwd(res.data.cwd);
+      await startInCwd(res.data.cwd, backend);
     } finally {
       setPickingFolder(false);
     }
@@ -482,8 +477,19 @@ function ChatPanelInner() {
 
   const openWorkspacesDrawer = useCallback(() => {
     setRecentWorkspaces(loadRecentWorkspaces());
+    // Default the drawer's backend choice to the current session's backend so
+    // "+ New in..." matches "+ New" unless the user explicitly picks otherwise —
+    // not the settings default, which is what made the two buttons disagree.
+    setWorkspaceBackend(ctx.state.backendName ?? "");
     setWorkspacesOpen(true);
-  }, []);
+    void fetchJSON<DefaultBackendState>("/settings/default-backend").then((res) => {
+      if (res.ok && res.data) {
+        const avail = res.data.available ?? [];
+        setAvailableBackends(avail);
+        setWorkspaceBackend((cur) => (cur && avail.includes(cur) ? cur : (avail[0] ?? "")));
+      }
+    });
+  }, [ctx.state.backendName]);
 
   const onNewChatInWorkspace = useCallback(() => {
     openWorkspacesDrawer();
@@ -610,13 +616,16 @@ function ChatPanelInner() {
           <WorkspacesDrawer
             open={workspacesOpen}
             recentWorkspaces={recentWorkspaces}
+            backends={availableBackends}
+            backend={workspaceBackend}
+            onBackendChange={setWorkspaceBackend}
             onClose={() => setWorkspacesOpen(false)}
             onOpenInWorkspace={async (cwd) => {
               setWorkspacesOpen(false);
-              await startInCwd(cwd);
+              await startInCwd(cwd, workspaceBackend || undefined);
             }}
-            onOpenInNewTab={openWorkspaceInNewTab}
-            onPickFolder={onPickFolder}
+            onOpenInNewTab={(cwd) => openWorkspaceInNewTab(cwd, workspaceBackend || undefined)}
+            onPickFolder={() => onPickFolder(workspaceBackend || undefined)}
             pickDisabled={pickingFolder}
           />
           <Transcript
@@ -628,6 +637,7 @@ function ChatPanelInner() {
             onElicitation={onElicitation}
             onSteerAck={onSteerAck}
             onImagesSkipped={onImagesSkipped}
+            onDismissQueued={(queueId) => chat.dequeueMessage(queueId)}
           />
           <Composer
             busy={chat.busy}

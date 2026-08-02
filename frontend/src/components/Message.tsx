@@ -1,10 +1,11 @@
 import { Timeline } from "./Timeline";
 import { Avatar } from "./ui/Avatar";
+import { Pill } from "./ui/Pill";
 import type { ImageAttachment, ChatPatch } from "../api/types";
 import styles from "./Message.module.css";
 
 export type MessageEntry =
-  | { role: "user"; text: string; images?: ImageAttachment[] }
+  | { role: "user"; text: string; images?: ImageAttachment[]; queued?: boolean; queueId?: string }
   | { role: "assistant"; patches: ChatPatch[] };
 
 export function Message({
@@ -15,6 +16,7 @@ export function Message({
   onElicitation,
   onSteerAck,
   onImagesSkipped,
+  onDismissQueued,
 }: {
   entry: MessageEntry;
   showAvatar?: boolean;
@@ -23,6 +25,7 @@ export function Message({
   onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
   onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
+  onDismissQueued?: (queueId: string) => void;
 }) {
   const avatarSlot = showAvatar ? (
     <Avatar role={entry.role} />
@@ -47,6 +50,20 @@ export function Message({
                     title={img.filename}
                   />
                 ))}
+              </div>
+            )}
+            {entry.queued && (
+              <div className={styles.queuedRow}>
+                <Pill tone="neutral">Queued</Pill>
+                <button
+                  type="button"
+                  className={styles.queuedDismiss}
+                  aria-label="Remove queued message"
+                  title="Remove from queue"
+                  onClick={() => entry.queueId && onDismissQueued?.(entry.queueId)}
+                >
+                  ×
+                </button>
               </div>
             )}
           </div>

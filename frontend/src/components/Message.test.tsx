@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, fireEvent } from "@testing-library/react";
 import { Message } from "./Message";
 
 describe("<Message>", () => {
@@ -43,5 +43,23 @@ describe("<Message>", () => {
       <Message entry={{ role: "user", text: "hi" }} showAvatar={false} />,
     );
     expect(queryByLabelText("You")).not.toBeInTheDocument();
+  });
+
+  it("renders a Queued pill and a dismiss button on a queued message", () => {
+    const onDismissQueued = vi.fn();
+    const { getByText, getByRole } = render(
+      <Message
+        entry={{ role: "user", text: "later", queued: true, queueId: "q1" }}
+        onDismissQueued={onDismissQueued}
+      />,
+    );
+    expect(getByText("Queued")).toBeInTheDocument();
+    fireEvent.click(getByRole("button", { name: "Remove queued message" }));
+    expect(onDismissQueued).toHaveBeenCalledWith("q1");
+  });
+
+  it("does not render the Queued pill for a normal (non-queued) user message", () => {
+    const { queryByText } = render(<Message entry={{ role: "user", text: "hi" }} />);
+    expect(queryByText("Queued")).not.toBeInTheDocument();
   });
 });

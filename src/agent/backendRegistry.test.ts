@@ -92,6 +92,35 @@ test("listSessions/findSession fan out across backends", async () => {
   }
 });
 
+test("resolveSessionCwd finds the owning profile of a session in a cwd no pool has spawned for", async () => {
+  const workspace = await mkWorkspace();
+  let registry;
+  try {
+    const settings = await createSettingsStore({
+      path: path.join(workspace, "settings.json"),
+      envDefault: "opencode",
+      validNames: ["opencode", "claude"],
+    });
+    registry = await createBackendRegistry({ profiles: profiles(), settings, workspace, autoApprove: false });
+
+    // findSession can't see this session: it fans out over already-spawned
+    // per-cwd backends, and nothing has ever been spawned for /elsewhere.
+    assert.equal(await registry.findSession("s-elsewhere"), null);
+
+    // Only the non-default profile knows it — the fan-out must reach it (which
+    // also lazy-spawns it), not stop at the default.
+    const claude = await registry.getBackend("claude");
+    claude.lookupSessionCwd = async (id: string) => (id === "s-elsewhere" ? "/elsewhere" : null);
+
+    const located = await registry.resolveSessionCwd("s-elsewhere");
+    assert.deepEqual(located, { backendName: "claude", cwd: "/elsewhere" });
+    assert.equal(await registry.resolveSessionCwd("s-nowhere"), null);
+  } finally {
+    if (registry) await registry.shutdown();
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("deleteSession delegates to the owning backend and rejects if unsupported", async () => {
   const workspace = await mkWorkspace();
   let registry;
