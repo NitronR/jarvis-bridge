@@ -32,6 +32,7 @@
   font-size: var(--font-size-5);
   line-height: 1.45;
   word-wrap: break-word;
+  white-space: pre-wrap;
 }
 .message.user .bubble {
   background: var(--color-accent-tint);
