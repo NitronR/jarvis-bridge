@@ -43,7 +43,6 @@ export interface UseChatResult {
   enqueueMessage: (text: string, images?: ImageAttachment[]) => void;
   dequeueMessage: (queueId: string) => void;
   cancel: () => void;
-  sendSteer: (text: string) => Promise<void>;
   resolveApproval: (requestId: string, optionId: string) => Promise<void>;
   resolveElicitation: (
     requestId: string,
@@ -255,12 +254,6 @@ export function useChat(): UseChatResult {
     ctx.setBusy(false);
   }, [ctx]);
 
-  const sendSteer = useCallback(async (text: string) => {
-    if (!ctx.state.sessionId || !ctx.state.capabilities?.steer) return;
-    setTranscript((cur) => [...cur, { role: "user", text: "(steer) " + text }]);
-    await fetchJSON("/chat/steer", { method: "POST", body: { sessionId: ctx.state.sessionId, prompt: text } });
-  }, [ctx]);
-
   const resolveApproval = useCallback(async (requestId: string, optionId: string) => {
     if (!ctx.state.sessionId) return;
     await fetchJSON("/chat/approval", { method: "POST", body: { sessionId: ctx.state.sessionId, requestId, optionId } });
@@ -386,7 +379,6 @@ export function useChat(): UseChatResult {
     enqueueMessage,
     dequeueMessage,
     cancel,
-    sendSteer,
     resolveApproval,
     resolveElicitation,
     startNewChat,

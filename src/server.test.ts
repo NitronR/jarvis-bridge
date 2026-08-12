@@ -124,7 +124,7 @@ test("GET /chat/init returns a session id, capabilities, and slash commands", as
       assert.ok(typeof body.sessionId === "string" && body.sessionId.length > 0);
       assert.equal(body.backend.kind, "fake");
       assert.equal(body.backend.role, "chat");
-      assert.equal(body.capabilities.steer, true);
+      assert.equal(body.capabilities.steer, body.capabilities.promptQueueing);
       assert.equal(body.capabilities.canFork, true);
       assert.deepEqual(body.slashCommands, [
         { name: "review", description: "review code" },
@@ -879,37 +879,6 @@ test("POST /chat/auto-approve sets and clears the override", async () => {
       assert.equal(clearBody.override, null);
     },
   }));
-});
-
-test("POST /chat/steer forwards the prompt to the session", async () => {
-  let backend: FakeBackend;
-  await withServer(async (ws) => {
-    backend = new FakeBackend();
-    return {
-      backend,
-      fn: async (url) => {
-        const initRes = await fetch(`${url}/chat/init`);
-        const initBody = (await initRes.json()) as { sessionId: string };
-        const session = backend!.sessions.get(initBody.sessionId);
-        assert.ok(session);
-        session.steerHandler = async () => ({ accepted: true });
-        const res = await fetch(`${url}/chat/steer`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            prompt: "pivot",
-            sessionId: initBody.sessionId,
-          }),
-        });
-        assert.equal(res.status, 200);
-        const body = (await res.json()) as {
-          ok: boolean;
-          accepted: boolean;
-        };
-        assert.equal(body.accepted, true);
-      },
-    };
-  });
 });
 
 test("GET /chat/init respects sessionId in query (resume)", async () => {

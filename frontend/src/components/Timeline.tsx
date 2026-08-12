@@ -11,7 +11,6 @@ export interface TimelineProps {
   backendKind?: string | null;
   onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
   onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
-  onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
 }
 
@@ -31,12 +30,11 @@ function buildTimelineState(
   emit: {
     onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
     onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
-    onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
     onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
   },
   // buildTimelineState re-walks the whole patches array from scratch on every
   // recompute (each streamed delta grows the array), so without this guard
-  // every side-effecting patch (approval/elicitation/steer-ack/images-skipped)
+  // every side-effecting patch (approval/elicitation/images-skipped)
   // would re-fire its callback on every later patch in the same turn — e.g.
   // reopening an already-answered elicitation modal once the tool result or
   // trailing assistant text streams in. Keyed by patch object identity, which
@@ -138,12 +136,6 @@ function buildTimelineState(
           emit.onElicitation?.(p);
         }
         break;
-      case "steer-ack":
-        if (!emitted.has(p)) {
-          emitted.add(p);
-          emit.onSteerAck?.(p);
-        }
-        break;
       case "images-skipped":
         if (!emitted.has(p)) {
           emitted.add(p);
@@ -201,11 +193,11 @@ function usagePills(u: UsageTotals): string[] {
   return out;
 }
 
-export function Timeline({ patches, backendKind, onApproval, onElicitation, onSteerAck, onImagesSkipped }: TimelineProps) {
+export function Timeline({ patches, backendKind, onApproval, onElicitation, onImagesSkipped }: TimelineProps) {
   const emittedRef = useRef<Set<ChatPatch>>(new Set());
   const state = useMemo(
-    () => buildTimelineState(patches, { onApproval, onElicitation, onSteerAck, onImagesSkipped }, emittedRef.current),
-    [patches, onApproval, onElicitation, onSteerAck, onImagesSkipped],
+    () => buildTimelineState(patches, { onApproval, onElicitation, onImagesSkipped }, emittedRef.current),
+    [patches, onApproval, onElicitation, onImagesSkipped],
   );
   return (
     <div className={styles.timeline}>

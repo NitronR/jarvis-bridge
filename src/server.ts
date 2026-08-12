@@ -378,22 +378,6 @@ export function createServer(opts: CreateServerOptions): Express {
     res.json({ ok: true });
   }));
 
-  app.post("/chat/steer", smallJson, asyncRoute(async (req, res) => {
-    const body = SteerBodySchema.parse(req.body ?? {});
-    const entry = await resolveSessionEntry(registry, body.sessionId, opts.sessionConfig);
-    if (!entry?.summary || !entry.backend.capabilities.steer) {
-      res.json({ ok: true, accepted: false, reason: "unsupported" });
-      return;
-    }
-    const session = await registry.getSession(body.sessionId ?? "");
-    if (!session?.steer) {
-      res.json({ ok: true, accepted: false, reason: "unsupported" });
-      return;
-    }
-    const result = await session.steer(body.prompt);
-    res.json({ ok: true, accepted: result.accepted, reason: result.reason });
-  }));
-
   // ── Models ────────────────────────────────────────────────────────
   app.get("/chat/model", smallJson, asyncRoute(async (req, res) => {
     const q = ModelQuerySchema.parse(req.query);
@@ -816,10 +800,6 @@ const ElicitationBodySchema = z.object({
   requestId: z.string(),
   action: z.enum(["accept", "decline", "cancel"]),
   content: z.record(z.string(), z.unknown()).optional(),
-});
-const SteerBodySchema = z.object({
-  prompt: z.string(),
-  sessionId: z.string().optional(),
 });
 const ModelQuerySchema = z.object({ sessionId: z.string().optional() });
 const UsageQuerySchema = z.object({ sessionId: z.string().optional() });

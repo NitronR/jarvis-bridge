@@ -39,7 +39,6 @@ import type {
 export const ACP_PROTOCOL_VERSION = 1;
 export const CLIENT_INFO = { name: "jarvis-bridge", version: "0.1.0" };
 const WRAPPED_USER_MESSAGE_MARKER = "User message: ";
-const STEER_EXTENSION_KEY = "jarvis-bridge/steer";
 // The `configOptions[]` entry that holds the model selector, per the ACP spec.
 const MODEL_CONFIG_ID = "model";
 const JSONRPC_METHOD_NOT_FOUND = -32601;
@@ -167,13 +166,12 @@ export class AcpAgentBackend implements AgentBackend {
     const caps = initRes.agentCapabilities ?? {};
     const hasExtension = (obj: unknown, key: string): boolean =>
       typeof obj === "object" && obj !== null && key in (obj as Record<string, unknown>);
-    const steer = hasExtension(caps.extensions, STEER_EXTENSION_KEY);
     const canFork = hasExtension(caps.sessionCapabilities, "fork");
     const sessionDelete = hasExtension(caps.sessionCapabilities, "delete");
     const images = caps.promptCapabilities?.image === true;
     const promptQueueing = caps._meta?.claudeCode?.promptQueueing === true;
 
-    this.capabilities.steer = steer;
+    this.capabilities.steer = promptQueueing;
     this.capabilities.canFork = canFork;
     this.capabilities.sessionDelete = sessionDelete;
     this.capabilities.images = images;
@@ -985,24 +983,6 @@ export class AcpAgentSession implements AgentSession {
       });
     } catch {
       /* ignore */
-    }
-  }
-
-  async steer(prompt: string): Promise<{ accepted: boolean; reason?: string }> {
-    if (!this.backend.capabilities.steer) {
-      return { accepted: false, reason: "steer not supported by this agent" };
-    }
-    try {
-      await this.backend.getConnection().sendRequest(STEER_EXTENSION_KEY, {
-        sessionId: this.id,
-        prompt,
-      });
-      return { accepted: true };
-    } catch (err) {
-      return {
-        accepted: false,
-        reason: err instanceof Error ? err.message : String(err),
-      };
     }
   }
 

@@ -96,10 +96,15 @@ non-JSON lines. `src/agent/acp/jsonrpc.ts` needed no changes.
 | `loadSession` | `true` | resume works, same as opencode |
 | `mcpCapabilities.{http,sse}` | `true` | matches opencode |
 | `promptCapabilities.{image,embeddedContext}` | `true` | matches opencode |
-| `_meta.claudeCode.promptQueueing` | `true` | non-standard extension key, already read by Task 8's capability derivation — confirmed present on the real adapter |
+| `_meta.claudeCode.promptQueueing` | `true` | confirmed present on the real adapter. Used as `capabilities.steer` — steer's cancel-and-run-next is built on this capability. |
 | `sessionCapabilities.delete` | `{}` present | `sessionDelete = true` — confirmed, see §5 for the real behavior of this call |
 | `sessionCapabilities.{close,resume,additionalDirectories}` | present | advertised but **intentionally unused** — Phase 1 design (see design spec) chose not to implement `session/resume`/`session/close` based on real-client prior art (Zed implements them for real; acp-ui, an independent third-party client, implements neither). Not a gap; a scoped decision. |
-| `extensions["jarvis-bridge/steer"]` | **absent** | `supportsSteer = false` for Claude, same mechanism as opencode's absence — confirmed |
+**Steer is now implemented via `promptQueueing` (cancel-and-run-next).**
+The old `jarvis-bridge/steer` extension key and `/chat/steer` route have been
+removed. `capabilities.steer` is now derived from `promptQueueing` — any agent
+that supports mid-turn queueing can be steered via cancel-and-run-next. See
+`docs/archives/2026-08-09-steer-feature-root-cause.md` for the investigation
+that led to this redesign.
 | `authMethods` | **empty array** | already pre-authenticated when the probe ran; does not mean "no auth needed" in general — see §4 |
 
 No `fs` capability is advertised or needed by Claude (same as opencode — it never calls `fs/read_text_file`/`fs/write_text_file`; it has its own file tools).

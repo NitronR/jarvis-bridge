@@ -12,7 +12,6 @@ export interface TranscriptProps {
   backendKind?: string | null;
   onApproval: (p: ChatPatch & { type: "approval-request" }) => void;
   onElicitation: (p: ChatPatch & { type: "elicitation-request" }) => void;
-  onSteerAck: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped: (p: ChatPatch & { type: "images-skipped" }) => void;
   onDismissQueued?: (queueId: string) => void;
 }
@@ -89,7 +88,6 @@ export function Transcript(props: TranscriptProps) {
             backendKind={props.backendKind}
             onApproval={props.onApproval}
             onElicitation={props.onElicitation}
-            onSteerAck={props.onSteerAck}
             onImagesSkipped={props.onImagesSkipped}
             onDismissQueued={props.onDismissQueued}
           />

@@ -83,7 +83,6 @@ export type ChatPatch =
   | { type: "slash-commands"; commands: SlashCommand[] }
   | { type: "approval-request"; requestId: string; toolCallId: string | null; toolName: string; toolKind?: string; toolInput?: unknown; options: Array<{ id: string; name?: string; kind?: string }> }
   | { type: "elicitation-request"; requestId: string; toolCallId: string | null; message: string; fields: ElicitationField[] }
-  | { type: "steer-ack"; accepted: boolean; reason?: string }
   | { type: "images-skipped"; skipped: Array<{ filename?: string; mimeType: string; reason: "too-large" | "unsupported" | "decode-error" }> }
   | { type: "done" };
 

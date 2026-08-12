@@ -14,7 +14,6 @@ export function Message({
   backendKind,
   onApproval,
   onElicitation,
-  onSteerAck,
   onImagesSkipped,
   onDismissQueued,
 }: {
@@ -23,7 +22,6 @@ export function Message({
   backendKind?: string | null;
   onApproval?: (p: ChatPatch & { type: "approval-request" }) => void;
   onElicitation?: (p: ChatPatch & { type: "elicitation-request" }) => void;
-  onSteerAck?: (p: ChatPatch & { type: "steer-ack" }) => void;
   onImagesSkipped?: (p: ChatPatch & { type: "images-skipped" }) => void;
   onDismissQueued?: (queueId: string) => void;
 }) {
@@ -82,7 +80,6 @@ export function Message({
           backendKind={backendKind}
           onApproval={onApproval}
           onElicitation={onElicitation}
-          onSteerAck={onSteerAck}
           onImagesSkipped={onImagesSkipped}
         />
       </div>

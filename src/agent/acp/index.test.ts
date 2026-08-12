@@ -37,7 +37,7 @@ describe("AcpAgentBackend — handshake & session lifecycle", () => {
       assert.equal(backend.role, "chat");
       assert.equal(backend.capabilities.images, true);
       assert.equal(backend.capabilities.canFork, true);
-      assert.equal(backend.capabilities.steer, true);
+      assert.equal(backend.capabilities.steer, backend.capabilities.promptQueueing);
       assert.equal(backend.capabilities.cancel, true);
       assert.equal(backend.capabilities.toolApprovals, true);
       assert.equal(backend.capabilities.multipleSessions, true);

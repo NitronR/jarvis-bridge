@@ -194,7 +194,6 @@ export type ChatPatch =
       message: string;
       fields: ElicitationField[];
     }
-  | { type: "steer-ack"; accepted: boolean; reason?: string }
   | {
       type: "images-skipped";
       skipped: Array<{

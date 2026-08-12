@@ -232,13 +232,6 @@ function ChatPanelInner() {
     [chat, toast],
   );
 
-  const onSteerAck = useCallback(
-    (p: ChatPatch & { type: "steer-ack" }) => {
-      toast.push(p.accepted ? "Steer accepted" : "Steer rejected: " + (p.reason || ""), p.accepted ? "success" : "warning");
-    },
-    [toast],
-  );
-
   const onImagesSkipped = useCallback(
     (p: ChatPatch & { type: "images-skipped" }) => {
       toast.push("Skipped " + (p.skipped || []).length + " image(s)", "warning");
@@ -367,7 +360,7 @@ function ChatPanelInner() {
   );
 
   const onSteerComposer = useCallback(async (text: string) => {
-    await chat.sendSteer(text);
+    chat.enqueueMessage(text);
   }, [chat]);
 
   // Composer's Steer button now only renders while busy — if steerEnabled
@@ -587,7 +580,7 @@ function ChatPanelInner() {
             >
               + New in...
             </Button>
-            <Button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork || chat.busy}>Fork</Button>
+            <Button onClick={onForkCurrent} disabled={!ctx.state.capabilities?.canFork}>Fork</Button>
             <button
               type="button"
               className={`${styles.pinBtn} ${ctx.state.pinned ? styles.pinBtnActive : ""}`}
@@ -635,7 +628,6 @@ function ChatPanelInner() {
             backendKind={ctx.state.backendKind}
             onApproval={onApproval}
             onElicitation={onElicitation}
-            onSteerAck={onSteerAck}
             onImagesSkipped={onImagesSkipped}
             onDismissQueued={(queueId) => chat.dequeueMessage(queueId)}
           />

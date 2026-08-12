@@ -123,7 +123,7 @@ export class FakeBackend implements AgentBackend {
       multipleSessions: true,
       customWorkingDirectory: true,
       cancel: true,
-      steer: opts.steerSupported ?? true,
+      steer: opts.capabilities?.promptQueueing ?? false,
       toolApprovals: true,
       slashCommands: (opts.slashCommands ?? []).length > 0,
       canFork: true,

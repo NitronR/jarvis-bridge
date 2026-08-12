@@ -205,6 +205,16 @@ drifted this way (symptom: chat loads fine, but the "refresh usage" button error
 2026-07-21 by giving `resolveSessionEntry` the identical persisted-cwd-plus-default-backend
 fallback — see `docs/archives/2026-07-21-usage-refresh-cwd-drift-fix.md`.
 
+## `/chat/steer` was removed — steer now uses promptQueueing
+
+The `POST /chat/steer` route, `STEER_EXTENSION_KEY` RPC, and `AcpAgentSession.steer()`
+have been deleted. Steer is now implemented as cancel-and-run-next on `promptQueueing`:
+the Steer button queues a message via `enqueueMessage`, and the existing drain logic
+fires when the current turn ends. The backend `sendMessage()` queue-and-wait path
+(`src/agent/acp/index.ts:848-866`) handles the handoff. See
+`docs/superpowers/specs/2026-08-09-steer-redesign-design.md` and
+`docs/archives/2026-08-09-steer-feature-root-cause.md`.
+
 ## Reconnecting to a streaming response: `activeTurn`, not another `loadSession()` call
 
 A disconnect (page refresh, network blip, tab close) must not cancel an in-flight turn, and
@@ -279,6 +289,49 @@ elsewhere) turn. Code that used to treat `busy` as "abort and really cancel on n
 button (`cancel()`) is unaffected and still always sends a real cancel. If you add another
 place that reacts to `ctx.state.busy` by tearing down navigation state, check whether it
 needs the same `sendingRef` distinction.
+
+## A turn can hang forever if the agent never resolves `session/prompt` — no ACP status/poll exists, only cancel
+
+Confirmed live (2026-08-09) against a real stuck session: `AcpAgentSession.sendMessage()`
+(`src/agent/acp/index.ts:908-930`) only clears `ctx.busy`/`ctx.activeTurn` and emits the
+terminal `"done"` patch from the `.finally()` of the `session/prompt` `sendRequest()` chain.
+`AcpConnection.sendRequest()` (`src/agent/acp/jsonrpc.ts:143`) has **no timeout** — if the
+agent process never sends back a JSON-RPC response with the matching `id`, that promise
+(and therefore the turn) hangs indefinitely. The frontend's Stop button/spinner/favicon
+(`useFavicon.ts`) are all just accurately reflecting `activeTurn: true` in this state — this
+is not a rendering bug, and there is nothing wrong to "fix" on the frontend when it happens.
+
+**There is no ACP method to poll a turn's status.** The full method list in
+`@agentclientprotocol/sdk`'s `schema.json` is `session/{cancel,close,delete,fork,list,load,
+new,prompt,request_permission,resume,set_config_option,set_mode,update}` — no `session/status`
+or `session/get`. The only two levers on a stuck turn are (a) keep waiting for `session/update`
+notifications, which already flow through `emit()` and function as a de facto liveness
+heartbeat, or (b) `POST /chat/cancel`, same as the UI's Stop button — this is the only
+recovery path today, matching every other ACP client surveyed (Zed's `acp_thread.rs` has no
+watchdog either; recovery is exclusively a user-triggered `cancel()`).
+
+**Root cause traced to `claude-agent-acp`'s deferred-settle mechanism, not jarvis_bridge.**
+When a turn spawns a background subagent (the `Task` tool) or a `run_in_background` Bash
+command, the bridge intentionally holds `session/prompt` open past the turn's terminal
+`result` (`Turn.deferredSettle` in their `src/acp-agent.ts`, added in commit `255e79b` "hold a
+turn open while its background subagents are still live") so the subagent's streamed output
+and permission requests still land inside the turn. This is deliberate, but mixing a `Task`
+subagent with a plain background Bash task in one turn (only `Task` subagents hold the turn
+open, per their own comments) is exactly the shape that got the reproduced hang. This is a
+known, actively-discussed class of bug upstream, not unique to jarvis_bridge or this
+integration — see `zed#56734`, `zed#53438`, `zed#55501`, `claude-agent-acp#338`, and
+`claude-code#59962` (which itself rolls up five more related reports). Zed's own proposed fix
+(`agent.external_agent_tool_timeout_seconds`, `zed#56734`) is unmerged as of 2026-08-09 — no
+ACP client in this space has shipped an automatic recovery yet.
+
+**If this needs a jarvis_bridge-side backstop, prefer silence-based over wall-clock.** A flat
+timeout on the whole `sendRequest()` risks killing a turn that's still legitimately streaming
+(e.g. a long subagent). A timer reset on every `emit()` call and only tripped after N minutes
+of *zero* patches (of any type) is safer — it only fires on true silence, which is what the
+observed hang looked like (a fully-formed final assistant message, then three `usage` patches,
+then nothing — no `"done"` ever appended to `ctx.activeTurn.patches`). Not implemented as of
+2026-08-09; would live in `emit()` (`src/agent/acp/index.ts:890-897`), synthesizing an
+`error` + `"done"` patch pair through the existing `finally` cleanup path if it fires.
 
 ## Replay capture must populate patches, not just create placeholder entries
 

@@ -55,6 +55,23 @@
   strategy (`src/acp-agent.ts:3593-3678`).
 - **Refusal handling** streams an explanation before returning ACP's `refusal` stop
   reason (`src/acp-agent.ts:2396-2414`).
+- **`Turn.deferredSettle` holds `session/prompt` open past its terminal `result`** while any
+  background subagent (`Task` tool) the turn spawned is still live (`session.liveSubagentTasks`,
+  added in commit `255e79b` "hold a turn open while its background subagents are still live",
+  hardened same-day by `c308283`/`ed0d121`/`293bacb` for review-found races). Deliberate — lets
+  the subagent's streamed output and permission requests land inside the turn instead of being
+  dropped after the turn's own result — but plain `run_in_background` Bash tasks are excluded
+  from the hold on purpose ("a wake-on-exit notification, not a turn-scoped drain"), so a turn
+  that spawns both a `Task` subagent and a background Bash command is exactly the shape that can
+  fall into an unreconciled gap. Confirmed live (2026-08-09) against jarvis_bridge: a turn using
+  both left `session/prompt` pending forever with a fully-streamed final answer already sent —
+  see `docs/acp-notes.md`'s "A turn can hang forever..." section for the jarvis-side trace, and
+  `zed#56734`/`claude-code#59962` for confirmation this is a known, unresolved upstream class of
+  bug (no ACP client surveyed has shipped an automatic timeout/recovery for it).
+- **No status/poll RPC exists in ACP** — `@agentclientprotocol/sdk`'s schema only has
+  `session/{cancel,close,delete,fork,list,load,new,prompt,request_permission,resume,
+  set_config_option,set_mode,update}`. The only way to recover a wedged turn, here or in any
+  other ACP client, is `session/cancel` (a Stop button), not a status check.
 
 ## Native binary resolution
 
