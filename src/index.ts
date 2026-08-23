@@ -77,6 +77,11 @@ async function main(): Promise<void> {
           "Run `npx @anthropic-ai/claude-code login` once in your terminal to authenticate, then retry. " +
           "(jarvis_bridge does not yet support logging in from within the app — see docs/claude-acp-future-phases.md.)",
       );
+    } else if (defaultBackend.kind === "antigravity-acp") {
+      console.error(
+        "[jarvis-bridge] hint: the Antigravity backend needs the `agy` CLI authenticated on this machine. " +
+          "Run `agy` once in your terminal to authenticate, and ensure `agy-acp` is installed and on PATH.",
+      );
     } else {
       console.error(
         "[jarvis-bridge] hint: if the agent CLI requires login, run it once in a terminal to authenticate, then retry.",

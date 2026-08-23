@@ -7,6 +7,13 @@
       "command": "npx",
       "args": ["-y", "@agentclientprotocol/claude-agent-acp@latest"],
       "env": {}
+    },
+    {
+      "name": "antigravity",
+      "kind": "antigravity-acp",
+      "command": "agy-acp",
+      "args": [],
+      "env": {}
     }
   ]
 }

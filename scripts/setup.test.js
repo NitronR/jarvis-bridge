@@ -118,6 +118,18 @@ test("detectBackends finds a fake `opencode` executable placed on PATH", () => {
   assert.equal(found[0].name, "opencode");
 });
 
+test("detectBackends finds a fake `agy-acp` executable placed on PATH", () => {
+  const dir = tmpDir();
+  const fakeBinDir = path.join(dir, "bin");
+  fs.mkdirSync(fakeBinDir, { recursive: true });
+  fs.writeFileSync(path.join(fakeBinDir, "agy-acp"), "#!/bin/sh\n", { mode: 0o755 });
+  const found = detectBackends(fakeBinDir);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].name, "antigravity");
+  assert.equal(found[0].kind, "antigravity-acp");
+  assert.equal(found[0].command, "agy-acp");
+});
+
 test("ensureAgentsJson writes the example file when no backend CLI is on PATH", () => {
   const dir = tmpDir();
   const repoRoot = tmpRepoRoot();

@@ -37,7 +37,9 @@ const baseInit: ChatInitResponse = {
 
 describe("ChatContext", () => {
   let fetchJSONSpy: MockInstance<typeof client.fetchJSON>;
-  beforeEach(() => { fetchJSONSpy = vi.spyOn(client, "fetchJSON"); });
+  beforeEach(() => {
+    fetchJSONSpy = vi.spyOn(client, "fetchJSON").mockResolvedValue({ ok: true, status: 200, data: baseInit });
+  });
   afterEach(() => { fetchJSONSpy.mockRestore(); vi.restoreAllMocks(); });
 
   it("init sets session + cwd + capabilities", async () => {

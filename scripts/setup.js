@@ -89,6 +89,16 @@ const KNOWN_BACKENDS = [
       env: {},
     },
   },
+  {
+    detectBinary: "agy-acp",
+    profile: {
+      name: "antigravity",
+      kind: "antigravity-acp",
+      command: "agy-acp",
+      args: [],
+      env: {},
+    },
+  },
 ];
 
 function findOnPath(binName, pathEnv) {
