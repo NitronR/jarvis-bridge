@@ -10,6 +10,7 @@ import type {
   ChatPatch,
   ChatSessionSummary,
   SendMessageOptions,
+  SessionConfigOption,
   UsageTotals,
 } from "../agent/types";
 
@@ -87,6 +88,9 @@ export interface FakeBackendOptions {
   capabilities?: Partial<AgentCapabilities>;
   slashCommands?: Array<{ name: string; description?: string }>;
   models?: Array<{ modelId: string; name: string }>;
+  // Present to exercise the supported path; omitted (default) to exercise the
+  // 501-not-supported path, matching how server.ts gates on method presence.
+  configOptions?: SessionConfigOption[];
   initialSessionId?: string;
   initialSessionPatches?: ChatPatch[];
   listSessions?: ChatSessionSummary[];
@@ -115,6 +119,8 @@ export class FakeBackend implements AgentBackend {
   public forked: string[] = [];
   public forkedWithCwd: Array<{ sessionId: string; cwd: string | undefined }> = [];
   public currentModelBySession = new Map<string, string>();
+  public configValuesBySession = new Map<string, Map<string, string>>();
+  public setSessionConfigOption?: (sessionId: string, configId: string, value: string) => Promise<void>;
   public autoApproveDefault = false;
   public autoApproveOverrides = new Map<string, boolean>();
   public queryUsage?: () => Promise<UsageTotals["rate_limits"] | null>;
@@ -135,6 +141,18 @@ export class FakeBackend implements AgentBackend {
     };
     this.listSessionsResult = opts.listSessions ?? null;
     if (opts.queryUsage) this.queryUsage = opts.queryUsage;
+    if (opts.configOptions) {
+      this.setSessionConfigOption = async (sessionId: string, configId: string, value: string) => {
+        const opt = opts.configOptions!.find((o) => o.id === configId);
+        if (!opt) throw new Error(`unknown configId: ${configId}`);
+        if (!opt.options.some((o) => o.value === value)) {
+          throw new Error(`unknown value for ${configId}: ${value}`);
+        }
+        const m = this.configValuesBySession.get(sessionId) ?? new Map<string, string>();
+        m.set(configId, value);
+        this.configValuesBySession.set(sessionId, m);
+      };
+    }
     if (opts.initialSessionId && opts.initialSessionPatches) {
       this.sessions.set(
         opts.initialSessionId,
@@ -220,6 +238,14 @@ export class FakeBackend implements AgentBackend {
   }
   async setSessionModel(sessionId: string, modelId: string) {
     this.currentModelBySession.set(sessionId, modelId);
+  }
+  getSessionConfigOptions(sessionId: string): SessionConfigOption[] | null {
+    if (!this.opts.configOptions) return null;
+    const overrides = this.configValuesBySession.get(sessionId);
+    return this.opts.configOptions.map((o) => ({
+      ...o,
+      currentValue: overrides?.get(o.id) ?? o.currentValue,
+    }));
   }
   getSlashCommands() {
     return this.opts.slashCommands ?? [];

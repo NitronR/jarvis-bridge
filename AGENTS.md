@@ -51,6 +51,13 @@ capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcod
   `{ name, kind, command, args, env }`. `src/agent/backendConfig.ts` loads it.
 - `settings.json` (default `~/.jarvis-bridge-system/settings.json`, runtime-writable)
   holds the user's default-backend override, settable via `GET/PUT /settings/default-backend`.
+  It also holds `configCatalog` (each backend's reported `configOptions`, cached from live
+  sessions so the Settings dialog can offer defaults for a backend with no session open)
+  and `configDefaults` (the per-backend default value per `configId`), served by
+  `GET /settings/config-defaults` and `PUT /settings/config-default`. **Write it by
+  merging every in-memory key** — `setDefaultBackendName` used to overwrite the file with
+  a single-key object, which silently wiped the other two; `createSettingsStore`'s
+  `persist()` is now the only writer.
 - `session_metadata.json` (default `~/.jarvis-bridge-system/session_metadata.json`)
   persists auto-approve
   state (backend-wide default + per-session overrides) and session metadata

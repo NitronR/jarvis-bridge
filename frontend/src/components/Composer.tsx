@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
-import type { ImageAttachment, ModelInfo, UsageTotals } from "../api/types";
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import type { ConfigOption, ImageAttachment, ModelInfo, UsageTotals } from "../api/types";
+import { loadDraft, saveDraft } from "../state/drafts";
 import { loadQuickPhrases, saveQuickPhrases } from "../state/quickPhrases";
 import { QuickPhrasesRow } from "./QuickPhrasesRow";
 import { Button } from "./ui/Button";
@@ -10,6 +11,7 @@ import styles from "./Composer.module.css";
 const TEXTAREA_MAX_HEIGHT_PX = 96;
 
 export interface ComposerProps {
+  sessionId: string | null;
   busy: boolean;
   steerEnabled: boolean;
   steerSupported: boolean;
@@ -19,6 +21,8 @@ export interface ComposerProps {
   models: ModelInfo[];
   currentModel?: string | null;
   onModelChange: (modelId: string) => void;
+  configOptions: ConfigOption[];
+  onConfigOptionChange: (configId: string, value: string) => void;
   autoApproveEffective: boolean;
   autoApproveCapable: boolean;
   onAutoApproveToggle: () => void;
@@ -33,19 +37,43 @@ export interface ComposerProps {
 
 export function Composer(props: ComposerProps) {
   const {
-    busy, steerEnabled, steerSupported, imagesSupported,
+    sessionId, busy, steerEnabled, steerSupported, imagesSupported,
     attachments, latestUsage,
     models, currentModel, onModelChange,
+    configOptions, onConfigOptionChange,
     autoApproveEffective, autoApproveCapable, onAutoApproveToggle,
     onRemoveAttachment, onAttachFiles,
     onSend, onSteer, onCancel, onQueue, onToggleSteer,
   } = props;
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => loadDraft(sessionId));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [phrases, setPhrases] = useState<string[]>(() => loadQuickPhrases());
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
+  const prevSessionId = useRef(sessionId);
+
+  // Swap in the target session's saved draft when the session changes. A
+  // session arriving where there was none (init resolving on load) keeps
+  // whatever was already typed — nothing was persisted under `null` to load.
+  useEffect(() => {
+    const prev = prevSessionId.current;
+    prevSessionId.current = sessionId;
+    if (prev === sessionId) return;
+    const draft = loadDraft(sessionId);
+    if (prev === null && !draft) return;
+    setText(draft);
+  }, [sessionId]);
+
+  const updateText = (next: string) => {
+    setText(next);
+    saveDraft(sessionId, next);
+  };
+
+  const clearText = () => {
+    setText("");
+    saveDraft(sessionId, "");
+  };
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -86,14 +114,14 @@ export function Composer(props: ComposerProps) {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
     dispatch(trimmed);
-    setText("");
+    clearText();
   };
 
   const queueClick = () => {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
     void onQueue(trimmed, attachments);
-    setText("");
+    clearText();
   };
 
   const hasFiles = (ev: DragEvent) => Array.from(ev.dataTransfer.types).includes("Files");
@@ -166,7 +194,7 @@ export function Composer(props: ComposerProps) {
                 : "Type a message… (Shift+Enter for newline, Enter to send)"
           }
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => updateText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
@@ -208,6 +236,15 @@ export function Composer(props: ComposerProps) {
             disabled={models.length === 0}
             aria-label="Model"
           />
+          {configOptions.map((opt) => (
+            <Select
+              key={opt.id}
+              value={opt.currentValue}
+              options={opt.options.map((o) => ({ value: o.value, label: o.name }))}
+              onChange={(value) => onConfigOptionChange(opt.id, value)}
+              aria-label={opt.name}
+            />
+          ))}
           <button
             type="button"
             role="switch"

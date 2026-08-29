@@ -10,7 +10,7 @@
 import { createAgentBackend } from "./index";
 import { createBackendPool, type BackendPool, type BackendPoolSessionEntry, type CreateAgentBackendFn } from "./backendPool";
 import type { BackendProfile } from "./backendConfig";
-import type { SettingsStore } from "./settingsStore";
+import type { CatalogOption, SettingsStore } from "./settingsStore";
 import type { AgentBackend, AgentSession, ChatSessionSummary } from "./types";
 
 export interface RegistrySessionEntry {
@@ -24,6 +24,10 @@ export interface BackendRegistry {
   getDefaultBackendName(): string;
   setDefaultBackendName(name: string): Promise<void>;
   listBackendNames(): string[];
+  getConfigCatalog(backendName: string): CatalogOption[];
+  setConfigCatalog(backendName: string, options: CatalogOption[]): Promise<void>;
+  getConfigDefaults(backendName: string): Record<string, string>;
+  setConfigDefault(backendName: string, configId: string, value: string | null): Promise<void>;
   getDefaultBackend(cwd?: string): Promise<AgentBackend>;
   getBackend(name: string, cwd?: string): Promise<AgentBackend>;
   listSessions(): Promise<RegistrySessionEntry[]>;
@@ -99,6 +103,20 @@ export async function createBackendRegistry(opts: {
     },
     listBackendNames(): string[] {
       return profiles.map((p) => p.name);
+    },
+    getConfigCatalog(backendName: string): CatalogOption[] {
+      return settings.getConfigCatalog(backendName);
+    },
+    async setConfigCatalog(backendName: string, options: CatalogOption[]): Promise<void> {
+      if (!byName.has(backendName)) throw new Error(`unknown backend name: ${backendName}`);
+      await settings.setConfigCatalog(backendName, options);
+    },
+    getConfigDefaults(backendName: string): Record<string, string> {
+      return settings.getConfigDefaults(backendName);
+    },
+    async setConfigDefault(backendName: string, configId: string, value: string | null): Promise<void> {
+      if (!byName.has(backendName)) throw new Error(`unknown backend name: ${backendName}`);
+      await settings.setConfigDefault(backendName, configId, value);
     },
     async getDefaultBackend(cwd?: string): Promise<AgentBackend> {
       const pool = await getPool(settings.getDefaultBackendName());

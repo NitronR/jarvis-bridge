@@ -12,6 +12,7 @@ import { SettingsDialog } from "./SettingsDialog";
 import { ChatsDrawer } from "./ChatsDrawer";
 import { WorkspacesDrawer } from "./WorkspacesDrawer";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
+import { pruneDrafts } from "../state/drafts";
 import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow, DefaultBackendState } from "../api/types";
 import styles from "./ChatPanel.module.css";
 import { Button } from "./ui/Button";
@@ -200,6 +201,15 @@ function ChatPanelInner() {
     };
   }, []);
 
+  const { setAwaitingInput } = ctx;
+  useEffect(() => {
+    setAwaitingInput(pendingApproval !== null || pendingElicitation !== null);
+  }, [pendingApproval, pendingElicitation, setAwaitingInput]);
+
+  useEffect(() => {
+    return () => setAwaitingInput(false);
+  }, [setAwaitingInput]);
+
   const onApproval = useCallback((p: ChatPatch & { type: "approval-request" }) => {
     setPendingApproval(p);
   }, []);
@@ -347,6 +357,13 @@ function ChatPanelInner() {
     [chat],
   );
 
+  const onConfigOptionChange = useCallback(
+    (configId: string, value: string) => {
+      void chat.setConfigOption(configId, value);
+    },
+    [chat],
+  );
+
   const onAutoApproveToggle = useCallback(() => {
     void chat.setAutoApprove(!ctx.state.autoApprove.effective);
   }, [chat, ctx]);
@@ -427,7 +444,9 @@ function ChatPanelInner() {
     const res = await fetchJSON<{ sessions: SessionSummary[] }>("/chat/sessions");
     if (res.ok && res.data) {
       setSessions(res.data.sessions);
-      ctx.pruneTurnCounts(new Set(res.data.sessions.map((s) => s.sessionId)));
+      const liveIds = new Set(res.data.sessions.map((s) => s.sessionId));
+      ctx.pruneTurnCounts(liveIds);
+      pruneDrafts(liveIds);
     }
     setPastChatsOpen(true);
   }, [ctx]);
@@ -632,6 +651,7 @@ function ChatPanelInner() {
             onDismissQueued={(queueId) => chat.dequeueMessage(queueId)}
           />
           <Composer
+            sessionId={ctx.state.sessionId}
             busy={chat.busy}
             steerEnabled={steerEnabled}
             steerSupported={!!ctx.state.capabilities?.steer}
@@ -641,6 +661,8 @@ function ChatPanelInner() {
             models={ctx.state.models}
             currentModel={ctx.state.currentModel}
             onModelChange={onModelChange}
+            configOptions={ctx.state.configOptions}
+            onConfigOptionChange={onConfigOptionChange}
             autoApproveEffective={ctx.state.autoApprove.effective}
             autoApproveCapable={!!ctx.state.capabilities?.toolApprovals}
             onAutoApproveToggle={onAutoApproveToggle}

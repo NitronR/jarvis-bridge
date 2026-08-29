@@ -44,3 +44,49 @@ test("ignores a persisted name that is no longer valid", async () => {
   const store = await createSettingsStore({ path: p, envDefault: "opencode", validNames: ["opencode", "claude"] });
   assert.equal(store.getDefaultBackendName(), "opencode");
 });
+
+test("setDefaultBackendName preserves other keys already in the file", async () => {
+  const p = await tmpPath();
+  await fs.writeFile(p, JSON.stringify({ defaultBackendName: "opencode", configDefaults: { claude: { effort: "high" } } }), "utf8");
+  const store = await createSettingsStore({ path: p, envDefault: "opencode", validNames: ["opencode", "claude"] });
+  await store.setDefaultBackendName("claude");
+  const onDisk = JSON.parse(await fs.readFile(p, "utf8")) as Record<string, unknown>;
+  assert.equal(onDisk.defaultBackendName, "claude");
+  assert.deepEqual(onDisk.configDefaults, { claude: { effort: "high" } });
+});
+
+const CATALOG = [
+  { id: "effort", name: "Effort", category: "thought_level", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+];
+
+test("catalog and defaults round-trip through disk", async () => {
+  const p = await tmpPath();
+  const store = await createSettingsStore({ path: p, envDefault: "claude", validNames: ["opencode", "claude"] });
+  assert.deepEqual(store.getConfigCatalog("claude"), []);
+  assert.deepEqual(store.getConfigDefaults("claude"), {});
+  await store.setConfigCatalog("claude", CATALOG);
+  await store.setConfigDefault("claude", "effort", "high");
+
+  const reloaded = await createSettingsStore({ path: p, envDefault: "claude", validNames: ["opencode", "claude"] });
+  assert.deepEqual(reloaded.getConfigCatalog("claude"), CATALOG);
+  assert.deepEqual(reloaded.getConfigDefaults("claude"), { effort: "high" });
+  assert.deepEqual(reloaded.getConfigCatalog("opencode"), []);
+});
+
+test("setConfigDefault with null clears the entry", async () => {
+  const p = await tmpPath();
+  const store = await createSettingsStore({ path: p, envDefault: "claude", validNames: ["opencode", "claude"] });
+  await store.setConfigDefault("claude", "effort", "high");
+  await store.setConfigDefault("claude", "effort", null);
+  assert.deepEqual(store.getConfigDefaults("claude"), {});
+});
+
+test("setConfigCatalog does not rewrite the file when the catalog is unchanged", async () => {
+  const p = await tmpPath();
+  const store = await createSettingsStore({ path: p, envDefault: "claude", validNames: ["opencode", "claude"] });
+  await store.setConfigCatalog("claude", CATALOG);
+  const firstWrite = (await fs.stat(p)).mtimeMs;
+  await new Promise((r) => setTimeout(r, 12));
+  await store.setConfigCatalog("claude", CATALOG);
+  assert.equal((await fs.stat(p)).mtimeMs, firstWrite);
+});

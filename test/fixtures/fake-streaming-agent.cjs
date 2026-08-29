@@ -77,8 +77,11 @@ const legacySetModel = process.env.X_FAKE_AGENT_LEGACY_SET_MODEL === "true";
 // a later session/load — same as a real agent.
 const configOptions = claudeStyleConfig
   ? [
+      { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan Mode" }] },
       { id: "model", name: "Model", category: "model", type: "select", currentValue: "claude-fake", options: [{ value: "claude-fake", name: "Claude Fake" }] },
-      { id: "effort", name: "Effort", type: "select", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
+      { id: "effort", name: "Effort", category: "thought_level", type: "select", currentValue: "medium", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
+      { id: "agent", name: "Agent", currentValue: "default", options: [{ value: "default" }, { value: "reviewer" }] },
+      { id: "fast", name: "Fast", type: "boolean", currentValue: false, options: [] },
     ]
   : [
       {
@@ -384,6 +387,18 @@ rl.on("line", async (line) => {
       }
       option.currentValue = msg.params.value;
       reply(msg.id, { configOptions });
+      break;
+    }
+    case "session/set_mode": {
+      const modeId = msg.params?.modeId;
+      if (!modes.availableModes.some((m) => m.id === modeId)) {
+        replyError(msg.id, -32602, `Unknown mode: ${modeId}`);
+        break;
+      }
+      modes.currentModeId = modeId;
+      const option = configOptions.find((o) => o.id === "mode");
+      if (option) option.currentValue = modeId;
+      reply(msg.id, {});
       break;
     }
     case "session/set_model":

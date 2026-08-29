@@ -40,13 +40,22 @@ fenced code block on completion. Requires advertising a `_meta` client capabilit
 wiring streaming updates into the existing tool-call-update UI. Nice-to-have, not
 required for parity — the plain-text fallback already works.
 
-### `session/set_mode` + `session/set_config_option` pickers
-Phase 1 captures `modes`/`configOptions` data generically (doesn't drop it) but ships no
-picker UI. Phase 2: a mode picker (default/plan/acceptEdits/bypassPermissions/auto —
-note `bypassPermissions` is conditionally hidden by the adapter itself when running as
-root outside a sandbox) and a model/effort/agent/fast-mode picker, both driven by
-whatever the connected backend's `configOptions`/`modes` actually contain — no
-Claude-specific hardcoding in the picker component itself.
+### ~~`session/set_mode` + `session/set_config_option` pickers~~ — shipped 2026-08-28
+Mode/effort/agent pickers now render in the Composer next to the Model picker, driven by
+whatever `configOptions` the connected backend reports (`GET /chat/config-options`,
+`POST /chat/config-option`, and a `configOptions` field on `/chat/init`). Choices persist
+per session as `configOverrides` in `session_metadata.json` and are re-applied on resume.
+Mode-category options go through `session/set_mode`, not `set_config_option` — the
+adapter's `setSessionConfigOption` handler was never probed with `configId: "mode"`.
+See `docs/superpowers/specs/2026-08-28-session-config-pickers-design.md`.
+
+Still deferred:
+- **Boolean options.** `configId: "fast"` is `type: "boolean"`, so it's filtered out of the
+  pickers (which render string-valued selects only). It needs a toggle, not a dropdown.
+- **Live sync of agent-initiated changes.** `current_mode_update` and `config_option_update`
+  notifications are still ignored (`src/agent/acp/mapping.ts`), so a mode the *agent*
+  changes on its own (e.g. leaving plan mode) leaves the picker stale until reload.
+  User-initiated changes stay correct — the POST response carries refreshed options.
 
 ### Per-session backend picker
 Phase 1 only exposes a single default-backend setting. A future per-session override

@@ -14,6 +14,22 @@ export interface AgentCapabilities {
 
 export interface SlashCommand { name: string; description?: string; }
 export interface ModelInfo { modelId: string; name: string; }
+export interface ConfigOption {
+  id: string;
+  name: string;
+  category?: string;
+  currentValue: string;
+  options: Array<{ value: string; name: string }>;
+}
+export interface CatalogOption {
+  id: string;
+  name: string;
+  category?: string;
+  options: Array<{ value: string; name: string }>;
+}
+export interface ConfigDefaultsState {
+  backends: Array<{ name: string; options: CatalogOption[]; defaults: Record<string, string> }>;
+}
 export interface SessionSummary {
   sessionId: string;
   title?: string;
@@ -49,6 +65,7 @@ export interface ChatInitResponse {
   lastUsage: UsageTotals | null;
   autoApprove: AutoApproveState;
   model: { supported: boolean; available: ModelInfo[]; current: string | null };
+  configOptions: ConfigOption[];
   activeTurn: boolean;
 }
 

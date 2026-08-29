@@ -5,6 +5,7 @@ const COLORS: Record<string, string> = {
   idle: "#3B82F6",
   busy: "#F97316",
   unread: "#22C55E",
+  awaitingInput: "#EAB308",
 };
 
 function makeDataUri(color: string): string {
@@ -26,10 +27,11 @@ export function useFavicon(): void {
     }
 
     let color: string;
-    if (state.busy) color = COLORS.busy;
+    if (state.awaitingInput) color = COLORS.awaitingInput;
+    else if (state.busy) color = COLORS.busy;
     else if (state.unread) color = COLORS.unread;
     else color = COLORS.idle;
 
     link.href = makeDataUri(color);
-  }, [state.busy, state.unread]);
+  }, [state.awaitingInput, state.busy, state.unread]);
 }

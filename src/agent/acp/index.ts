@@ -30,6 +30,7 @@ import type {
   ChatSessionSummary,
   CreateSessionOptions,
   SendMessageOptions,
+  SessionConfigOption,
   SessionModelsInfo,
   UsageTotals,
 } from "../types";
@@ -41,6 +42,9 @@ export const CLIENT_INFO = { name: "jarvis-bridge", version: "0.1.0" };
 const WRAPPED_USER_MESSAGE_MARKER = "User message: ";
 // The `configOptions[]` entry that holds the model selector, per the ACP spec.
 const MODEL_CONFIG_ID = "model";
+// Mode has its own ACP method (`session/set_mode`); it appears in configOptions
+// too, but that duplicate is read-only as far as we're concerned.
+const MODE_CONFIG_CATEGORY = "mode";
 const JSONRPC_METHOD_NOT_FOUND = -32601;
 
 // ── Per-session state ────────────────────────────────────────────────────
@@ -77,7 +81,7 @@ interface SessionContext {
   autoApproveOverride?: boolean;
   availableModels?: Array<{ modelId: string; name: string }>;
   currentModelId?: string;
-  rawConfigOptions?: Array<{ id: string; currentValue?: string; options: Array<{ value?: string; name?: string }> }>;
+  rawConfigOptions?: RawConfigOption[];
   modes?: { currentModeId?: string; availableModes?: Array<{ id: string; name?: string }> };
   // Pump plumbing
   wakeWaiter: (() => void) | null;
@@ -567,6 +571,12 @@ export class AcpAgentBackend implements AgentBackend {
     return { available: ctx.availableModels, current: ctx.currentModelId };
   }
 
+  getSessionConfigOptions(sessionId: string): SessionConfigOption[] | null {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx?.rawConfigOptions) return null;
+    return ctx.rawConfigOptions.filter(isPickableConfigOption).map(toSessionConfigOption);
+  }
+
   async setSessionModel(sessionId: string, modelId: string): Promise<void> {
     const ctx = this.sessions.get(sessionId);
     if (!ctx?.availableModels) throw new Error("unknown session or models not loaded");
@@ -603,6 +613,46 @@ export class AcpAgentBackend implements AgentBackend {
       ctx.currentModelId = modelId;
     }
     console.log(`[ACP] setSessionModel sessionId=${sessionId} modelId=${modelId} → current=${ctx.currentModelId}`);
+  }
+
+  async setSessionConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx?.rawConfigOptions) throw new Error("unknown session or config options not loaded");
+    if (configId === MODEL_CONFIG_ID) {
+      throw new Error("model is set through setSessionModel, not setSessionConfigOption");
+    }
+    const option = ctx.rawConfigOptions.find((o) => o.id === configId);
+    if (!option) throw new Error(`unknown configId: ${configId}`);
+    if (!option.options.some((o) => o.value === value)) {
+      throw new Error(`unknown value for ${configId}: ${value}`);
+    }
+    if (option.category === MODE_CONFIG_CATEGORY) {
+      await this.conn.sendRequest("session/set_mode", { sessionId, modeId: value });
+      // set_mode answers with no refreshed config, so move local state by hand.
+      option.currentValue = value;
+      if (ctx.modes) ctx.modes.currentModeId = value;
+      console.log(`[ACP] setSessionConfigOption sessionId=${sessionId} mode=${value}`);
+      return;
+    }
+    const res = (await this.conn.sendRequest("session/set_config_option", {
+      sessionId,
+      configId,
+      value,
+    })) as SessionConfigResponse;
+    // The response carries every option with a refreshed currentValue — adopt
+    // it wholesale rather than assuming the requested value stuck, same reason
+    // setSessionModel does (agents resolve values, they don't just validate).
+    const parsed = res?.configOptions?.length ? parseSessionConfig(res) : null;
+    if (parsed) {
+      ctx.rawConfigOptions = parsed.rawConfigOptions;
+      if (parsed.models.available.length > 0) {
+        ctx.availableModels = parsed.models.available;
+        ctx.currentModelId = parsed.models.current;
+      }
+    } else {
+      option.currentValue = value;
+    }
+    console.log(`[ACP] setSessionConfigOption sessionId=${sessionId} ${configId}=${value}`);
   }
 
   async queryUsage(): Promise<UsageTotals["rate_limits"] | null> {
@@ -765,10 +815,22 @@ export class AcpAgentBackend implements AgentBackend {
   }
 }
 
+interface RawConfigOption {
+  id: string;
+  name?: string;
+  category?: string;
+  type?: string;
+  currentValue?: unknown;
+  options: Array<{ value?: string; name?: string }>;
+}
+
 interface SessionConfigResponse {
   configOptions?: Array<{
     id?: string;
-    currentValue?: string;
+    name?: string;
+    category?: string;
+    type?: string;
+    currentValue?: unknown;
     options?: Array<{ value?: string; name?: string }>;
   }>;
   modes?: { currentModeId?: string; availableModes?: Array<{ id?: string; name?: string }> };
@@ -776,18 +838,26 @@ interface SessionConfigResponse {
 
 function parseSessionConfig(res: SessionConfigResponse | undefined): {
   models: { available: Array<{ modelId: string; name: string }>; current: string };
-  rawConfigOptions: Array<{ id: string; currentValue?: string; options: Array<{ value?: string; name?: string }> }>;
+  rawConfigOptions: RawConfigOption[];
   modes?: { currentModeId?: string; availableModes?: Array<{ id: string; name?: string }> };
 } {
   const opts = res?.configOptions;
-  const rawConfigOptions = (opts ?? [])
-    .filter((o): o is { id: string; currentValue?: string; options?: Array<{ value?: string; name?: string }> } => typeof o.id === "string")
-    .map((o) => ({ id: o.id, currentValue: o.currentValue, options: o.options ?? [] }));
+  const rawConfigOptions: RawConfigOption[] = (opts ?? [])
+    .filter((o): o is typeof o & { id: string } => typeof o.id === "string")
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      category: o.category,
+      type: o.type,
+      currentValue: o.currentValue,
+      options: o.options ?? [],
+    }));
   const modelOpt = rawConfigOptions.find((o) => o.id === MODEL_CONFIG_ID);
   const available = (modelOpt?.options ?? [])
     .filter((o): o is { value: string; name?: string } => typeof o.value === "string")
     .map((o) => ({ modelId: o.value, name: o.name ?? o.value }));
-  const models = { available, current: modelOpt?.currentValue ?? available[0]?.modelId ?? "" };
+  const modelCurrent = typeof modelOpt?.currentValue === "string" ? modelOpt.currentValue : undefined;
+  const models = { available, current: modelCurrent ?? available[0]?.modelId ?? "" };
   const modesOut = res?.modes
     ? {
         currentModeId: res.modes.currentModeId,
@@ -796,6 +866,29 @@ function parseSessionConfig(res: SessionConfigResponse | undefined): {
       }
     : undefined;
   return { models, rawConfigOptions, modes: modesOut };
+}
+
+// A config option is pickable when it renders as a select with a string value.
+// `type` is optional in the ACP shape — an agent that omits it still means a
+// select, so only an explicit non-"select" type disqualifies. The string check
+// on currentValue is what actually excludes boolean options like Claude's `fast`.
+function isPickableConfigOption(o: RawConfigOption): boolean {
+  if (o.id === MODEL_CONFIG_ID) return false;
+  if (o.type !== undefined && o.type !== "select") return false;
+  if (typeof o.currentValue !== "string") return false;
+  return o.options.some((opt) => typeof opt.value === "string");
+}
+
+function toSessionConfigOption(o: RawConfigOption): SessionConfigOption {
+  return {
+    id: o.id,
+    name: o.name ?? o.id,
+    category: o.category,
+    currentValue: o.currentValue as string,
+    options: o.options
+      .filter((opt): opt is { value: string; name?: string } => typeof opt.value === "string")
+      .map((opt) => ({ value: opt.value, name: opt.name ?? opt.value })),
+  };
 }
 
 function getIdleTurnGraceMs(): number {

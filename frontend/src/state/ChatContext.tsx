@@ -5,7 +5,7 @@ import {
 import { fetchJSON } from "../api/client";
 import type {
   AgentCapabilities, AutoApproveState, ChatHistoryEntry, ChatInitResponse,
-  ModelInfo, SlashCommand, UsageTotals,
+  ConfigOption, ModelInfo, SlashCommand, UsageTotals,
 } from "../api/types";
 
 export interface ChatState {
@@ -17,10 +17,12 @@ export interface ChatState {
   slashCommands: SlashCommand[];
   models: ModelInfo[];
   currentModel: string | null;
+  configOptions: ConfigOption[];
   autoApprove: AutoApproveState;
   busy: boolean;
   loading: boolean;
   unread: boolean;
+  awaitingInput: boolean;
   title: string;
   pinned: boolean;
   group: string;
@@ -41,10 +43,12 @@ const INITIAL: ChatState = {
   slashCommands: [],
   models: [],
   currentModel: null,
+  configOptions: [],
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   busy: false,
   loading: false,
   unread: false,
+  awaitingInput: false,
   title: "New chat",
   pinned: false,
   group: "",
@@ -61,12 +65,14 @@ export interface ChatContextApi {
   init: (sessionId?: string | null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }) => Promise<void>;
   setBusy: (b: boolean) => void;
   setUnread: (u: boolean) => void;
+  setAwaitingInput: (a: boolean) => void;
   setTitle: (t: string) => void;
   setPinned: (p: boolean) => void;
   setGroup: (g: string) => void;
   setGroups: (g: string[]) => void;
   setSlashCommands: (cmds: SlashCommand[]) => void;
   setModels: (available: ModelInfo[], current: string | null) => void;
+  setConfigOptions: (options: ConfigOption[]) => void;
   setAutoApprove: (a: AutoApproveState) => void;
   setSession: (sid: string, cwd: string) => void;
   reset: () => void;
@@ -180,6 +186,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           slashCommands: d.slashCommands || [],
           models: d.model?.available || [],
           currentModel: d.model?.current || null,
+          configOptions: d.configOptions || [],
           autoApprove: d.autoApprove,
           resumed: d.resumed,
           activeTurn: d.activeTurn ?? false,
@@ -227,6 +234,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const setUnread = useCallback((u: boolean) => {
     setState((s) => (s.unread === u ? s : { ...s, unread: u }));
   }, []);
+  const setAwaitingInput = useCallback((a: boolean) => {
+    setState((s) => (s.awaitingInput === a ? s : { ...s, awaitingInput: a }));
+  }, []);
   const setTitle = useCallback((t: string) => setState((s) => ({ ...s, title: t })), []);
   const setPinned = useCallback((p: boolean) => setState((s) => ({ ...s, pinned: p })), []);
   const setGroup = useCallback((g: string) => setState((s) => ({ ...s, group: g })), []);
@@ -234,6 +244,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const setSlashCommands = useCallback((cmds: SlashCommand[]) => setState((s) => ({ ...s, slashCommands: cmds })), []);
   const setModels = useCallback((available: ModelInfo[], current: string | null) => {
     setState((s) => ({ ...s, models: available, currentModel: current }));
+  }, []);
+  const setConfigOptions = useCallback((options: ConfigOption[]) => {
+    setState((s) => ({ ...s, configOptions: options }));
   }, []);
   const setAutoApprove = useCallback((a: AutoApproveState) => setState((s) => ({ ...s, autoApprove: a })), []);
   const setSession = useCallback((sid: string, cwd: string) => {
@@ -274,8 +287,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [init]);
 
   const api = useMemo<ChatContextApi>(
-    () => ({ state, init, setBusy, setUnread, setTitle, setPinned, setGroup, setGroups, setSlashCommands, setModels, setAutoApprove, setSession, reset, getTurnCount, pruneTurnCounts }),
-    [state, init, setBusy, setUnread, setTitle, setPinned, setGroup, setGroups, setSlashCommands, setModels, setAutoApprove, setSession, reset, getTurnCount, pruneTurnCounts],
+    () => ({ state, init, setBusy, setUnread, setAwaitingInput, setTitle, setPinned, setGroup, setGroups, setSlashCommands, setModels, setConfigOptions, setAutoApprove, setSession, reset, getTurnCount, pruneTurnCounts }),
+    [state, init, setBusy, setUnread, setAwaitingInput, setTitle, setPinned, setGroup, setGroups, setSlashCommands, setModels, setConfigOptions, setAutoApprove, setSession, reset, getTurnCount, pruneTurnCounts],
   );
 
   return <ChatContext.Provider value={api}>{children}</ChatContext.Provider>;

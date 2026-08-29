@@ -80,6 +80,17 @@ export interface SessionModelsInfo {
   current: string;
 }
 
+// One pickable session config option, normalized from ACP `configOptions[]`.
+// Deliberately protocol-generic: any backend that reports select-style options
+// gets a picker, with no per-backend id vocabulary baked in here.
+export interface SessionConfigOption {
+  id: string;
+  name: string;
+  category?: string;
+  currentValue: string;
+  options: Array<{ value: string; name: string }>;
+}
+
 export interface AgentBackend {
   readonly kind: string;
   readonly role: "chat";
@@ -106,6 +117,8 @@ export interface AgentBackend {
   getSession?(sessionId: string): AgentSession | null;
   getSessionModels?(sessionId: string): SessionModelsInfo | null;
   setSessionModel?(sessionId: string, modelId: string): Promise<void>;
+  getSessionConfigOptions?(sessionId: string): SessionConfigOption[] | null;
+  setSessionConfigOption?(sessionId: string, configId: string, value: string): Promise<void>;
   getSlashCommands?(): Array<{ name: string; description?: string }>;
   deleteSession?(sessionId: string): Promise<void>;
 

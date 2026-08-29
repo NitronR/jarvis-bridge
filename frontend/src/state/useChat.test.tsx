@@ -33,6 +33,7 @@ const baseInit: ChatInitResponse = {
   lastUsage: null,
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   model: { supported: false, available: [], current: null },
+  configOptions: [],
 };
 
 function wrapperWithChat({ children }: { children: ReactNode }) {
@@ -403,5 +404,51 @@ describe("useChat", () => {
       expect(queuedEntries(result.current.transcript)).toHaveLength(0);
       expect(calls).toHaveLength(1);
     });
+  });
+
+  it("posts a config option change and adopts the refreshed options", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init(); });
+
+    const refreshed = [
+      {
+        id: "effort",
+        name: "Effort",
+        currentValue: "high",
+        options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }],
+      },
+    ];
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: { ok: true, options: refreshed } });
+    await act(async () => { await result.current.setConfigOption("effort", "high"); });
+
+    expect(fetchJSONSpy).toHaveBeenLastCalledWith("/chat/config-option", {
+      method: "POST",
+      body: { sessionId: "sess-1", configId: "effort", value: "high" },
+    });
+    expect(
+      result.current.context.state.configOptions.find((o) => o.id === "effort")?.currentValue,
+    ).toBe("high");
+  });
+
+  it("leaves the previous config value in place when the change is rejected", async () => {
+    const initial = [
+      {
+        id: "effort",
+        name: "Effort",
+        currentValue: "medium",
+        options: [{ value: "medium", name: "Medium" }, { value: "high", name: "High" }],
+      },
+    ];
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: { ...baseInit, configOptions: initial } });
+    const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+    await act(async () => { await result.current.context.init(); });
+
+    fetchJSONSpy.mockResolvedValue({ ok: false, status: 400, data: { error: "unknown value" } });
+    await act(async () => { await result.current.setConfigOption("effort", "high"); });
+
+    expect(
+      result.current.context.state.configOptions.find((o) => o.id === "effort")?.currentValue,
+    ).toBe("medium");
   });
 });

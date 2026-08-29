@@ -57,6 +57,8 @@ async function withServer<T>(
 
 function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/backendRegistry").BackendRegistry {
   let defaultBackend = "fake";
+  const catalogs = new Map<string, import("./agent/settingsStore").CatalogOption[]>();
+  const defaults = new Map<string, Record<string, string>>();
   return {
     getDefaultBackendName: () => defaultBackend,
     setDefaultBackendName: async (name: string) => {
@@ -66,6 +68,15 @@ function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/ba
       defaultBackend = name;
     },
     listBackendNames: () => ["fake", "other"],
+    getConfigCatalog: (name: string) => catalogs.get(name) ?? [],
+    setConfigCatalog: async (name: string, options) => { catalogs.set(name, options); },
+    getConfigDefaults: (name: string) => ({ ...(defaults.get(name) ?? {}) }),
+    setConfigDefault: async (name: string, configId: string, value: string | null) => {
+      const cur = { ...(defaults.get(name) ?? {}) };
+      if (value == null) delete cur[configId];
+      else cur[configId] = value;
+      defaults.set(name, cur);
+    },
     getDefaultBackend: async () => backend,
     getBackend: async () => backend,
     listSessions: async () => {
@@ -1277,4 +1288,243 @@ test("POST /chat/pick-folder returns cancelled=true when the user cancels the di
       },
     }));
   });
+});
+
+const FAKE_CONFIG_OPTIONS = [
+  {
+    id: "effort",
+    name: "Effort",
+    category: "thought_level",
+    currentValue: "medium",
+    options: [
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+    ],
+  },
+];
+
+test("GET /chat/config-options returns the backend's options", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS }),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/config-options?sessionId=${initBody.sessionId}`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as {
+        ok: boolean;
+        supported: boolean;
+        options: Array<{ id: string; currentValue: string }>;
+      };
+      assert.equal(body.supported, true);
+      assert.equal(body.options.length, 1);
+      assert.equal(body.options[0].id, "effort");
+      assert.equal(body.options[0].currentValue, "medium");
+    },
+  }));
+});
+
+test("GET /chat/config-options reports unsupported when the backend has none", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/config-options?sessionId=${initBody.sessionId}`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { supported: boolean; options: unknown[] };
+      assert.equal(body.supported, false);
+      assert.deepEqual(body.options, []);
+    },
+  }));
+});
+
+test("GET /chat/config-options 404s for an unknown session", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS }),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/config-options?sessionId=nope`);
+      assert.equal(res.status, 404);
+    },
+  }));
+});
+
+test("GET /chat/init carries configOptions", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS }),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/init`);
+      const body = (await res.json()) as { configOptions: Array<{ id: string }> };
+      assert.deepEqual(body.configOptions.map((o) => o.id), ["effort"]);
+    },
+  }));
+});
+
+test("POST /chat/config-option sets the value and returns refreshed options", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS }),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const initBody = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/config-option`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: initBody.sessionId, configId: "effort", value: "high" }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean; options: Array<{ id: string; currentValue: string }> };
+      assert.equal(body.ok, true);
+      assert.equal(body.options.find((o) => o.id === "effort")?.currentValue, "high");
+    },
+  }));
+});
+
+test("POST /chat/config-option rejects model, unknown ids, and unknown values", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS }),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const { sessionId } = (await initRes.json()) as { sessionId: string };
+      const post = (payload: Record<string, string>) =>
+        fetch(`${url}/chat/config-option`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId, ...payload }),
+        });
+      assert.equal((await post({ configId: "model", value: "m1" })).status, 400);
+      assert.equal((await post({ configId: "nonesuch", value: "x" })).status, 400);
+      assert.equal((await post({ configId: "effort", value: "nonesuch" })).status, 400);
+    },
+  }));
+});
+
+test("POST /chat/config-option returns 501 when the backend can't set options", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const initRes = await fetch(`${url}/chat/init`);
+      const { sessionId } = (await initRes.json()) as { sessionId: string };
+      const res = await fetch(`${url}/chat/config-option`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, configId: "effort", value: "high" }),
+      });
+      assert.equal(res.status, 501);
+    },
+  }));
+});
+
+test("a config override is persisted and re-applied when the session resumes", async () => {
+  await withServer(async () => {
+    const backend = new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS });
+    return {
+      backend,
+      fn: async (url) => {
+        const initRes = await fetch(`${url}/chat/init`);
+        const { sessionId } = (await initRes.json()) as { sessionId: string };
+        await fetch(`${url}/chat/config-option`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId, configId: "effort", value: "high" }),
+        });
+        // Drop the in-memory value the way a gateway restart would, leaving
+        // only the persisted override to restore it.
+        backend.configValuesBySession.clear();
+        const resumeRes = await fetch(`${url}/chat/init?sessionId=${sessionId}`);
+        const resumeBody = (await resumeRes.json()) as {
+          configOptions: Array<{ id: string; currentValue: string }>;
+        };
+        assert.equal(
+          resumeBody.configOptions.find((o) => o.id === "effort")?.currentValue,
+          "high",
+        );
+      },
+    };
+  });
+});
+
+test("/chat/init caches the backend's config catalog", async () => {
+  await withServer(async () => {
+    const backend = new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS });
+    return {
+      backend,
+      fn: async (url) => {
+        await fetch(`${url}/chat/init`);
+        const res = await fetch(`${url}/settings/config-defaults`);
+        const body = (await res.json()) as { backends: Array<{ name: string; options: Array<{ id: string }> }> };
+        const entry = body.backends.find((b) => b.name === "fake");
+        assert.deepEqual(entry?.options.map((o) => o.id), ["effort"]);
+      },
+    };
+  });
+});
+
+test("a backend default is applied to a new session", async () => {
+  await withServer(async () => {
+    const backend = new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS });
+    return {
+      backend,
+      fn: async (url) => {
+        await fetch(`${url}/chat/init`);
+        await fetch(`${url}/settings/config-default`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ backend: "fake", configId: "effort", value: "high" }),
+        });
+        const res = await fetch(`${url}/chat/init`);
+        const body = (await res.json()) as { configOptions: Array<{ id: string; currentValue: string }> };
+        assert.equal(body.configOptions.find((o) => o.id === "effort")?.currentValue, "high");
+      },
+    };
+  });
+});
+
+test("a session override beats the backend default", async () => {
+  await withServer(async () => {
+    const backend = new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS });
+    return {
+      backend,
+      fn: async (url) => {
+        const { sessionId } = (await (await fetch(`${url}/chat/init`)).json()) as { sessionId: string };
+        await fetch(`${url}/chat/config-option`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId, configId: "effort", value: "low" }),
+        });
+        await fetch(`${url}/settings/config-default`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ backend: "fake", configId: "effort", value: "high" }),
+        });
+        const res = await fetch(`${url}/chat/init?sessionId=${sessionId}`);
+        const body = (await res.json()) as { configOptions: Array<{ id: string; currentValue: string }> };
+        assert.equal(body.configOptions.find((o) => o.id === "effort")?.currentValue, "low");
+      },
+    };
+  });
+});
+
+test("PUT /settings/config-default validates against the cached catalog", async () => {
+  await withServer(async () => ({
+    backend: new FakeBackend({ configOptions: FAKE_CONFIG_OPTIONS }),
+    fn: async (url) => {
+      await fetch(`${url}/chat/init`);
+      const put = (payload: Record<string, unknown>) =>
+        fetch(`${url}/settings/config-default`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      assert.equal((await put({ backend: "fake", configId: "effort", value: "high" })).status, 200);
+      assert.equal((await put({ backend: "nonesuch", configId: "effort", value: "high" })).status, 400);
+      assert.equal((await put({ backend: "fake", configId: "model", value: "m1" })).status, 400);
+      assert.equal((await put({ backend: "fake", configId: "nope", value: "high" })).status, 400);
+      assert.equal((await put({ backend: "fake", configId: "effort", value: "nope" })).status, 400);
+      const cleared = await put({ backend: "fake", configId: "effort", value: null });
+      assert.equal(cleared.status, 200);
+      const body = (await cleared.json()) as { defaults: Record<string, string> };
+      assert.deepEqual(body.defaults, {});
+    },
+  }));
 });

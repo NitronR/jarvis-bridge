@@ -19,6 +19,7 @@ const baseState: ChatState = {
   slashCommands: [{ name: "review" }],
   models: [{ modelId: "m1", name: "Model One" }],
   currentModel: "m1",
+  configOptions: [],
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   busy: false,
   unread: false,

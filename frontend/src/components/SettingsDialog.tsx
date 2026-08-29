@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchJSON } from "../api/client";
 import { loadQuickPhrases, saveQuickPhrases } from "../state/quickPhrases";
-import type { DefaultBackendState } from "../api/types";
+import type { ConfigDefaultsState, DefaultBackendState } from "../api/types";
 import styles from "./SettingsDialog.module.css";
 
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -9,6 +9,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [draft, setDraft] = useState("");
   const [backends, setBackends] = useState<DefaultBackendState | null>(null);
   const [backendSaving, setBackendSaving] = useState(false);
+  const [configDefaults, setConfigDefaults] = useState<ConfigDefaultsState | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -16,6 +17,9 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     setDraft("");
     void fetchJSON<DefaultBackendState>("/settings/default-backend").then((res) => {
       if (res.ok && res.data) setBackends(res.data);
+    });
+    void fetchJSON<ConfigDefaultsState>("/settings/config-defaults").then((res) => {
+      if (res.ok && res.data) setConfigDefaults(res.data);
     });
   }, [open]);
 
@@ -41,6 +45,24 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     } finally {
       setBackendSaving(false);
     }
+  };
+
+  const onChangeConfigDefault = async (backend: string, configId: string, raw: string) => {
+    const value = raw === "" ? null : raw;
+    const res = await fetchJSON<{ ok: boolean; defaults: Record<string, string> }>(
+      "/settings/config-default",
+      { method: "PUT", body: { backend, configId, value } },
+    );
+    if (!res.ok || !res.data) return;
+    setConfigDefaults((prev) =>
+      prev
+        ? {
+            backends: prev.backends.map((b) =>
+              b.name === backend ? { ...b, defaults: res.data!.defaults } : b,
+            ),
+          }
+        : prev,
+    );
   };
 
   const add = () => {
@@ -83,6 +105,33 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           ) : (
             <p className={styles.muted}>Loading…</p>
           )}
+          <h3>Backend defaults</h3>
+          <p className={styles.muted}>
+            Applied to sessions on that backend unless the chat has its own setting.
+          </p>
+          {configDefaults?.backends.map((b) => (
+            <div key={b.name}>
+              <h4>{b.name}</h4>
+              {b.options.length === 0 ? (
+                <p className={styles.muted}>Start a chat on this backend to configure its defaults.</p>
+              ) : (
+                b.options.map((opt) => (
+                  <label key={opt.id}>
+                    {`${b.name} — ${opt.name}`}
+                    <select
+                      value={b.defaults[opt.id] ?? ""}
+                      onChange={(e) => void onChangeConfigDefault(b.name, opt.id, e.target.value)}
+                    >
+                      <option value="">Agent default</option>
+                      {opt.options.map((o) => (
+                        <option key={o.value} value={o.value}>{o.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ))
+              )}
+            </div>
+          ))}
           <h3>Quick phrases</h3>
           <p className={styles.muted}>Available from the ⚡ picker in the composer. Saved locally.</p>
           <ul>

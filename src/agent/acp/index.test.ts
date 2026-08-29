@@ -736,6 +736,138 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
       fs.rmSync(eventLogFile, { force: true });
     }
   });
+
+  test("parseSessionConfig keeps name, category and type instead of dropping them", async () => {
+    const backend = await newBackend({ X_FAKE_AGENT_CLAUDE_STYLE_CONFIG: "true" });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      const raw = backend.getSessionRawConfig(session.id);
+      const effort = raw?.rawConfigOptions?.find((o) => o.id === "effort");
+      assert.equal(effort?.name, "Effort");
+      assert.equal(effort?.category, "thought_level");
+      assert.equal(effort?.type, "select");
+      // A boolean option's currentValue is not a string — the type must allow it
+      // through the parse rather than mistyping it.
+      const fast = raw?.rawConfigOptions?.find((o) => o.id === "fast");
+      assert.equal(fast?.currentValue, false);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("getSessionConfigOptions returns pickable options and excludes model and booleans", async () => {
+    const backend = await newBackend({ X_FAKE_AGENT_CLAUDE_STYLE_CONFIG: "true" });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      const opts = backend.getSessionConfigOptions(session.id);
+      assert.ok(opts);
+      const ids = opts!.map((o) => o.id);
+      assert.deepEqual(ids, ["mode", "effort", "agent"]);
+      // `model` is owned by /chat/model; `fast` is boolean-valued.
+      assert.ok(!ids.includes("model"));
+      assert.ok(!ids.includes("fast"));
+      // `agent` has no `type` field at all and must still come through.
+      assert.equal(opts!.find((o) => o.id === "agent")?.name, "Agent");
+      // Option labels fall back to the raw value when the agent omits `name`.
+      const effort = opts!.find((o) => o.id === "effort");
+      assert.equal(effort?.currentValue, "medium");
+      assert.deepEqual(effort?.options, [
+        { value: "low", name: "low" },
+        { value: "medium", name: "medium" },
+        { value: "high", name: "high" },
+      ]);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("getSessionConfigOptions returns null for an unknown session", async () => {
+    const backend = await newBackend();
+    try {
+      assert.equal(backend.getSessionConfigOptions("nope"), null);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("setSessionConfigOption sends session/set_config_option and adopts the refreshed response", async () => {
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    const backend = await newBackend({
+      X_FAKE_AGENT_CLAUDE_STYLE_CONFIG: "true",
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await backend.setSessionConfigOption(session.id, "effort", "high");
+      assert.equal(
+        backend.getSessionConfigOptions(session.id)?.find((o) => o.id === "effort")?.currentValue,
+        "high",
+      );
+      const log = fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      const setCall = log.find((e: { method: string }) => e.method === "session/set_config_option");
+      assert.ok(setCall);
+      assert.equal(setCall.params.configId, "effort");
+      assert.equal(setCall.params.value, "high");
+    } finally {
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
+
+  test("setSessionConfigOption rejects unknown ids, unknown values, and model", async () => {
+    const backend = await newBackend({ X_FAKE_AGENT_CLAUDE_STYLE_CONFIG: "true" });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await assert.rejects(
+        () => backend.setSessionConfigOption(session.id, "nonesuch", "x"),
+        /unknown configId/,
+      );
+      await assert.rejects(
+        () => backend.setSessionConfigOption(session.id, "effort", "nonesuch"),
+        /unknown value/,
+      );
+      // The model picker owns `model` — a second writer would desync the
+      // persisted override in server.ts.
+      await assert.rejects(
+        () => backend.setSessionConfigOption(session.id, "model", "claude-fake"),
+        /setSessionModel/,
+      );
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("setSessionConfigOption routes mode-category options through session/set_mode", async () => {
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    const backend = await newBackend({
+      X_FAKE_AGENT_CLAUDE_STYLE_CONFIG: "true",
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      await backend.setSessionConfigOption(session.id, "mode", "plan");
+      assert.equal(
+        backend.getSessionConfigOptions(session.id)?.find((o) => o.id === "mode")?.currentValue,
+        "plan",
+      );
+      assert.equal(backend.getSessionRawConfig(session.id)?.modes?.currentModeId, "plan");
+      const log = fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      assert.ok(
+        log.some((e: { method: string }) => e.method === "session/set_mode"),
+        "mode must go through session/set_mode",
+      );
+      assert.ok(
+        !log.some(
+          (e: { method: string; params?: { configId?: string } }) =>
+            e.method === "session/set_config_option" && e.params?.configId === "mode",
+        ),
+        "mode must not be written through set_config_option",
+      );
+    } finally {
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
 });
 
 describe("AcpAgentBackend.queryUsage", () => {

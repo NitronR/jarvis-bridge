@@ -320,3 +320,20 @@ test("ignores non-array groups on load", async () => {
   const store = await createSessionConfigStore({ path: p, envDefault: false });
   assert.deepEqual(store.getGroups(), []);
 });
+test("config overrides round-trip through disk and null deletes", async () => {
+  const p = await tmpPath();
+  const store = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(store.getConfigOverrides("s1"), {});
+  await store.setConfigOverride("s1", "effort", "high");
+  await store.setConfigOverride("s1", "mode", "plan");
+  assert.deepEqual(store.getConfigOverrides("s1"), { effort: "high", mode: "plan" });
+
+  const reloaded = await createSessionConfigStore({ path: p, envDefault: false });
+  assert.deepEqual(reloaded.getConfigOverrides("s1"), { effort: "high", mode: "plan" });
+
+  await reloaded.setConfigOverride("s1", "mode", null);
+  assert.deepEqual(reloaded.getConfigOverrides("s1"), { effort: "high" });
+
+  await reloaded.setConfigOverride("s1", "effort", null);
+  assert.deepEqual(reloaded.getConfigOverrides("s1"), {});
+});

@@ -33,6 +33,7 @@ const baseInit: ChatInitResponse = {
   lastUsage: null,
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   model: { supported: false, available: [], current: null },
+  configOptions: [],
 };
 
 describe("ChatContext", () => {
@@ -223,5 +224,26 @@ describe("ChatContext", () => {
         expect(result.current.getTurnCount("anything")).toBeUndefined();
       });
     });
+  });
+
+  it("init copies configOptions from the server response into state", async () => {
+    const configOptions = [
+      {
+        id: "effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: "medium",
+        options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }],
+      },
+    ];
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: { ...baseInit, configOptions } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ChatProvider>{children}</ChatProvider>
+    );
+    const { result } = renderHook(() => useChatContext(), { wrapper });
+    await act(async () => { await result.current.init(); });
+    expect(result.current.state.configOptions).toHaveLength(1);
+    expect(result.current.state.configOptions[0].id).toBe("effort");
+    expect(result.current.state.configOptions[0].currentValue).toBe("medium");
   });
 });

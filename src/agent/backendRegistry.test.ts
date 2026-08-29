@@ -255,3 +255,26 @@ test("claude backend profile sets kind to claude-acp and propagates configured e
     await fs.rm(workspace, { recursive: true, force: true });
   }
 });
+
+test("config catalog and defaults round-trip through the registry", async () => {
+  const workspace = await mkWorkspace();
+  let registry;
+  try {
+    const settings = await createSettingsStore({
+      path: path.join(workspace, "settings.json"),
+      envDefault: "opencode",
+      validNames: ["opencode", "claude"],
+    });
+    registry = await createBackendRegistry({ profiles: profiles(), settings, workspace, autoApprove: false });
+    const catalog = [{ id: "effort", name: "Effort", options: [{ value: "high", name: "High" }] }];
+    await registry.setConfigCatalog("claude", catalog);
+    await registry.setConfigDefault("claude", "effort", "high");
+    assert.deepEqual(registry.getConfigCatalog("claude"), catalog);
+    assert.deepEqual(registry.getConfigDefaults("claude"), { effort: "high" });
+    assert.deepEqual(registry.getConfigDefaults("opencode"), {});
+    await assert.rejects(() => registry!.setConfigDefault("nonesuch", "effort", "high"), /unknown backend name/);
+  } finally {
+    await registry?.shutdown();
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});

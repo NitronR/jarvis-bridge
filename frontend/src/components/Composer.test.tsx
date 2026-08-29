@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Composer } from "./Composer";
 import { saveQuickPhrases, loadQuickPhrases } from "../state/quickPhrases";
-import type { ImageAttachment } from "../api/types";
+import { loadDraft, saveDraft } from "../state/drafts";
+import type { ConfigOption, ImageAttachment } from "../api/types";
 
 const noopAsync = async () => {};
 
 const baseProps = {
+  sessionId: "s1",
   busy: false,
   steerEnabled: false,
   steerSupported: true,
@@ -15,6 +17,8 @@ const baseProps = {
   models: [] as { modelId: string; name: string }[],
   currentModel: null as string | null,
   onModelChange: vi.fn(),
+  configOptions: [] as ConfigOption[],
+  onConfigOptionChange: vi.fn(),
   autoApproveEffective: false,
   autoApproveCapable: true,
   onAutoApproveToggle: vi.fn(),
@@ -162,6 +166,70 @@ describe("<Composer>", () => {
     expect(textarea.value).toBe("");
   });
 
+  describe("per-session drafts", () => {
+    it("repopulates the textarea from the saved draft on mount", () => {
+      saveDraft("s1", "half-written thought");
+      render(<Composer {...baseProps} />);
+      const textarea = screen.getByPlaceholderText(/type a message/i) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("half-written thought");
+    });
+
+    it("saves typed text as the session's draft", () => {
+      render(<Composer {...baseProps} />);
+      fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "work in progress" } });
+      expect(loadDraft("s1")).toBe("work in progress");
+    });
+
+    it("clears the saved draft once the message is sent", () => {
+      render(<Composer {...baseProps} />);
+      fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "send me" } });
+      fireEvent.click(screen.getByText("Send"));
+      expect(loadDraft("s1")).toBe("");
+    });
+
+    it("clears the saved draft once the message is queued", () => {
+      render(<Composer {...baseProps} busy={true} />);
+      fireEvent.change(screen.getByPlaceholderText(/queue a message/i), { target: { value: "queue me" } });
+      fireEvent.click(screen.getByText("Queue"));
+      expect(loadDraft("s1")).toBe("");
+    });
+
+    it("swaps in the other session's draft when the session changes", () => {
+      saveDraft("s2", "other chat draft");
+      const { rerender } = render(<Composer {...baseProps} />);
+      const textarea = screen.getByPlaceholderText(/type a message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "first chat draft" } });
+      rerender(<Composer {...baseProps} sessionId="s2" />);
+      expect(textarea.value).toBe("other chat draft");
+      expect(loadDraft("s1")).toBe("first chat draft");
+    });
+
+    it("empties the textarea when switching to a session with no draft", () => {
+      const { rerender } = render(<Composer {...baseProps} />);
+      const textarea = screen.getByPlaceholderText(/type a message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "first chat draft" } });
+      rerender(<Composer {...baseProps} sessionId="s2" />);
+      expect(textarea.value).toBe("");
+      expect(loadDraft("s1")).toBe("first chat draft");
+    });
+
+    it("keeps text typed before the session id arrived, and saves it under the new session", () => {
+      const { rerender } = render(<Composer {...baseProps} sessionId={null} />);
+      const textarea = screen.getByPlaceholderText(/type a message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "typed while loading" } });
+      rerender(<Composer {...baseProps} sessionId="s1" />);
+      expect(textarea.value).toBe("typed while loading");
+      fireEvent.change(textarea, { target: { value: "typed while loading!" } });
+      expect(loadDraft("s1")).toBe("typed while loading!");
+    });
+
+    it("does not persist a draft while there is no session", () => {
+      render(<Composer {...baseProps} sessionId={null} />);
+      fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "nowhere to go" } });
+      expect(window.localStorage.getItem("jarvis.drafts")).toBeNull();
+    });
+  });
+
   describe("empty-input handling", () => {
     it("disables Send when the composer is empty", () => {
       render(<Composer {...baseProps} />);
@@ -303,5 +371,37 @@ describe("<Composer>", () => {
       );
       expect(screen.queryByText(/⚠/)).not.toBeInTheDocument();
     });
+  });
+
+  it("renders one select per reported config option", () => {
+    const configOptions: ConfigOption[] = [
+      { id: "mode", name: "Mode", category: "mode", currentValue: "default",
+        options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan Mode" }] },
+      { id: "effort", name: "Effort", currentValue: "medium",
+        options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+    ];
+    render(<Composer {...baseProps} configOptions={configOptions} />);
+    expect(screen.getByTestId("select-mode")).toBeInTheDocument();
+    expect(screen.getByTestId("select-effort")).toBeInTheDocument();
+    expect(screen.getByText("Manual")).toBeInTheDocument();
+  });
+
+  it("reports the picked config option value", () => {
+    const onConfigOptionChange = vi.fn();
+    const configOptions: ConfigOption[] = [
+      { id: "effort", name: "Effort", currentValue: "medium",
+        options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+    ];
+    render(
+      <Composer {...baseProps} configOptions={configOptions} onConfigOptionChange={onConfigOptionChange} />,
+    );
+    fireEvent.click(screen.getByTestId("select-effort"));
+    fireEvent.mouseDown(screen.getByText("High"));
+    expect(onConfigOptionChange).toHaveBeenCalledWith("effort", "high");
+  });
+
+  it("renders no extra selects when the backend reports none", () => {
+    render(<Composer {...baseProps} />);
+    expect(screen.queryByTestId("select-effort")).not.toBeInTheDocument();
   });
 });

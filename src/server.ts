@@ -132,6 +132,16 @@ export function createServer(opts: CreateServerOptions): Express {
             console.log(`[INIT]   re-apply failed: ${e instanceof Error ? e.message : e}`);
           }
         }
+        // Best-effort by design: a stale override for an option the agent no
+        // longer reports must not fail the resume.
+        const storedConfig = opts.sessionConfig?.getConfigOverrides(q.sessionId) ?? {};
+        for (const [configId, value] of Object.entries(storedConfig)) {
+          try {
+            await backend.setSessionConfigOption?.(q.sessionId, configId, value);
+          } catch (e) {
+            console.log(`[INIT]   re-apply ${configId}=${value} failed: ${e instanceof Error ? e.message : e}`);
+          }
+        }
         resumed = true;
       } else {
         const found = await registry.getSession(q.sessionId);
@@ -168,6 +178,31 @@ export function createServer(opts: CreateServerOptions): Express {
         }
       }
       await opts.sessionConfig?.setSessionCwd(session.id, effectiveCwd);
+    }
+    // Cache what this backend reports so the Settings dialog can offer defaults
+    // for it later, even with no live session. Then apply those defaults to any
+    // option this session hasn't explicitly overridden — the session's own
+    // choice always wins, and nothing is stamped into session_metadata.json.
+    const sessionConfigOptions = backend.getSessionConfigOptions?.(session.id) ?? null;
+    if (sessionConfigOptions) {
+      await registry.setConfigCatalog(
+        backendName,
+        sessionConfigOptions.map(({ id, name, category, options }) => ({ id, name, category, options })),
+      );
+    }
+    // A streaming turn owns this session's context — touching its config here
+    // is the same hazard loadSession has (see docs/acp-notes.md).
+    if (!session.getActiveTurn?.()) {
+      const configDefaults = registry.getConfigDefaults(backendName);
+      const sessionOverrides = opts.sessionConfig?.getConfigOverrides(session.id) ?? {};
+      for (const [configId, value] of Object.entries(configDefaults)) {
+        if (sessionOverrides[configId] !== undefined) continue;
+        try {
+          await backend.setSessionConfigOption?.(session.id, configId, value);
+        } catch (e) {
+          console.log(`[INIT]   default ${configId}=${value} failed: ${e instanceof Error ? e.message : e}`);
+        }
+      }
     }
     // Backend instances hold auto-approve state in memory only; reseed a
     // persisted per-session override in case this instance was just spawned
@@ -222,6 +257,7 @@ export function createServer(opts: CreateServerOptions): Express {
       model: models
         ? { supported: true, available: models.available, current: models.current }
         : { supported: false, available: [], current: null },
+      configOptions: backend.getSessionConfigOptions?.(session.id) ?? [],
     });
   }));
 
@@ -424,6 +460,55 @@ export function createServer(opts: CreateServerOptions): Express {
     }
   }));
 
+  // ── Session config options (mode / effort / agent / …) ─────────────
+  // Deliberately generic: whatever select-style options the connected backend
+  // reports get a picker. `model` is excluded by the backend and rejected on
+  // POST — /chat/model owns it, including its persisted override.
+  app.get("/chat/config-options", smallJson, asyncRoute(async (req, res) => {
+    const q = ConfigOptionsQuerySchema.parse(req.query);
+    const entry = await resolveSessionEntry(registry, q.sessionId, opts.sessionConfig);
+    if (!entry) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    const options = entry.backend.getSessionConfigOptions?.(entry.summary.sessionId) ?? null;
+    if (!options) {
+      res.json({ ok: true, supported: false, options: [] });
+      return;
+    }
+    res.json({ ok: true, supported: true, options });
+  }));
+
+  app.post("/chat/config-option", smallJson, asyncRoute(async (req, res) => {
+    const body = ConfigOptionPostBodySchema.parse(req.body ?? {});
+    if (body.configId === "model") {
+      res.status(400).json({ error: "use POST /chat/model to change the model" });
+      return;
+    }
+    const entry = await resolveSessionEntry(registry, body.sessionId, opts.sessionConfig);
+    if (!entry) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    if (!entry.backend.setSessionConfigOption) {
+      res.status(501).json({ error: "config options not supported" });
+      return;
+    }
+    try {
+      await entry.backend.setSessionConfigOption(body.sessionId, body.configId, body.value);
+      const options = entry.backend.getSessionConfigOptions?.(body.sessionId) ?? [];
+      // Persist what the backend landed on, not what was asked for — an agent
+      // may resolve the requested value, and a stored override that disagrees
+      // gets re-applied on every resume.
+      const landed = options.find((o) => o.id === body.configId)?.currentValue ?? body.value;
+      await opts.sessionConfig?.setConfigOverride(body.sessionId, body.configId, landed);
+      res.json({ ok: true, options });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+    }
+  }));
+
   // On-demand subscription rate-limit query — shells out to a one-off `claude
   // --print "/usage"` CLI invocation (see src/agent/acp/claudeUsage.ts). Only
   // supported when the resolved session's backend advertises usageQuery.
@@ -599,6 +684,44 @@ export function createServer(opts: CreateServerOptions): Express {
       const message = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: message });
     }
+  }));
+
+  app.get("/settings/config-defaults", smallJson, (_req, res) => {
+    res.json({
+      ok: true,
+      backends: registry.listBackendNames().map((name) => ({
+        name,
+        options: registry.getConfigCatalog(name),
+        defaults: registry.getConfigDefaults(name),
+      })),
+    });
+  });
+
+  app.put("/settings/config-default", smallJson, asyncRoute(async (req, res) => {
+    const body = SetConfigDefaultBodySchema.parse(req.body ?? {});
+    if (body.configId === "model") {
+      res.status(400).json({ error: "model has no per-backend default" });
+      return;
+    }
+    if (!registry.listBackendNames().includes(body.backend)) {
+      res.status(400).json({ error: `unknown backend name: ${body.backend}` });
+      return;
+    }
+    // Clearing is always allowed — a default for an option the agent stopped
+    // reporting must still be removable.
+    if (body.value !== null) {
+      const option = registry.getConfigCatalog(body.backend).find((o) => o.id === body.configId);
+      if (!option) {
+        res.status(400).json({ error: `unknown configId for ${body.backend}: ${body.configId}` });
+        return;
+      }
+      if (!option.options.some((o) => o.value === body.value)) {
+        res.status(400).json({ error: `unknown value for ${body.configId}: ${body.value}` });
+        return;
+      }
+    }
+    await registry.setConfigDefault(body.backend, body.configId, body.value);
+    res.json({ ok: true, defaults: registry.getConfigDefaults(body.backend) });
   }));
 
   // ── Workspace ──────────────────────────────────────────────────────
@@ -802,6 +925,17 @@ const ElicitationBodySchema = z.object({
   content: z.record(z.string(), z.unknown()).optional(),
 });
 const ModelQuerySchema = z.object({ sessionId: z.string().optional() });
+const ConfigOptionsQuerySchema = z.object({ sessionId: z.string().optional() });
+const SetConfigDefaultBodySchema = z.object({
+  backend: z.string(),
+  configId: z.string(),
+  value: z.union([z.string(), z.null()]),
+});
+const ConfigOptionPostBodySchema = z.object({
+  sessionId: z.string(),
+  configId: z.string(),
+  value: z.string(),
+});
 const UsageQuerySchema = z.object({ sessionId: z.string().optional() });
 const ModelPostBodySchema = z.object({
   sessionId: z.string(),

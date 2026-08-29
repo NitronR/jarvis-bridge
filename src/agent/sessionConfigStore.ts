@@ -31,6 +31,8 @@ export interface SessionConfigStore {
   setMetadata(sessionId: string, patch: SessionMetadataPatch): Promise<void>;
   getModelOverride(sessionId: string): string | undefined;
   setModelOverride(sessionId: string, modelId: string | null): Promise<void>;
+  getConfigOverrides(sessionId: string): Record<string, string>;
+  setConfigOverride(sessionId: string, configId: string, value: string | null): Promise<void>;
   getSessionCwd(sessionId: string): string | undefined;
   setSessionCwd(sessionId: string, cwd: string): Promise<void>;
   getLastUsage(sessionId: string): UsageTotals | undefined;
@@ -51,6 +53,7 @@ interface PersistedFileShape {
   }>;
   cwds?: Record<string, string>;
   modelOverrides?: Record<string, string>;
+  configOverrides?: Record<string, Record<string, string>>;
   usage?: Record<string, unknown>;
   groups?: unknown;
 }
@@ -114,6 +117,20 @@ function sanitizeGroups(raw: unknown): string[] {
   return raw.filter((g): g is string => typeof g === "string" && g.trim().length > 0);
 }
 
+function sanitizeConfigOverrides(raw: unknown): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
+  if (!raw || typeof raw !== "object") return out;
+  for (const [sid, perSession] of Object.entries(raw as Record<string, unknown>)) {
+    if (!perSession || typeof perSession !== "object") continue;
+    const inner = new Map<string, string>();
+    for (const [configId, value] of Object.entries(perSession as Record<string, unknown>)) {
+      if (typeof value === "string") inner.set(configId, value);
+    }
+    if (inner.size > 0) out.set(sid, inner);
+  }
+  return out;
+}
+
 export async function createSessionConfigStore(opts: {
   path: string;
   envDefault: boolean;
@@ -146,6 +163,7 @@ export async function createSessionConfigStore(opts: {
   const modelOverrides: Map<string, string> = new Map(
     Object.entries(persisted.modelOverrides ?? {}).filter((e): e is [string, string] => typeof e[1] === "string"),
   );
+  const configOverrides = sanitizeConfigOverrides(persisted.configOverrides);
   const lastUsage: Map<string, UsageTotals> = new Map();
   for (const [sid, raw] of Object.entries(persisted.usage ?? {})) {
     const sanitized = sanitizeUsage(raw);
@@ -162,6 +180,9 @@ export async function createSessionConfigStore(opts: {
       metadata: Object.fromEntries(metadata),
       cwds: Object.fromEntries(sessionCwds),
       modelOverrides: Object.fromEntries(modelOverrides),
+      configOverrides: Object.fromEntries(
+        [...configOverrides].map(([sid, m]) => [sid, Object.fromEntries(m)]),
+      ),
       usage: Object.fromEntries(lastUsage),
       groups,
     };
@@ -196,6 +217,18 @@ export async function createSessionConfigStore(opts: {
       } else {
         modelOverrides.set(sessionId, modelId);
       }
+      await persist();
+    },
+    getConfigOverrides(sessionId: string): Record<string, string> {
+      const m = configOverrides.get(sessionId);
+      return m ? Object.fromEntries(m) : {};
+    },
+    async setConfigOverride(sessionId: string, configId: string, value: string | null): Promise<void> {
+      const m = configOverrides.get(sessionId) ?? new Map<string, string>();
+      if (value == null) m.delete(configId);
+      else m.set(configId, value);
+      if (m.size === 0) configOverrides.delete(sessionId);
+      else configOverrides.set(sessionId, m);
       await persist();
     },
     getMetadata(sessionId: string): SessionMetadata | undefined {

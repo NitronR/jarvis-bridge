@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJSON, fetchSSE } from "../api/client";
-import type { ChatHistoryEntry, ChatPatch, ImageAttachment } from "../api/types";
+import type { ChatHistoryEntry, ChatPatch, ConfigOption, ImageAttachment } from "../api/types";
 import { useChatContext } from "./ChatContext";
 
 export type TranscriptEntry =
@@ -58,6 +58,7 @@ export interface UseChatResult {
   deleteSession: (sessionId: string) => Promise<void>;
   forkCurrent: () => Promise<void>;
   setModel: (modelId: string) => Promise<void>;
+  setConfigOption: (configId: string, value: string) => Promise<void>;
   setAutoApprove: (enabled: boolean) => Promise<void>;
 }
 
@@ -354,6 +355,17 @@ export function useChat(): UseChatResult {
     if (res.ok && res.data) ctx.setModels(ctx.state.models, res.data.current);
   }, [ctx]);
 
+  const setConfigOption = useCallback(async (configId: string, value: string) => {
+    if (!ctx.state.sessionId) return;
+    const res = await fetchJSON<{ ok: boolean; options: ConfigOption[] }>(
+      "/chat/config-option",
+      { method: "POST", body: { sessionId: ctx.state.sessionId, configId, value } },
+    );
+    // Only the response moves state — a rejected change leaves the picker on
+    // its previous value rather than lying about what the agent is running.
+    if (res.ok && res.data?.options) ctx.setConfigOptions(res.data.options);
+  }, [ctx]);
+
   const setAutoApprove = useCallback(async (enabled: boolean) => {
     if (!ctx.state.sessionId) return;
     const res = await fetchJSON<{ effective: boolean; default: boolean; override: boolean | null }>(
@@ -390,6 +402,7 @@ export function useChat(): UseChatResult {
     deleteSession,
     forkCurrent,
     setModel,
+    setConfigOption,
     setAutoApprove,
   };
 }
