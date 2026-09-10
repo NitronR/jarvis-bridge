@@ -99,6 +99,16 @@ const KNOWN_BACKENDS = [
       env: {},
     },
   },
+  {
+    detectBinary: "codex",
+    profile: {
+      name: "codex",
+      kind: "codex-acp",
+      command: "npx",
+      args: ["-y", "@agentclientprotocol/codex-acp@latest"],
+      env: {},
+    },
+  },
 ];
 
 function findOnPath(binName, pathEnv) {
