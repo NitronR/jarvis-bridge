@@ -23,6 +23,7 @@ const baseInit: ChatInitResponse = {
     images: false,
     sessionDelete: false,
     promptQueueing: false,
+    nativeSteering: false,
     usageQuery: false,
   },
   slashCommands: [],
@@ -106,14 +107,38 @@ describe("ChatContext", () => {
     expect(result.current.state.sessionId).toBe("pinned");
   });
 
-  it("init handles error response", async () => {
-    fetchJSONSpy.mockResolvedValue({ ok: false, status: 500, data: { error: "boom" } });
+  it("init on a 500 (gateway restarting) keeps the current conversation and reports 'retry'", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ChatProvider>{children}</ChatProvider>
     );
     const { result } = renderHook(() => useChatContext(), { wrapper });
-    await act(async () => { await result.current.init(); });
+    await act(async () => { await result.current.init("sess-1"); });
+    expect(result.current.state.sessionId).toBe("sess-1");
+
+    fetchJSONSpy.mockImplementation(async () => ({ ok: false, status: 500, data: { error: "boom" } }));
+    let outcome = "";
+    await act(async () => { outcome = await result.current.init("sess-1"); });
+    expect(outcome).toBe("retry");
+    expect(result.current.state.sessionId).toBe("sess-1");
+    expect(result.current.state.title).toBe("New chat");
+  });
+
+  it("init on a 404 (session gone) drops the session and reports 'gone'", async () => {
+    fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ChatProvider>{children}</ChatProvider>
+    );
+    const { result } = renderHook(() => useChatContext(), { wrapper });
+    await act(async () => { await result.current.init("sess-1"); });
+    expect(result.current.state.sessionId).toBe("sess-1");
+
+    fetchJSONSpy.mockImplementation(async () => ({ ok: false, status: 404, data: { error: "session not found" } }));
+    let outcome = "";
+    await act(async () => { outcome = await result.current.init("sess-1"); });
+    expect(outcome).toBe("gone");
     expect(result.current.state.sessionId).toBeNull();
+    expect(result.current.state.history).toEqual([]);
   });
 
   describe("turnCounts (session message count)", () => {

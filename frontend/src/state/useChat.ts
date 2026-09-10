@@ -42,6 +42,7 @@ export interface UseChatResult {
   sendMessage: (text: string, images?: ImageAttachment[]) => Promise<void>;
   enqueueMessage: (text: string, images?: ImageAttachment[]) => void;
   dequeueMessage: (queueId: string) => void;
+  steerMessage: (text: string) => Promise<void>;
   cancel: () => void;
   resolveApproval: (requestId: string, optionId: string) => Promise<void>;
   resolveElicitation: (
@@ -79,6 +80,35 @@ export function useChat(): UseChatResult {
   const queueSeqRef = useRef(0);
   const queueRef = useRef<QueuedMessage[]>([]);
   const streamSeqRef = useRef(0);
+  const resyncActiveRef = useRef(false);
+  const resyncAttemptsRef = useRef(0);
+  const resyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resyncUntilAvailable = useCallback(async (sessionId: string) => {
+    if (resyncActiveRef.current) return;
+    resyncActiveRef.current = true;
+    resyncAttemptsRef.current = 1;
+
+    const attempt = async (): Promise<void> => {
+      if (ctx.state.sessionId !== sessionId) {
+        resyncActiveRef.current = false;
+        resyncTimerRef.current = null;
+        return;
+      }
+      const outcome = await ctx.init(sessionId, undefined, undefined, undefined, { push: false });
+      if (outcome === "ok" || outcome === "gone" || resyncAttemptsRef.current >= 20) {
+        resyncActiveRef.current = false;
+        resyncTimerRef.current = null;
+        resyncAttemptsRef.current = 0;
+        return;
+      }
+      resyncAttemptsRef.current += 1;
+      const delay = Math.min(1500 * resyncAttemptsRef.current, 5000);
+      resyncTimerRef.current = setTimeout(() => { void attempt(); }, delay);
+    };
+
+    resyncTimerRef.current = setTimeout(() => { void attempt(); }, 1500);
+  }, [ctx]);
 
   useEffect(() => {
     if (!ctx.state.sessionId) return;
@@ -121,22 +151,33 @@ export function useChat(): UseChatResult {
           if (patch.type === "slash-commands") ctx.setSlashCommands(patch.commands);
         },
         onDone: () => { ctx.setBusy(false); sseRef.current = null; },
-        onError: () => {
+        onError: (err: Error) => {
           ctx.setBusy(false);
           sseRef.current = null;
-          // The turn may have finished in the window between /chat/init
-          // reporting activeTurn: true and this /chat/stream request
-          // landing (a 404 surfaces here as onError). We already cleared
-          // the turn's assistant entry above expecting the stream to
-          // repopulate it, so without a resync the user is left staring at
-          // a blanked-out entry even though the real (now-settled) history
-          // still exists on the backend. Re-init to fetch and render it.
-          if (ctx.state.sessionId) void ctx.init(ctx.state.sessionId, undefined, undefined, undefined, { push: false });
+          const sessionId = ctx.state.sessionId;
+          if (!sessionId) return;
+          const status = (err as { status?: number }).status;
+          if (status === 404) {
+            void ctx.init(sessionId, undefined, undefined, undefined, { push: false });
+          } else {
+            void resyncUntilAvailable(sessionId);
+          }
         },
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.state.sessionId, ctx.state.activeTurn]);
+
+  useEffect(() => {
+    return () => {
+      if (resyncTimerRef.current !== null) {
+        clearTimeout(resyncTimerRef.current);
+        resyncTimerRef.current = null;
+      }
+      resyncActiveRef.current = false;
+      resyncAttemptsRef.current = 0;
+    };
+  }, [ctx.state.sessionId]);
 
   // Low-level: opens the /chat/send stream for a turn whose user and assistant
   // entries are already present in the transcript (appended by sendMessage, or
@@ -210,6 +251,15 @@ export function useChat(): UseChatResult {
     },
     [],
   );
+
+  const steerMessage = useCallback(async (text: string) => {
+    if (!ctx.state.sessionId) return;
+    setTranscript((cur) => [...cur, { role: "user", text }]);
+    await fetchJSON("/chat/steer", {
+      method: "POST",
+      body: { sessionId: ctx.state.sessionId, prompt: text },
+    });
+  }, [ctx]);
 
   const clearQueue = useCallback(() => {
     queueRef.current = [];
@@ -390,6 +440,7 @@ export function useChat(): UseChatResult {
     sendMessage,
     enqueueMessage,
     dequeueMessage,
+    steerMessage,
     cancel,
     resolveApproval,
     resolveElicitation,

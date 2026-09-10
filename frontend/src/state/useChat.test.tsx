@@ -23,6 +23,7 @@ const baseInit: ChatInitResponse = {
   activeTurn: false,
   capabilities: {
     multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false,
+    nativeSteering: false,
     toolApprovals: true, slashCommands: false, canFork: true, images: false,
     sessionDelete: false, promptQueueing: false, usageQuery: false,
   },
@@ -251,8 +252,10 @@ describe("useChat", () => {
       status: 200,
       data: { ...baseInit, activeTurn: true },
     });
+    const notFound = new Error("SSE failed: 404 session not found") as Error & { status?: number };
+    notFound.status = 404;
     fetchSSESpy = vi.spyOn(client, "fetchSSE").mockImplementation((_url, _body, handlers) => {
-      Promise.resolve().then(() => { handlers.onError?.(new Error("404")); });
+      Promise.resolve().then(() => { handlers.onError?.(notFound); });
       return { abort: vi.fn(), done: Promise.resolve() };
     });
 
@@ -263,6 +266,7 @@ describe("useChat", () => {
     expect(result.current.busy).toBe(false);
     expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/init?sessionId=sess-1");
   });
+
 
   describe("message queueing", () => {
     // Captures each fetchSSE call's handlers so tests can drive turn
@@ -299,6 +303,21 @@ describe("useChat", () => {
       act(() => result.current.dequeueMessage(secondId!));
       expect(result.current.transcript.some((e) => e.role === "user" && e.text === "second")).toBe(false);
       expect(queuedEntries(result.current.transcript)).toHaveLength(1);
+    });
+
+    it("steerMessage POSTs /chat/steer and adds a user entry", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: true, status: 200, data: baseInit });
+
+      const { result } = renderHook(() => useChat(), { wrapper: wrapperWithChat });
+      await act(async () => { await result.current.context.init(); });
+
+      await act(async () => { await result.current.steerMessage("focus on the parser"); });
+
+      expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/steer", {
+        method: "POST",
+        body: { sessionId: "sess-1", prompt: "focus on the parser" },
+      });
+      expect(result.current.transcript.some((e) => e.role === "user" && e.text === "focus on the parser")).toBe(true);
     });
 
     it("keeps streaming the in-flight reply while a queued message sits below it", async () => {

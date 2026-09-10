@@ -72,7 +72,9 @@ export function fetchSSE<T = unknown>(
       );
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => String(res.status));
-        handlers.onError?.(new Error(`SSE failed: ${res.status} ${errText}`));
+        const err = new Error(`SSE failed: ${res.status} ${errText}`) as Error & { status?: number };
+        err.status = res.status;
+        handlers.onError?.(err);
         return;
       }
       const reader = res.body.getReader();

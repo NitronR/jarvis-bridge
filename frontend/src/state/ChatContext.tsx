@@ -62,7 +62,7 @@ const INITIAL: ChatState = {
 
 export interface ChatContextApi {
   state: ChatState;
-  init: (sessionId?: string | null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }) => Promise<void>;
+  init: (sessionId?: string | null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }) => Promise<"ok" | "gone" | "retry">;
   setBusy: (b: boolean) => void;
   setUnread: (u: boolean) => void;
   setAwaitingInput: (a: boolean) => void;
@@ -154,9 +154,9 @@ function setSessionIdInUrl(sessionId: string | null, push: boolean): void {
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ChatState>(() => ({ ...INITIAL, turnCounts: loadTurnCounts() }));
 
-  const init = useCallback(async (sessionId: string | null = null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }) => {
+  const init = useCallback(async (sessionId: string | null = null, cwd?: string, backend?: string, model?: string, opts?: { push?: boolean }): Promise<"ok" | "gone" | "retry"> => {
     const push = opts?.push ?? true;
-    setState((s) => ({ ...s, loading: true, title: "Loading" }));
+    setState((s) => ({ ...s, loading: true, ...(sessionId ? {} : { title: "Loading" }) }));
     try {
       const params = new URLSearchParams();
       if (sessionId) params.set("sessionId", sessionId);
@@ -166,9 +166,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const url = params.toString() ? `/chat/init?${params.toString()}` : "/chat/init";
       const res = await fetchJSON<ChatInitResponse>(url);
       if (!res.ok || !res.data || !res.data.ok) {
-        setState((s) => ({ ...s, sessionId: null, history: [], title: "New chat" }));
-        setSessionIdInUrl(null, push);
-        return;
+        if (res.status === 404) {
+          setState((s) => ({ ...s, sessionId: null, history: [], title: "New chat" }));
+          setSessionIdInUrl(null, push);
+          return "gone";
+        }
+        setState((s) => ({ ...s, title: sessionId ? s.title : "New chat" }));
+        return "retry";
       }
       const d = res.data;
       console.log(`[FE] init response sessionId=${d.sessionId} model.current=${d.model?.current} model.available=${d.model?.available?.map(m => m.modelId).join(",")}`);
@@ -204,6 +208,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setState((s) => ({ ...s, groups: groupsRes.data!.groups }));
       }
       setSessionIdInUrl(d.sessionId, push);
+      return "ok";
+    } catch {
+      return "retry";
     } finally {
       setState((s) => ({ ...s, loading: false }));
     }
