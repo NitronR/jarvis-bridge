@@ -337,6 +337,44 @@ test("POST /chat/cancel resolves the cancel on the session", async () => {
   }));
 });
 
+test("POST /chat/steer calls session.steer and returns the outcome", async () => {
+  await withServer(async (ws) => {
+    const backend = new FakeBackend();
+    return {
+      backend,
+      fn: async (url) => {
+        const initRes = await fetch(`${url}/chat/init`);
+        const initBody = (await initRes.json()) as { sessionId: string };
+        const session = backend.sessions.get(initBody.sessionId);
+        assert.ok(session);
+        session!.steerHandler = async () => ({ accepted: true });
+        const res = await fetch(`${url}/chat/steer`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId: initBody.sessionId, prompt: "focus on the parser" }),
+        });
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as { accepted: boolean };
+        assert.deepEqual(body, { accepted: true });
+      },
+    };
+  });
+});
+
+test("POST /chat/steer 400s for an unknown session", async () => {
+  await withServer(async (ws) => ({
+    backend: new FakeBackend(),
+    fn: async (url) => {
+      const res = await fetch(`${url}/chat/steer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: "missing", prompt: "go" }),
+      });
+      assert.equal(res.status, 404);
+    },
+  }));
+});
+
 test("POST /chat/approval forwards optionId to the session", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),

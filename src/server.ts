@@ -382,6 +382,21 @@ export function createServer(opts: CreateServerOptions): Express {
     res.json({ ok: true });
   }));
 
+  app.post("/chat/steer", smallJson, asyncRoute(async (req, res) => {
+    const body = SteerBodySchema.parse(req.body ?? {});
+    const session = await resolveSession(registry, body.sessionId);
+    if (!session) {
+      res.status(404).json({ error: "session not found" });
+      return;
+    }
+    if (!session.steer) {
+      res.status(400).json({ error: "steer not supported by this backend" });
+      return;
+    }
+    const outcome = await session.steer(body.prompt);
+    res.json(outcome);
+  }));
+
   app.post("/chat/approval", smallJson, asyncRoute(async (req, res) => {
     const body = ApprovalBodySchema.parse(req.body ?? {});
     const session = await resolveSession(registry, body.sessionId);
@@ -913,6 +928,10 @@ const SendBodySchema = z.object({
 });
 
 const CancelBodySchema = z.object({ sessionId: z.string().optional() });
+const SteerBodySchema = z.object({
+  sessionId: z.string().optional(),
+  prompt: z.string().min(1),
+});
 const ApprovalBodySchema = z.object({
   sessionId: z.string().optional(),
   requestId: z.string(),
