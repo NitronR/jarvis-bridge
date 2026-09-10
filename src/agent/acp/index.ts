@@ -123,8 +123,9 @@ export class AcpAgentBackend implements AgentBackend {
       multipleSessions: true,
       customWorkingDirectory: true,
       cancel: true,
-      // steer / canFork / images are filled in by connect()
+      // steer / nativeSteering / canFork / images are filled in by connect()
       steer: false,
+      nativeSteering: false,
       toolApprovals: true,
       slashCommands: false,
       canFork: false,
@@ -163,7 +164,10 @@ export class AcpAgentBackend implements AgentBackend {
         extensions?: Record<string, unknown>;
         sessionCapabilities?: Record<string, unknown>;
         promptCapabilities?: { image?: boolean };
-        _meta?: { claudeCode?: { promptQueueing?: boolean } };
+        _meta?: {
+          claudeCode?: { promptQueueing?: boolean };
+          steering?: { supported?: boolean };
+        };
       };
     };
 
@@ -174,8 +178,10 @@ export class AcpAgentBackend implements AgentBackend {
     const sessionDelete = hasExtension(caps.sessionCapabilities, "delete");
     const images = caps.promptCapabilities?.image === true;
     const promptQueueing = caps._meta?.claudeCode?.promptQueueing === true;
+    const nativeSteering = caps._meta?.steering?.supported === true;
 
-    this.capabilities.steer = promptQueueing;
+    this.capabilities.steer = promptQueueing || nativeSteering;
+    this.capabilities.nativeSteering = nativeSteering;
     this.capabilities.canFork = canFork;
     this.capabilities.sessionDelete = sessionDelete;
     this.capabilities.images = images;

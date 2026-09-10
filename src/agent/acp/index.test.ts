@@ -623,6 +623,38 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
     }
   });
 
+  test("nativeSteering is true and steer is true when the agent advertises _meta.steering.supported", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env, X_FAKE_AGENT_STEERING: "true" },
+    });
+    try {
+      assert.equal(backend.capabilities.steer, true);
+      assert.equal(backend.capabilities.nativeSteering, true);
+      assert.equal(backend.capabilities.promptQueueing, false);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("nativeSteering is false and steer stays tied to promptQueueing for a claude-style agent", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env, X_FAKE_AGENT_PROMPT_QUEUEING: "true" },
+    });
+    try {
+      assert.equal(backend.capabilities.steer, true);
+      assert.equal(backend.capabilities.nativeSteering, false);
+      assert.equal(backend.capabilities.promptQueueing, true);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
   test("a queued sendMessage drains in FIFO order when promptQueueing is advertised", async () => {
     const backend = await AcpAgentBackend.spawn({
       command: process.execPath,

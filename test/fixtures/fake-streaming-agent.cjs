@@ -48,6 +48,11 @@
 //                            Default (false) mirrors both shipping agents
 //                            (Claude adapter, opencode): set_config_option works
 //                            and session/set_model is "Method not found".
+//   X_FAKE_AGENT_STEERING — "true" to advertise `_meta.steering.supported` in the
+//                            initialize response (codex-style native steering).
+//   X_FAKE_AGENT_STEERING_OUTCOME — "_session/steering" reply outcome: one of
+//                            "injected" | "startedNewTurn" | "failed"
+//                            (default "injected").
 
 const readline = require("node:readline");
 const fs = require("node:fs");
@@ -70,6 +75,8 @@ try {
 const delayMs = parseInt(process.env.X_FAKE_AGENT_DELAY_MS || "20", 10);
 const advertiseDelete = process.env.X_FAKE_AGENT_SESSION_DELETE === "true";
 const advertisePromptQueueing = process.env.X_FAKE_AGENT_PROMPT_QUEUEING === "true";
+const advertiseSteering = process.env.X_FAKE_AGENT_STEERING === "true";
+const steeringOutcome = process.env.X_FAKE_AGENT_STEERING_OUTCOME || "injected";
 const claudeStyleConfig = process.env.X_FAKE_AGENT_CLAUDE_STYLE_CONFIG === "true";
 const legacySetModel = process.env.X_FAKE_AGENT_LEGACY_SET_MODEL === "true";
 
@@ -331,6 +338,7 @@ rl.on("line", async (line) => {
           sessionCapabilities: advertiseDelete ? { fork: {}, delete: {} } : { fork: {} },
           extensions: { "jarvis-bridge/steer": {} },
           ...(advertisePromptQueueing ? { _meta: { claudeCode: { promptQueueing: true } } } : {}),
+          ...(advertiseSteering ? { _meta: { steering: { supported: true } } } : {}),
         },
         agentInfo: { name: "fake-agent", version: "0.0.1" },
       });
@@ -426,6 +434,10 @@ rl.on("line", async (line) => {
       await handlePrompt(msg.id, msg.params, sid);
       break;
     }
+    case "_session/steering":
+      logEvent(msg.method, msg.params);
+      reply(msg.id, { outcome: steeringOutcome });
+      break;
     default:
       replyError(msg.id, -32601, `method not found: ${msg.method}`);
   }

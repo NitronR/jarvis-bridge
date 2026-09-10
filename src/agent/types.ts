@@ -6,6 +6,7 @@ export interface AgentCapabilities {
   customWorkingDirectory: boolean;
   cancel: boolean;
   steer: boolean;
+  nativeSteering: boolean;
   toolApprovals: boolean;
   slashCommands: boolean;
   canFork: boolean;
