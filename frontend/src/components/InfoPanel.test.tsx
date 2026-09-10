@@ -24,6 +24,7 @@ const baseState: ChatState = {
   autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
   busy: false,
   unread: false,
+  awaitingInput: false,
   pinned: false,
   group: "",
   groups: [],

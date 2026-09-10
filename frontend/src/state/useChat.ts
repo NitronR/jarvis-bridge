@@ -23,7 +23,9 @@ function appendPatchToStream(cur: TranscriptEntry[], streamId: string, patch: Ch
   const next = cur.slice();
   const idx = next.findIndex((e) => e.role === "assistant" && e.streamId === streamId);
   if (idx === -1) return cur;
-  next[idx] = { role: "assistant", patches: [...next[idx].patches, patch], streamId };
+  const entry = next[idx];
+  if (entry.role !== "assistant") return cur;
+  next[idx] = { role: "assistant", patches: [...entry.patches, patch], streamId };
   return next;
 }
 
@@ -205,9 +207,11 @@ export function useChat(): UseChatResult {
               const next = cur.slice();
               const idx = next.findIndex((e) => e.role === "assistant" && e.streamId === streamId);
               if (idx === -1) return cur;
+              const entry = next[idx];
+              if (entry.role !== "assistant") return cur;
               next[idx] = {
                 role: "assistant",
-                patches: [...next[idx].patches, { type: "error", message: err.message }, { type: "done" }],
+                patches: [...entry.patches, { type: "error", message: err.message }, { type: "done" }],
                 streamId,
               };
               return next;
