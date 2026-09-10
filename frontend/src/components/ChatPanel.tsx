@@ -11,6 +11,8 @@ import { ElicitationModal } from "./ElicitationModal";
 import { SettingsDialog } from "./SettingsDialog";
 import { ChatsDrawer } from "./ChatsDrawer";
 import { WorkspacesDrawer } from "./WorkspacesDrawer";
+import { NotificationBell } from "./NotificationBell";
+import { useNotificationSounds } from "../hooks/useNotificationSounds";
 import { loadRecentWorkspaces, pushRecentWorkspace } from "../state/recentWorkspaces";
 import { pruneDrafts } from "../state/drafts";
 import type { ImageAttachment, SessionSummary, ChatPatch, UsageTotals, RateLimitWindow, DefaultBackendState } from "../api/types";
@@ -49,6 +51,24 @@ function safeGetStoredFollowChat(): boolean {
 function safeSetStoredFollowChat(value: boolean): void {
   try {
     window.localStorage?.setItem(FOLLOW_CHAT_STORAGE_KEY, String(value));
+  } catch {
+    // ignore (storage may be unavailable)
+  }
+}
+
+const NOTIFICATIONS_STORAGE_KEY = "jarvis.notifications";
+
+function readNotificationsPref(): boolean {
+  try {
+    return window.localStorage?.getItem(NOTIFICATIONS_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function safeSetNotificationsPref(value: boolean): void {
+  try {
+    window.localStorage?.setItem(NOTIFICATIONS_STORAGE_KEY, value ? "on" : "off");
   } catch {
     // ignore (storage may be unavailable)
   }
@@ -104,6 +124,13 @@ function ChatPanelInner() {
       return next;
     });
   }, []);
+  const onToggleNotifications = useCallback(() => {
+    setNotificationsEnabled((prev) => {
+      const next = !prev;
+      safeSetNotificationsPref(next);
+      return next;
+    });
+  }, []);
   const [pastChatsOpen, setPastChatsOpen] = useState(false);
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
   const [availableBackends, setAvailableBackends] = useState<string[]>([]);
@@ -116,6 +143,7 @@ function ChatPanelInner() {
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [pickingFolder, setPickingFolder] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => readNotificationsPref());
   const [manualRateLimits, setManualRateLimits] = useState<Record<string, RateLimitWindow> | undefined>();
   const [refreshingUsage, setRefreshingUsage] = useState(false);
 
@@ -209,6 +237,8 @@ function ChatPanelInner() {
   useEffect(() => {
     return () => setAwaitingInput(false);
   }, [setAwaitingInput]);
+
+  useNotificationSounds(notificationsEnabled);
 
   const onApproval = useCallback((p: ChatPatch & { type: "approval-request" }) => {
     setPendingApproval(p);
@@ -615,6 +645,7 @@ function ChatPanelInner() {
                 <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
               </svg>
             </button>
+            <NotificationBell enabled={notificationsEnabled} onToggle={onToggleNotifications} />
             <button
               type="button"
               className={styles.settingsBtn}
