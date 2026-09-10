@@ -655,6 +655,40 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
     }
   });
 
+  test("steer() issues _session/steering and returns the codex outcome", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env, X_FAKE_AGENT_STEERING: "true" },
+    });
+    try {
+      const session = await backend.createSession();
+      assert.equal(typeof session.steer, "function");
+      const res = await session.steer!("please focus on the parser");
+      assert.deepEqual(res, { accepted: true });
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("steer() is rejected when native steering is not advertised", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [FAKE_AGENT],
+      cwd: process.cwd(),
+      env: { ...process.env },
+    });
+    try {
+      const session = await backend.createSession();
+      assert.equal(typeof session.steer, "function");
+      const res = await session.steer!("nudge");
+      assert.deepEqual(res, { accepted: false, reason: "native steering not supported" });
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
   test("a queued sendMessage drains in FIFO order when promptQueueing is advertised", async () => {
     const backend = await AcpAgentBackend.spawn({
       command: process.execPath,

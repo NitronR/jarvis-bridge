@@ -1085,6 +1085,30 @@ export class AcpAgentSession implements AgentSession {
     }
   }
 
+  async steer(prompt: string): Promise<{ accepted: boolean; reason?: string }> {
+    if (!this.backend.capabilities.nativeSteering) {
+      return { accepted: false, reason: "native steering not supported" };
+    }
+    try {
+      const res = (await this.backend
+        .getConnection()
+        .sendRequest("_session/steering", {
+          sessionId: this.id,
+          prompt: [{ type: "text", text: prompt }],
+        })) as { outcome?: "injected" | "startedNewTurn" | "failed" };
+      const outcome = res?.outcome;
+      if (outcome === "failed") {
+        return { accepted: false, reason: "steer failed" };
+      }
+      return { accepted: true };
+    } catch (err) {
+      return {
+        accepted: false,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   resolveApproval(requestId: string, optionId: string): boolean {
     return this.backend.resolveApproval(this.id, requestId, optionId);
   }
