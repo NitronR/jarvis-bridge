@@ -73,3 +73,25 @@ Also edited (outside repo, not committed): `~/.jarvis-bridge-system/config/agent
   environment is available.
 - `docs/agent-codex.md` captures the confirmed live probe results (adapter 1.11.0);
   recapture if the adapter version changes.
+
+## Addendum — commit & push (2026-09-10, later same session)
+
+Per the user's request, committed everything to `main` and pushed to `origin/main`
+(NitronR/jarvis-bridge). Working tree is clean.
+
+The remaining uncommitted frontend work (the user's in-progress **session-resync**
+feature entangled with my `steerMessage` addition) was committed as one logical commit
+`4a3b0f9`:
+- `ChatContext.init()` now returns `"ok" | "gone" | "retry"` (distinguishes a deleted/404
+  session from a retryable failure).
+- SSE errors carry the HTTP `status` (`api/client.ts`).
+- `resyncUntilAvailable` retry loop in `useChat.ts` — **defined but not wired to any
+  caller as of this commit** (dead code until connected; worth a follow-up).
+- Plus my `steerMessage` function + test and the `nativeSteering` test-fixture additions
+  that were tangled into the same files.
+
+The design spec + plan (untracked) were committed as `d25e561`. Total 12 commits pushed:
+the 10 codex/doc commits from earlier in this session plus `4a3b0f9` and `d25e561`.
+
+**Follow-up:** wire `resyncUntilAvailable` to its intended caller (the frontend's session
+reload path) or delete it — it's currently dead code. Documented in `docs/acp-notes.md`.

@@ -144,6 +144,30 @@ Two consequences worth keeping in mind:
   visible in Past Chats, exactly as they do when you open the folder via the picker. Opening a
   folder is what makes it browsable; the resume path is no different.
 
+## Frontend `init()` contract: `ok` / `gone` / `retry` (session-resync), and SSE errors carry HTTP status
+
+Added 2026-09-10, `ChatContext.init()` (`frontend/src/state/ChatContext.tsx`) now returns a
+tri-state instead of `void`, so the caller can tell a *deleted* session from a *retryable*
+failure:
+
+- **`"ok"`** — `/chat/init` succeeded and the session is live.
+- **`"gone"`** — `/chat/init` answered 404 (the session no longer exists — e.g. deleted, or
+  belonging to a cwd that couldn't be resolved). The frontend clears the stale session id.
+- **`"retry"`** — any other failure (gateway/backend still warming up, transient error). The
+  caller may retry.
+
+Two related changes:
+- **SSE errors now carry the HTTP status** (`frontend/src/api/client.ts`): the `Error` thrown
+  by `fetchSSE` gets a `.status` field set from the response, so callers can branch on
+  `err.status === 404` instead of matching error text.
+- **A resync retry loop** (`resyncUntilAvailable` in `frontend/src/state/useChat.ts`) polls
+  `init()` on a backoff (1.5s→5s, up to 20 tries), stopping on `"ok"`/`"gone"`. **As of
+  2026-09-10 this function is defined but not yet wired** to any caller (not returned, not
+  invoked) — it's dead code until connected. Don't assume resync is live.
+
+This is the frontend-facing complement to the backend note above ("A failed `loadSession` is a
+404 in the JSON contract"): the backend returns a JSON 404 so the frontend can emit `"gone"`.
+
 ## Switching the model is `session/set_config_option`, not `session/set_model`
 
 The model picker is one entry in the `configOptions[]` array that `session/new` and
