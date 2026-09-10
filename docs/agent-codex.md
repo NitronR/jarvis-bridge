@@ -1,10 +1,11 @@
 # Agent Binding Profile — Codex (`agent-codex.md`)
 
-> **Status:** Design-based; source-level probe of `@agentclientprotocol/codex-acp` 1.10.0
-> (a `--depth 1` clone of `agentclientprotocol/codex-acp`). Live wire-shape values from a
-> running session are pending — see § Verification in
-> `docs/superpowers/specs/2026-09-09-codex-backend-design.md` / Task 8. Where the live
-> probe differs from this source read, the probe wins; capture those deltas here.
+> **Status:** Confirmed against `@agentclientprotocol/codex-acp` 1.11.0 via live ACP handshake
+> + probe on 2026-09-10 (throwaway gateway, `POST /chat/init`, `/chat/send`,
+> `/chat/steer`, fork/delete). Auth reused the existing `~/.codex` API-key login
+> (`auth.json`, `auth_mode` API-key) with no ACP auth round-trip. Where a source read
+> differed from the live probe, the probe won and the discrepancy is called out below
+> (see §3 — the `_meta.steering` location bug).
 
 This is the Codex-specific counterpart to `docs/agent-claude-code.md` — same structure,
 built around `@agentclientprotocol/codex-acp`. Codex does **not** natively speak ACP
@@ -40,7 +41,7 @@ protocol.
 ## 3. Handshake (`initialize`)
 
 The request is unchanged from the shared `AcpAgentBackend.connect()` — no Codex-specific
-payload. The response (from `src/CodexAcpServer.ts:344-392`, source probe) advertises:
+payload. The response (confirmed live against 1.11.0) advertises:
 
 ```json
 {
@@ -71,6 +72,15 @@ payload. The response (from `src/CodexAcpServer.ts:344-392`, source probe) adver
 | `sessionCapabilities.{delete,fork,list,resume}` | present | `sessionDelete` / `canFork` / Past Chats / resume all auto-enable via the shared `connect()` reads — no jarvis code needed |
 | `promptCapabilities.image` | `true` | image attachments work |
 | `_meta.steering.supported` | `true` | **native server-side steering.** Read as `capabilities.nativeSteering = true` and `capabilities.steer = true`. This is the difference from Claude/opencode: see § Steering |
+
+**⚠️ `_meta.steering` location — the one wire gotcha the live probe caught.** Codex
+advertises steering at the **top-level** `_meta` of the initialize response
+(`initRes._meta.steering.supported`), *not* under `agentCapabilities._meta` where claude's
+`promptQueueing` lives. jarvis reads it via `initRes._meta?.steering?.supported`
+(`src/agent/acp/index.ts`). A first implementation read `caps._meta` (the
+`agentCapabilities._meta` path) and silently got `false` against the real adapter — the
+probe caught it. If steering ever stops lighting up, check which `_meta` level the adapter
+is advertising on.
 | `_meta.claudeCode.promptQueueing` | **absent** | `capabilities.promptQueueing = false`. Codex's steering is not the claude cancel-and-run-next path; it's the native `_session/steering` RPC |
 | `authMethods` | varies | depends on login state; see §4 |
 
@@ -84,11 +94,13 @@ Non-goals (see design spec). Codex's own `usage_update` notifications still flow
 
 ## 4. Auth
 
-Source-level understanding (live probe pending):
+**Confirmed live (2026-09-10)** — the probe reused an existing `~/.codex` login
+(`auth.json` with `auth_mode: "api-key"` and an `OPENAI_API_KEY`) and `POST /chat/init`
+created a codex session with **no ACP auth round-trip** — `initialize` just succeeded
+silently.
 
 - The adapter advertises ACP auth methods during `initialize` (`authMethods`), but for a
   user who has already run `codex login` (which writes `~/.codex`), `checkAuthorization()`
-  → `authRequired()` finds an existing login and **no ACP auth round-trip occurs**
   (`src/CodexAcpServer.ts:498-513`). This mirrors how the claude adapter silently reuses
   `~/.claude`.
 - An unsigned user gets a `RequestError.authRequired()` rejection on the first session
@@ -122,7 +134,9 @@ frontend calls `POST /chat/steer`, which invokes `AcpAgentSession.steer()` → s
 `_session/steering`. This is **true mid-turn steering** (stronger than Claude/opencode's
 cancel-and-run-next queueing, which drains only after the current turn ends). The
 `{outcome}` maps to `{ accepted: true }` for `injected`/`startedNewTurn` and
-`{ accepted: false, reason: "steer failed" }` for `failed`.
+`{ accepted: false, reason: "steer failed" }` for `failed`. **Confirmed live:** an idle
+session steered with `POST /chat/steer` returned `{ accepted: true }` and the steered
+prompt appeared as a new user turn with assistant output on the next replay.
 
 ---
 
@@ -144,10 +158,22 @@ it's gated on `kind === "claude-acp"` because it shells out to a separate CLI
 
 ---
 
-## Verification (pending live probe)
+## Verification (confirmed live 2026-09-10)
 
-Before relying on resume/Past Chats and steering in production, run Task 8 of the
-implementation plan: create a codex session via `POST /chat/init`, send + replay, confirm
-Past Chats/fork/delete, confirm `POST /chat/steer` injects mid-turn and starts a new turn
-when idle, and confirm an unsigned user gets a clean "auth required" error. Capture the
-adapter version and any wire-shape deltas here once probed.
+Probed against `@agentclientprotocol/codex-acp` 1.11.0 on a throwaway gateway, using the
+existing `~/.codex` API-key login. All confirmed:
+
+- `POST /chat/init?backend=codex` → created a session, `model: gpt-5.6-terra`,
+  `canFork/sessionDelete/images/nativeSteering: true`, `promptQueueing: false`.
+- `POST /chat/send` → streamed `thought → text → usage → done` (13732 in / 57 out,
+  context 20701/258400). Chat works end-to-end.
+- `GET /chat/init?sessionId=...` → `resumed: true`, history replayed (user msg + assistant
+  patches). Resume works.
+- `POST /chat/sessions/fork` → `ok: true`, new session created. Fork works.
+- `DELETE /chat/sessions/:id` → 200, and re-resume 404s (session gone). Delete works.
+- `POST /chat/steer` → `{ accepted: true }`; replay then shows the steered prompt as a new
+  user turn with assistant output. Native mid-turn steering works.
+- **Gotcha found:** steering `_meta` is top-level, not under `agentCapabilities` — see §3.
+
+Not probed: the unsigned-user "auth required" path (the local login is valid). Expected to
+surface as a gateway error → out-of-band `codex login` (see §4).
