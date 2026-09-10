@@ -41,10 +41,15 @@ being built.
 
 ## Backend configuration
 
-Multiple named agent backends can run side by side — `opencode` and Claude (via
-`@agentclientprotocol/claude-agent-acp`) ship by default. Backend selection is
-capability-driven (`AgentCapabilities` in `src/agent/types.ts`), never a hardcoded
-`kind` branch in shared code (`src/server.ts`, `src/agent/acp/mapping.ts`).
+Multiple named agent backends can run side by side — `opencode`, Claude (via
+`@agentclientprotocol/claude-agent-acp`), and Codex (via `@agentclientprotocol/codex-acp`)
+ship by default. Backend selection is capability-driven (`AgentCapabilities` in
+`src/agent/types.ts`), never a hardcoded `kind` branch in shared code (`src/server.ts`,
+`src/agent/acp/mapping.ts`). One per-backend nuance: Codex steers via a **native**
+`_session/steering` RPC (mid-turn injection, detected as `nativeSteering`), which is
+distinct from Claude/opencode's `promptQueueing`-based cancel-and-run-next — the Steer
+button picks the transport via `capabilities.nativeSteering`. See
+`docs/agent-codex.md`.
 
 - `agents.json` (default `~/.jarvis-bridge-system/config/agents.json`, scaffolded by
   `scripts/setup.js` — see below) lists named backend profiles:
