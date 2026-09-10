@@ -205,15 +205,37 @@ drifted this way (symptom: chat loads fine, but the "refresh usage" button error
 2026-07-21 by giving `resolveSessionEntry` the identical persisted-cwd-plus-default-backend
 fallback — see `docs/archives/2026-07-21-usage-refresh-cwd-drift-fix.md`.
 
-## `/chat/steer` was removed — steer now uses promptQueueing
+## `/chat/steer` was removed (promptQueueing) and re-added (codex native steering)
 
-The `POST /chat/steer` route, `STEER_EXTENSION_KEY` RPC, and `AcpAgentSession.steer()`
-have been deleted. Steer is now implemented as cancel-and-run-next on `promptQueueing`:
-the Steer button queues a message via `enqueueMessage`, and the existing drain logic
-fires when the current turn ends. The backend `sendMessage()` queue-and-wait path
-(`src/agent/acp/index.ts:848-866`) handles the handoff. See
-`docs/superpowers/specs/2026-08-09-steer-redesign-design.md` and
-`docs/archives/2026-08-09-steer-feature-root-cause.md`.
+The original `POST /chat/steer` route, `STEER_EXTENSION_KEY` RPC, and `AcpAgentSession.steer()`
+were deleted when steer moved to cancel-and-run-next on `promptQueueing`: the Steer button
+queues a message via `enqueueMessage`, and the existing drain logic fires when the current
+turn ends. That remains the Claude/opencode path.
+
+**Re-added 2026-09-10 for codex only.** Codex steers via a **native** `_session/steering`
+RPC (mid-turn injection), not `promptQueueing`. So `AcpAgentSession.steer()` and
+`POST /chat/steer` were reintroduced, gated on `capabilities.nativeSteering`
+(advertised as `_meta.steering.supported` on the initialize response). The frontend Steer
+button picks the transport: native `/chat/steer` when `nativeSteering`, else
+`enqueueMessage`. See `docs/agent-codex.md`. The pre-2026-09-09 history of the promptQueueing
+redesign is in `docs/archives/2026-08-09-steer-feature-root-cause.md`.
+
+## `_meta` on the `initialize` response is NOT always under `agentCapabilities._meta`
+
+`connect()` in `src/agent/acp/index.ts` parses the `initialize` result. Most capability
+extensions live under `agentCapabilities` (e.g. claude's
+`agentCapabilities._meta.claudeCode.promptQueueing`), but **codex advertises native
+steering at the top-level `_meta`** — `initRes._meta.steering.supported`, a sibling of
+`agentCapabilities`, not a child of it. Confirmed live against `codex-acp` 1.11.0
+(2026-09-10).
+
+**This bit us once already.** A first implementation read `caps._meta?.steering?.supported`
+(`caps = initRes.agentCapabilities`) and silently got `false` against the real adapter —
+`nativeSteering` stayed off and the Steer button never lit up, with no error, because the
+wrong path just yields `undefined`. The correct read is `initRes._meta?.steering?.supported`.
+If you add another capability that a backend advertises in the initialize `_meta`, check
+**which level** of the response it's on (top-level vs `agentCapabilities._meta`) — the two
+shipping adapters disagree, and both are "valid". See `docs/agent-codex.md` §3.
 
 ## Reconnecting to a streaming response: `activeTurn`, not another `loadSession()` call
 
