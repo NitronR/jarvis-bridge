@@ -169,6 +169,13 @@ export class AcpAgentBackend implements AgentBackend {
           steering?: { supported?: boolean };
         };
       };
+      // Codex's `codex-acp` adapter advertises native steering at the TOP-LEVEL
+      // `_meta` of the initialize response (sibling of `agentCapabilities`), not
+      // under `agentCapabilities._meta`. Confirmed live against 1.11.0 — see
+      // docs/agent-codex.md §3.
+      _meta?: {
+        steering?: { supported?: boolean };
+      };
     };
 
     const caps = initRes.agentCapabilities ?? {};
@@ -178,7 +185,10 @@ export class AcpAgentBackend implements AgentBackend {
     const sessionDelete = hasExtension(caps.sessionCapabilities, "delete");
     const images = caps.promptCapabilities?.image === true;
     const promptQueueing = caps._meta?.claudeCode?.promptQueueing === true;
-    const nativeSteering = caps._meta?.steering?.supported === true;
+    // Codex steers via a native `_session/steering` RPC advertised at the
+    // top-level `_meta.steering.supported` (claude/opencode advertise steering
+    // differently, via `agentCapabilities._meta.claudeCode.promptQueueing`).
+    const nativeSteering = initRes._meta?.steering?.supported === true;
 
     this.capabilities.steer = promptQueueing || nativeSteering;
     this.capabilities.nativeSteering = nativeSteering;

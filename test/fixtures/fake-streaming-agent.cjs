@@ -338,8 +338,10 @@ rl.on("line", async (line) => {
           sessionCapabilities: advertiseDelete ? { fork: {}, delete: {} } : { fork: {} },
           extensions: { "jarvis-bridge/steer": {} },
           ...(advertisePromptQueueing ? { _meta: { claudeCode: { promptQueueing: true } } } : {}),
-          ...(advertiseSteering ? { _meta: { steering: { supported: true } } } : {}),
         },
+        // Codex-style native steering is advertised at the top-level `_meta`,
+        // sibling of `agentCapabilities` (mirrors real codex-acp 1.11.0).
+        ...(advertiseSteering ? { _meta: { steering: { supported: true } } } : {}),
         agentInfo: { name: "fake-agent", version: "0.0.1" },
       });
       break;
