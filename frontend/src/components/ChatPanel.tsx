@@ -377,7 +377,11 @@ function ChatPanelInner() {
   );
 
   const onSteerComposer = useCallback(async (text: string) => {
-    chat.enqueueMessage(text);
+    if (ctx.state.capabilities?.nativeSteering) {
+      await chat.steerMessage(text);
+    } else {
+      chat.enqueueMessage(text);
+    }
   }, [chat]);
 
   // Composer's Steer button now only renders while busy — if steerEnabled

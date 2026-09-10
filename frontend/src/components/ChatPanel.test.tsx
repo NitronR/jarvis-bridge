@@ -7,7 +7,7 @@ import * as client from "../api/client";
 import type { ChatInitResponse } from "../api/types";
 
 async function defaultMock(url: string): Promise<{ ok: boolean; status: number; data: object }> {
-        if (String(url).startsWith("/chat/init")) return { ok: true, status: 200, data: { ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" }, sessionId: "sess-1", cwd: "/tmp/ws", resumed: false, capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false }, slashCommands: [], history: [], pinned: false, group: null, autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false }, model: { supported: false, available: [], current: null } } };
+        if (String(url).startsWith("/chat/init")) return { ok: true, status: 200, data: { ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" }, sessionId: "sess-1", cwd: "/tmp/ws", resumed: false, capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false }, slashCommands: [], history: [], pinned: false, group: null, autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false }, model: { supported: false, available: [], current: null } } };
   if (url === "/chat/sessions") return { ok: true, status: 200, data: { sessions: [] } };
   if (url === "/chat/auto-approve") return { ok: true, status: 200, data: { effective: true, default: false, override: true } };
   return { ok: true, status: 200, data: {} };
@@ -58,7 +58,7 @@ describe("<ChatPanel>", () => {
             ok: true, status: 200, data: {
               ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
               sessionId: "sess-1", cwd: "/tmp/ws", resumed: true,
-              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false },
               slashCommands: [], history: [], pinned: false, group: null,
               lastUsage: {
                 requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
@@ -106,7 +106,7 @@ describe("<ChatPanel>", () => {
             ok: true, status: 200, data: {
               ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
               sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
-              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, usageQuery: true },
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false, usageQuery: true },
               slashCommands: [], history: [], pinned: false, group: null,
               autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
               model: { supported: false, available: [], current: null },
@@ -138,7 +138,7 @@ describe("<ChatPanel>", () => {
   describe("deleting the active session", () => {
     beforeEach(() => {
       fetchSpy.mockImplementation(async (url: string, opts?: { method?: string }) => {
-  if (String(url).startsWith("/chat/init")) return { ok: true, status: 200, data: { ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" }, sessionId: "sess-1", cwd: "/tmp/ws", resumed: false, capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false }, slashCommands: [], history: [], pinned: false, group: null, autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false }, model: { supported: false, available: [], current: null } } };
+  if (String(url).startsWith("/chat/init")) return { ok: true, status: 200, data: { ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" }, sessionId: "sess-1", cwd: "/tmp/ws", resumed: false, capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false }, slashCommands: [], history: [], pinned: false, group: null, autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false }, model: { supported: false, available: [], current: null } } };
         if (url === "/chat/sessions") return { ok: true, status: 200, data: { sessions: [{ sessionId: "sess-1", title: "first" }] } };
         if (url === "/chat/sessions/sess-1" && opts?.method === "DELETE") return { ok: true, status: 200, data: { ok: true } };
         return { ok: true, status: 200, data: {} };
@@ -175,7 +175,7 @@ describe("<ChatPanel>", () => {
             ok: true, status: 200, data: {
               ok: true, backend: { kind: "fake", role: "chat", model: null, name: "opencode" },
               sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
-              capabilities: { multipleSessions: true, customWorkingDirectory: true, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              capabilities: { multipleSessions: true, customWorkingDirectory: true, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false },
               slashCommands: [], history: [], pinned: false, group: null,
               autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
               model: { supported: false, available: [], current: null },
@@ -264,7 +264,7 @@ describe("<ChatPanel>", () => {
             ok: true, status: 200, data: {
               ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
               sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
-              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: true, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: true, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false },
               slashCommands: [], history: [], pinned: false, group: null,
               autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
               model: { supported: true, available: [{ modelId: "m1", name: "Model One" }, { modelId: "m2", name: "Model Two" }], current: "m1" },
@@ -325,7 +325,7 @@ describe("<ChatPanel>", () => {
             ok: true, status: 200, data: {
               ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
               sessionId: "sess-1", cwd: "/tmp/ws", resumed: false,
-              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: true, toolApprovals: false, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: true, toolApprovals: false, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false },
               slashCommands: [], history: [], pinned: false, group: null,
               autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
               model: { supported: true, available: [{ modelId: "m1", name: "Model One" }], current: "m1" },
@@ -376,7 +376,7 @@ describe("<ChatPanel>", () => {
             ok: true, status: 200, data: {
               ok: true, backend: { kind: "fake", role: "chat", model: null, name: "fake" },
               sessionId: "sess-1", cwd: "/tmp/ws", resumed: true, history,
-              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false },
+              capabilities: { multipleSessions: true, customWorkingDirectory: false, cancel: true, steer: false, toolApprovals: true, slashCommands: false, canFork: true, images: false, sessionDelete: true, promptQueueing: false, nativeSteering: false },
               slashCommands: [], pinned: false, group: null,
               autoApprove: { supported: true, default: false, override: null, effective: false, enabled: false },
               model: { supported: false, available: [], current: null },
