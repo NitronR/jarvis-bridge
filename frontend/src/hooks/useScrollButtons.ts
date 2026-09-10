@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface ScrollButtonsResult {
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+  scrollRef: React.RefObject<HTMLDivElement>;
   showTop: boolean;
   showBottom: boolean;
   scrollToTop: () => void;
@@ -11,7 +11,7 @@ interface ScrollButtonsResult {
 const SCROLL_THRESHOLD = 50;
 
 export function useScrollButtons(): ScrollButtonsResult {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [showTop, setShowTop] = useState(false);
   const [showBottom, setShowBottom] = useState(false);
 

@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Transcript } from "./Transcript";
+import type { MessageEntry } from "./Message";
+import type { ChatPatch } from "../api/types";
 
 describe("<Transcript>", () => {
   it("renders the empty state when no messages", () => {
@@ -56,11 +58,11 @@ describe("<Transcript>", () => {
   });
 
   describe("scroll-on-load", () => {
-    const longEntries = [
+    const longEntries: MessageEntry[] = [
       { role: "user", text: "q1" },
-      { role: "assistant", patches: [{ type: "text-start", index: 0, content: "a1" }] },
+      { role: "assistant", patches: [{ type: "text-start", index: 0, content: "a1" } as ChatPatch] },
       { role: "user", text: "q2" },
-      { role: "assistant", patches: [{ type: "text-start", index: 0, content: "a2" }] },
+      { role: "assistant", patches: [{ type: "text-start", index: 0, content: "a2" } as ChatPatch] },
     ];
     const base = {
       onApproval: vi.fn(),
