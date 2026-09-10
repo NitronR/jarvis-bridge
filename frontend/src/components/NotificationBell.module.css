@@ -1,0 +1,30 @@
+.bellBtn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 4px 6px;
+}
+.bellBtn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.bellBtn svg {
+  width: 16px;
+  height: 16px;
+}
+.slash {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(-45deg);
+  border-radius: 1px;
+}
