@@ -257,14 +257,14 @@ describe("<ChatsDrawer>", () => {
     render(
       <ChatsDrawer
         open={true}
-        sessions={[{ sessionId: "s1", title: "T" }]}
+        sessions={[{ sessionId: "s1", title: "T", backendName: "opencode" }]}
         onClose={vi.fn()}
         onSwitch={onSwitch}
         onOpenInNewTab={onOpenInNewTab}
       />,
     );
     fireEvent.click(screen.getByText("T"), { metaKey: true });
-    expect(onOpenInNewTab).toHaveBeenCalledWith("s1");
+    expect(onOpenInNewTab).toHaveBeenCalledWith("s1", "opencode");
     expect(onSwitch).not.toHaveBeenCalled();
   });
 
@@ -274,14 +274,14 @@ describe("<ChatsDrawer>", () => {
     render(
       <ChatsDrawer
         open={true}
-        sessions={[{ sessionId: "s1", title: "T" }]}
+        sessions={[{ sessionId: "s1", title: "T", backendName: "opencode" }]}
         onClose={vi.fn()}
         onSwitch={onSwitch}
         onOpenInNewTab={onOpenInNewTab}
       />,
     );
     fireEvent.click(screen.getByText("T"), { ctrlKey: true });
-    expect(onOpenInNewTab).toHaveBeenCalledWith("s1");
+    expect(onOpenInNewTab).toHaveBeenCalledWith("s1", "opencode");
     expect(onSwitch).not.toHaveBeenCalled();
   });
 
@@ -483,7 +483,7 @@ describe("<ChatsDrawer>", () => {
         <ChatsDrawer
           open={true}
           sessions={[
-            { sessionId: "s1", title: "Alpha", group: "bugfix" },
+            { sessionId: "s1", title: "Alpha", group: "bugfix", backendName: "opencode" },
           ]}
           groups={["bugfix"]}
           onClose={vi.fn()}
@@ -494,7 +494,7 @@ describe("<ChatsDrawer>", () => {
       fireEvent.click(screen.getByRole("button", { name: "Groups" }));
       fireEvent.click(screen.getByText("bugfix"));
       fireEvent.click(screen.getByText("Alpha"), { metaKey: true });
-      expect(onOpenInNewTab).toHaveBeenCalledWith("s1");
+      expect(onOpenInNewTab).toHaveBeenCalledWith("s1", "opencode");
       expect(onSwitch).not.toHaveBeenCalled();
     });
 

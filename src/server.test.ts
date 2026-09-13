@@ -22,18 +22,19 @@ async function withServer<T>(
     backend: FakeBackend;
     fn: (url: string) => Promise<T>;
     pickFolder?: import("./pickFolder").PickFolderFn;
+    registry?: import("./agent/backendRegistry").BackendRegistry;
   }>,
 ): Promise<T> {
   const ws = await mkWorkspace();
   try {
-    const { backend, fn, pickFolder } = await setup(ws);
+    const { backend, fn, pickFolder, registry } = await setup(ws);
     // Swap in the caller-supplied FakeBackend as the eagerly-spawned default's
     // pool's default backend, since createBackendRegistry would otherwise try
     // to spawn a real process. Simplest correct approach: bypass
     // createBackendRegistry's spawn path entirely for tests and build a
     // registry-shaped object directly around the one FakeBackend, matching
     // what createBackendRegistry exposes.
-    const testRegistry = makeSingleBackendTestRegistry(backend);
+    const testRegistry = registry ?? makeSingleBackendTestRegistry(backend);
     const tools = createToolRegistry(ws);
     const sessionConfig = await createSessionConfigStore({
       path: path.join(ws, "session_metadata.json"),
@@ -99,6 +100,92 @@ function makeSingleBackendTestRegistry(backend: FakeBackend): import("./agent/ba
       if (!s) throw new Error(`session not found: ${sessionId}`);
       if (!backend.deleteSession) throw new Error("delete not supported by backend: fake");
       await backend.deleteSession(sessionId);
+    },
+    shutdown: async () => {},
+  };
+}
+
+// Two named FakeBackends ("fake"/"other") for tests that need a genuine
+// multi-backend registry where getBackend(name) resolves by name and throws
+// for names that don't exist (as the production registry does). All fan-out
+// operations (listSessions / findSession / resolveSessionCwd / getSession)
+// search both, mirroring createBackendRegistry's lazy-spawn-per-profile loop.
+function makeTwoBackendTestRegistry(
+  fake: FakeBackend,
+  other: FakeBackend,
+  defaultBackend: "fake" | "other" = "fake",
+): import("./agent/backendRegistry").BackendRegistry {
+  const byName = new Map<string, FakeBackend>([
+    ["fake", fake],
+    ["other", other],
+  ]);
+  const catalogs = new Map<string, import("./agent/settingsStore").CatalogOption[]>();
+  const defaults = new Map<string, Record<string, string>>();
+  return {
+    getDefaultBackendName: () => defaultBackend,
+    setDefaultBackendName: async (name: string) => {
+      if (!byName.has(name)) throw new Error(`unknown backend name: ${name}`);
+      defaultBackend = name;
+    },
+    listBackendNames: () => [...byName.keys()],
+    getConfigCatalog: (name: string) => catalogs.get(name) ?? [],
+    setConfigCatalog: async (name: string, options) => { catalogs.set(name, options); },
+    getConfigDefaults: (name: string) => ({ ...(defaults.get(name) ?? {}) }),
+    setConfigDefault: async (name: string, configId: string, value: string | null) => {
+      const cur = { ...(defaults.get(name) ?? {}) };
+      if (value == null) delete cur[configId];
+      else cur[configId] = value;
+      defaults.set(name, cur);
+    },
+    getDefaultBackend: async () => byName.get(defaultBackend)!,
+    getBackend: async (name: string) => {
+      const b = byName.get(name);
+      if (!b) throw new Error(`unknown backend name: ${name}`);
+      return b;
+    },
+    listSessions: async () => {
+      const out: import("./agent/backendRegistry").RegistrySessionEntry[] = [];
+      for (const [name, b] of byName) {
+        for (const summary of await b.listSessions()) {
+          out.push({ backend: b, backendName: name, cwd: "", summary });
+        }
+      }
+      return out;
+    },
+    findSession: async (sessionId: string) => {
+      for (const [name, b] of byName) {
+        const s = b.getSession(sessionId);
+        if (s) {
+          const cwd = b.createdWithCwd.get(sessionId) ?? "";
+          return { backend: b, backendName: name, cwd, summary: { sessionId } };
+        }
+      }
+      return null;
+    },
+    resolveSessionCwd: async (sessionId: string) => {
+      for (const [name, b] of byName) {
+        const cwd = await b.lookupSessionCwd(sessionId);
+        if (cwd) return { backendName: name, cwd };
+      }
+      return null;
+    },
+    getSession: async (sessionId: string) => {
+      for (const [, b] of byName) {
+        const s = b.getSession(sessionId);
+        if (s) return s;
+      }
+      return null;
+    },
+    deleteSession: async (sessionId: string) => {
+      for (const [, b] of byName) {
+        const s = b.getSession(sessionId);
+        if (s) {
+          if (!b.deleteSession) throw new Error(`delete not supported by backend`);
+          await b.deleteSession(sessionId);
+          return;
+        }
+      }
+      throw new Error(`session not found: ${sessionId}`);
     },
     shutdown: async () => {},
   };
@@ -1565,4 +1652,71 @@ test("PUT /settings/config-default validates against the cached catalog", async 
       assert.deepEqual(body.defaults, {});
     },
   }));
+});
+
+test("GET /chat/init?sessionId=X&backend=B honors an explicit backend on resume", async () => {
+  await withServer(async () => {
+    const fake = new FakeBackend({ initialSessionId: "sess-owner", initialSessionPatches: [] });
+    const other = new FakeBackend();
+    const registry = makeTwoBackendTestRegistry(fake, other);
+    return {
+      backend: fake,
+      registry,
+      fn: async (url) => {
+        // ?backend= matches the owner -> resumes normally.
+        const ok = await fetch(`${url}/chat/init?sessionId=sess-owner&backend=fake`);
+        assert.equal(ok.status, 200);
+        const okBody = (await ok.json()) as { backend: { name: string }; resumed: boolean };
+        assert.equal(okBody.backend.name, "fake");
+        assert.equal(okBody.resumed, true);
+        assert.ok(fake.loadedWithCwd.some((l) => l.sessionId === "sess-owner"));
+
+        // Unknown backend name -> 400 before any routing.
+        const unknown = await fetch(`${url}/chat/init?sessionId=sess-owner&backend=nope`);
+        assert.equal(unknown.status, 400);
+
+        // Session is owned by "fake", caller says "other": the backend param is
+        // honored (not the owner), "other" can't load it -> 404. Proves the
+        // requested backend was the load target rather than findSession's hit
+        // (had the owner been used, fake.loadSession would have resolved and
+        // returned 200).
+        fake.loadedWithCwd.length = 0;
+        const cross = await fetch(`${url}/chat/init?sessionId=sess-owner&backend=other`);
+        assert.equal(cross.status, 404);
+        assert.ok(!fake.loadedWithCwd.some((l) => l.sessionId === "sess-owner"), "the owner's backend was not used");
+
+        // Bare resume (no backend param) still routes to the session's owner.
+        const bare = await fetch(`${url}/chat/init?sessionId=sess-owner`);
+        assert.equal(bare.status, 200);
+        const bareBody = (await bare.json()) as { backend: { name: string } };
+        assert.equal(bareBody.backend.name, "fake");
+      },
+    };
+  });
+});
+
+test("GET /chat/init?sessionId=X&backend=other resumes a session the other backend owns", async () => {
+  await withServer(async () => {
+    const fake = new FakeBackend();
+    const other = new FakeBackend();
+    const registry = makeTwoBackendTestRegistry(fake, other, "fake");
+    return {
+      backend: fake,
+      registry,
+      fn: async (url) => {
+        // Create a fresh chat pinned to "other", then resume it with an
+        // explicit backend param that also says "other".
+        const created = await fetch(`${url}/chat/init?backend=other`);
+        assert.equal(created.status, 200);
+        const createdBody = (await created.json()) as { sessionId: string };
+        const resume = await fetch(`${url}/chat/init?sessionId=${createdBody.sessionId}&backend=other`);
+        assert.equal(resume.status, 200);
+        const resumeBody = (await resume.json()) as { backend: { name: string }; resumed: boolean };
+        assert.equal(resumeBody.backend.name, "other");
+        assert.equal(resumeBody.resumed, true);
+        // Other (not the default "fake") did the load.
+        assert.ok(other.loadedWithCwd.some((l) => l.sessionId === createdBody.sessionId));
+      },
+    };
+  });
 });

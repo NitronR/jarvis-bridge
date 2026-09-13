@@ -240,6 +240,8 @@ describe("useChat", () => {
       "_blank",
       "noopener,noreferrer",
     );
+    // The opened URL carries the current tab's backend alongside the forked id.
+    expect(String(openSpy.mock.calls[0][0])).toContain("backend=fake");
     // The current tab's own session must be untouched — no /chat/init refetch
     // for the forked id, since forking must not switch this tab away from
     // the source conversation.

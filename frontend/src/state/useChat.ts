@@ -54,7 +54,7 @@ export interface UseChatResult {
   ) => Promise<void>;
   startNewChat: (opts?: { fork?: boolean }) => Promise<void>;
   startNewChatInWorkspace: (cwd: string, backend?: string) => Promise<void>;
-  openSessionInNewTab: (sessionId: string) => void;
+  openSessionInNewTab: (sessionId: string, backend?: string) => void;
   openWorkspaceInNewTab: (cwd: string, backend?: string) => void;
   openNewChatInNewTab: () => void;
   switchSession: (sessionId: string) => Promise<void>;
@@ -334,9 +334,10 @@ export function useChat(): UseChatResult {
     ctx.setTitle(`Chat: ${base}`);
   }, [ctx, cancel, detachOnly, clearQueue]);
 
-  const openSessionInNewTab = useCallback((sessionId: string) => {
+  const openSessionInNewTab = useCallback((sessionId: string, backend?: string) => {
     const params = new URLSearchParams();
     params.set("sessionId", sessionId);
+    if (backend) params.set("backend", backend);
     const url = `${window.location.pathname}?${params.toString()}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
@@ -383,7 +384,7 @@ export function useChat(): UseChatResult {
     // Opens in a new tab (rather than switching the current one) so forking
     // reads as "branch this into a new chat", leaving the original session's
     // tab untouched and still on the source conversation.
-    if (res.ok && res.data?.sessionId) openSessionInNewTab(res.data.sessionId);
+    if (res.ok && res.data?.sessionId) openSessionInNewTab(res.data.sessionId, ctx.state.backendName ?? undefined);
   }, [ctx, openSessionInNewTab]);
 
   const startNewChat = useCallback(async (opts?: { fork?: boolean }) => {

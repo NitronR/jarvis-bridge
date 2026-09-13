@@ -457,8 +457,8 @@ function ChatPanelInner() {
   );
 
   const onOpenSessionInNewTab = useCallback(
-    (sessionId: string) => {
-      chat.openSessionInNewTab(sessionId);
+    (sessionId: string, backendName?: string) => {
+      chat.openSessionInNewTab(sessionId, backendName);
     },
     [chat],
   );

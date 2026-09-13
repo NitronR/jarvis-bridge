@@ -9,7 +9,7 @@ export interface ChatsDrawerProps {
   recentWorkspaces?: string[];
   onClose: () => void;
   onSwitch: (sessionId: string) => void;
-  onOpenInNewTab?: (sessionId: string) => void;
+  onOpenInNewTab?: (sessionId: string, backendName?: string) => void;
   onDelete?: (sessionId: string) => void;
   onTogglePin?: (sessionId: string, pinned: boolean) => void;
   canDelete?: boolean;
@@ -340,7 +340,7 @@ export function ChatsDrawer({
                       className={`${styles.card} ${s.active ? styles.cardActive : ""}`}
                       onClick={(e: MouseEvent<HTMLLIElement>) => {
                         if ((e.metaKey || e.ctrlKey) && onOpenInNewTab) {
-                          onOpenInNewTab(s.sessionId);
+                          onOpenInNewTab(s.sessionId, s.backendName);
                           return;
                         }
                         onSwitch(s.sessionId);
@@ -434,7 +434,7 @@ export function ChatsDrawer({
                               className={`${styles.card} ${s.active ? styles.cardActive : ""}`}
                               onClick={(e: MouseEvent<HTMLDivElement>) => {
                                 if ((e.metaKey || e.ctrlKey) && onOpenInNewTab) {
-                                  onOpenInNewTab(s.sessionId);
+                                  onOpenInNewTab(s.sessionId, s.backendName);
                                   return;
                                 }
                                 onSwitch(s.sessionId);

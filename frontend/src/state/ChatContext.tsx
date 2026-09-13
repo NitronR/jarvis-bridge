@@ -115,10 +115,12 @@ function getSessionIdFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("sessionId");
 }
 
-// `cwd`/`backend`/`model` in the URL are a one-shot handoff (e.g. a workspace
-// or session opened in a new tab) for what to init with on mount — not a
-// durable part of the URL, so they're stripped once consumed (see
-// setSessionIdInUrl).
+// `cwd`/`model` in the URL are a one-shot handoff (e.g. a workspace opened in
+// a new tab) for what to init with on mount — not a durable part of the URL,
+// so they're stripped once consumed (see setSessionIdInUrl). `backend` is
+// durable: once a session is live it rides alongside ?sessionId=… so that
+// reloading or sharing that URL sends /chat/init the backend that hosts the
+// session, which now honors it on resume.
 function getCwdFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("cwd");
 }
@@ -131,15 +133,16 @@ function getModelFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("model");
 }
 
-function setSessionIdInUrl(sessionId: string | null, push: boolean): void {
+function setSessionIdInUrl(sessionId: string | null, backendName: string | null, push: boolean): void {
   const url = new URL(window.location.href);
   if (sessionId) {
     url.searchParams.set("sessionId", sessionId);
+    if (backendName) url.searchParams.set("backend", backendName);
   } else {
     url.searchParams.delete("sessionId");
+    url.searchParams.delete("backend");
   }
   url.searchParams.delete("cwd");
-  url.searchParams.delete("backend");
   url.searchParams.delete("model");
   const next = url.pathname + url.search + url.hash;
   const cur = window.location.pathname + window.location.search + window.location.hash;
@@ -168,7 +171,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (!res.ok || !res.data || !res.data.ok) {
         if (res.status === 404) {
           setState((s) => ({ ...s, sessionId: null, history: [], title: "New chat" }));
-          setSessionIdInUrl(null, push);
+          setSessionIdInUrl(null, null, push);
           return "gone";
         }
         setState((s) => ({ ...s, title: sessionId ? s.title : "New chat" }));
@@ -207,7 +210,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (groupsRes.ok && Array.isArray(groupsRes.data?.groups)) {
         setState((s) => ({ ...s, groups: groupsRes.data!.groups }));
       }
-      setSessionIdInUrl(d.sessionId, push);
+      setSessionIdInUrl(d.sessionId, d.backend.name, push);
       return "ok";
     } catch {
       return "retry";
@@ -274,7 +277,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     didInitRef.current = true;
     const sessionId = getSessionIdFromUrl();
     if (sessionId) {
-      void init(sessionId, undefined, undefined, undefined, { push: false });
+      void init(sessionId, undefined, getBackendFromUrl() ?? undefined, undefined, { push: false });
     } else {
       void init(null, getCwdFromUrl() ?? undefined, getBackendFromUrl() ?? undefined, getModelFromUrl() ?? undefined, { push: false });
     }
@@ -287,7 +290,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // would clobber the forward-navigation stack the user just triggered.
   useEffect(() => {
     const onPopState = () => {
-      void init(getSessionIdFromUrl(), undefined, undefined, undefined, { push: false });
+      void init(getSessionIdFromUrl(), undefined, getBackendFromUrl() ?? undefined, undefined, { push: false });
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);

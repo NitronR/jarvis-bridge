@@ -271,4 +271,36 @@ describe("ChatContext", () => {
     expect(result.current.state.configOptions[0].id).toBe("effort");
     expect(result.current.state.configOptions[0].currentValue).toBe("medium");
   });
+
+  describe("backend in the URL", () => {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ChatProvider>{children}</ChatProvider>
+    );
+
+    it("mount resumes through ?sessionId=…&backend=… with the backend passed to /chat/init", async () => {
+      window.history.replaceState(null, "", "/?sessionId=abc&backend=fake");
+      renderHook(() => useChatContext(), { wrapper });
+      await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+      expect(fetchJSONSpy).toHaveBeenCalledWith("/chat/init?sessionId=abc&backend=fake");
+    });
+
+    it("init writes sessionId + backend into the URL", async () => {
+      window.history.replaceState(null, "", "/chat");
+      const { result } = renderHook(() => useChatContext(), { wrapper });
+      await act(async () => { await result.current.init(); });
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("sessionId")).toBe("sess-1");
+      expect(search.get("backend")).toBe("fake");
+    });
+
+    it("drops backend from the URL when a session is gone (404)", async () => {
+      fetchJSONSpy.mockResolvedValue({ ok: false, status: 404, data: { error: "session not found" } });
+      window.history.replaceState(null, "", "/?sessionId=stale&backend=fake");
+      const { result } = renderHook(() => useChatContext(), { wrapper });
+      await act(async () => { await result.current.init("stale"); });
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("sessionId")).toBeNull();
+      expect(search.get("backend")).toBeNull();
+    });
+  });
 });

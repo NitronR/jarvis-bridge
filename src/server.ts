@@ -85,13 +85,29 @@ export function createServer(opts: CreateServerOptions): Express {
       }
       effectiveCwd = knownCwd ?? workspace;
       const owner = await registry.findSession(q.sessionId);
-      backend = owner
-        ? owner.backend
-        : located
-          ? await registry.getBackend(located.backendName, effectiveCwd)
-          : await registry.getDefaultBackend(effectiveCwd);
-      backendName = owner ? owner.backendName : located ? located.backendName : registry.getDefaultBackendName();
-      const resident = owner ? await registry.getSession(q.sessionId) : null;
+      if (q.backend) {
+        // An explicit ?backend=… pins the resume to that backend even when the
+        // session belongs to another one (e.g. the "open in new tab" URL keeps
+        // the backend it was created on). Validate the name up front so a
+        // typo'd/renamed backend answers 400 instead of routing elsewhere.
+        try {
+          backend = await registry.getBackend(q.backend, effectiveCwd);
+        } catch {
+          res.status(400).json({ error: "unknown backend" });
+          return;
+        }
+        backendName = q.backend;
+      } else {
+        backend = owner
+          ? owner.backend
+          : located
+            ? await registry.getBackend(located.backendName, effectiveCwd)
+            : await registry.getDefaultBackend(effectiveCwd);
+        backendName = owner ? owner.backendName : located ? located.backendName : registry.getDefaultBackendName();
+      }
+      // The resident fast-path (reusing a live session with an in-flight turn)
+      // is only valid when this request's backend is the session's owner.
+      const resident = owner && owner.backendName === backendName ? await registry.getSession(q.sessionId) : null;
       const liveTurn = resident?.getActiveTurn?.() ?? null;
       if (liveTurn) {
         // A turn is still streaming in this process — reuse the resident

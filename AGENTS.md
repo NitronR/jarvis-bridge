@@ -92,8 +92,11 @@ button picks the transport via `capabilities.nativeSteering`. See
 - `GET /chat/init` also accepts `cwd`/`backend`/`model` (no `sessionId`) to create a fresh
   session pinned to a specific workspace/backend/model — used by the "+ New" button's
   cmd/ctrl-click-to-open-in-a-new-tab behavior (`openNewChatInNewTab` in `useChat.ts`).
-  These are a one-shot handoff: the frontend strips them from the URL once consumed, so
-  reloading that tab later falls back to plain `sessionId` resume.
+  `cwd`/`model` are a one-shot handoff: the frontend strips them from the URL once consumed.
+  `backend` is durable — it rides alongside `sessionId=…` after any session loads (the new-tab
+  builders in `useChat.ts` write it too), so reloading or sharing `?sessionId=S&backend=B`
+  resumes the session on backend B. `/chat/init` honors the param on resume (400 for an
+  unknown backend); without it, resume still routes to the backend that owns the session.
 - See `docs/agent-claude-code.md` for the Claude-specific binding profile (spawn
   resolution, auth model, known wire-shape gotchas confirmed via live probe) and
   `docs/claude-acp-future-phases.md` for what's intentionally deferred.
