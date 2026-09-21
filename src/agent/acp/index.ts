@@ -93,7 +93,10 @@ interface SessionContext {
     viewerCallback: ((patch: ChatPatch) => void) | null;
     viewerToken: unknown;
     idleTimer: NodeJS.Timeout | null;
+    origin: "send" | "passive";
+    graceTimer: NodeJS.Timeout | null;
   } | null;
+  passiveTurnWaiter: (() => void) | null;
 }
 
 // ── Backend ──────────────────────────────────────────────────────────────
@@ -461,6 +464,12 @@ export class AcpAgentBackend implements AgentBackend {
     // handleSessionUpdate() drops notifications for unregistered sessions, so
     // registering after the await (as this used to) silently discarded the
     // entire replay.
+    // If a previous load's probe promoted a live passive turn, that turn owns
+    // the old ctx. Replace it cleanly so a still-ticking grace/idle timer can't
+    // fire against the swapped-out context (the retire path identity-guards
+    // anyway; this just avoids holding the drains open).
+    const prev = this.sessions.get(sessionId);
+    if (prev) clearPassiveTurnTimers(prev);
     this.sessions.set(sessionId, ctx);
     const sessionObj = new AcpAgentSession(this, sessionId, ctx);
     this.sessionObjects.set(sessionId, sessionObj);
@@ -489,6 +498,13 @@ export class AcpAgentBackend implements AgentBackend {
     // Wait briefly for replay activity to drain.
     await this.waitForReplayIdle(ctx);
     ctx.captureReplay = false;
+    // Probe: wait briefly for the backend to confirm this session is busy — an
+    // update that is NOT part of the replay (a promotion in handleSessionUpdate,
+    // wired in the next task) resolves this early; a quietly idle session blocks
+    // the INIT for the full window and then proceeds as normal.
+    if (opts?.passiveProbeMs) {
+      await waitForPassiveTurn(ctx, opts.passiveProbeMs);
+    }
     return sessionObj;
   }
 
@@ -852,6 +868,7 @@ export class AcpAgentBackend implements AgentBackend {
       currentModelId: undefined,
       wakeWaiter: null,
       activeTurn: null,
+      passiveTurnWaiter: null,
     };
   }
 
@@ -945,6 +962,30 @@ function getIdleTurnGraceMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 5 * 60 * 1000;
 }
 
+function clearPassiveTurnTimers(ctx: SessionContext): void {
+  if (ctx.activeTurn?.idleTimer) clearTimeout(ctx.activeTurn.idleTimer);
+  if (ctx.activeTurn?.graceTimer) clearTimeout(ctx.activeTurn.graceTimer);
+  ctx.onPatch = null;
+  ctx.activeTurn = null;
+  ctx.passiveTurnWaiter = null;
+  ctx.busy = false;
+}
+
+function waitForPassiveTurn(ctx: SessionContext, timeoutMs: number): Promise<void> {
+  if (ctx.activeTurn) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ctx.passiveTurnWaiter = null;
+      resolve();
+    }, timeoutMs);
+    ctx.passiveTurnWaiter = () => {
+      clearTimeout(timer);
+      ctx.passiveTurnWaiter = null;
+      resolve();
+    };
+  });
+}
+
 function extractText(content: unknown): string {
   if (!content) return "";
   if (Array.isArray(content)) {
@@ -1006,7 +1047,14 @@ export class AcpAgentSession implements AgentSession {
     this.ctx.busy = true;
     this.ctx.cancelRequested = false;
     resetTurnState(this.ctx.state);
-    this.ctx.activeTurn = { patches: [], viewerCallback: null, viewerToken: null, idleTimer: null };
+    this.ctx.activeTurn = {
+      patches: [],
+      viewerCallback: null,
+      viewerToken: null,
+      idleTimer: null,
+      origin: "send",
+      graceTimer: null,
+    };
 
     try {
       const promptResult = buildAcpPrompt(message, opts?.images ?? [], {});

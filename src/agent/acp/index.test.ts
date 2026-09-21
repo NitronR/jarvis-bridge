@@ -281,6 +281,18 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
       await backend.shutdown();
     }
   });
+
+  test("loadSession with passiveProbeMs on a quiet session waits the probe then returns without promoting a turn", async () => {
+    const backend = await newBackend({});
+    try {
+      const started = Date.now();
+      const session = await backend.loadSession("sid", { cwd: process.cwd(), passiveProbeMs: 150 }) as AcpAgentSession;
+      assert.ok(Date.now() - started >= 150, "the probe should wait out its full window on a quiet session");
+      assert.equal(session.getActiveTurn(), null, "no promotion on a quiet session");
+    } finally {
+      await backend.shutdown();
+    }
+  });
 });
 
 describe("AcpAgentBackend.listSessions — cwd scoping", () => {

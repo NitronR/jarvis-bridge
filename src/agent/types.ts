@@ -63,6 +63,7 @@ export interface AgentSession {
 export interface CreateSessionOptions {
   cwd?: string;
   label?: string;
+  passiveProbeMs?: number;
 }
 
 export interface ChatSessionSummary {
