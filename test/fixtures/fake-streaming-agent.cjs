@@ -53,6 +53,17 @@
 //   X_FAKE_AGENT_STEERING_OUTCOME — "_session/steering" reply outcome: one of
 //                            "injected" | "startedNewTurn" | "failed"
 //                            (default "injected").
+//   X_FAKE_AGENT_AFTER_LOAD_UPDATES — JSON array of session/update `update`
+//                            bodies emitted as notifications AFTER the
+//                            session/load reply (the "backend is busy in a
+//                            session jarvis didn't start" signal). Entries may
+//                            be { "__delayMs": <n> } sentinels to insert a
+//                            quiet gap mid-burst (so a later burst provably
+//                            promotes a fresh turn).
+//   X_FAKE_AGENT_AFTER_LOAD_DELAY_MS — ms to wait after the session/load reply
+//                            before emitting the burst (default 200). Keep it
+//                            well above the gateway's ~75ms replay-drain window
+//                            so the burst is NOT mistaken for replay capture.
 
 const readline = require("node:readline");
 const fs = require("node:fs");
@@ -146,6 +157,17 @@ try {
   replayUpdates = [];
 }
 
+const rawAfterLoad = process.env.X_FAKE_AGENT_AFTER_LOAD_UPDATES;
+let afterLoadUpdates = [];
+if (rawAfterLoad) {
+  try {
+    afterLoadUpdates = JSON.parse(rawAfterLoad);
+  } catch (err) {
+    console.error("bad X_FAKE_AGENT_AFTER_LOAD_UPDATES", err);
+  }
+}
+const afterLoadDelayMs = parseInt(process.env.X_FAKE_AGENT_AFTER_LOAD_DELAY_MS || "200", 10);
+
 let availableCommands = [];
 try {
   const raw = process.env.X_FAKE_AGENT_AVAILABLE_COMMANDS;
@@ -173,6 +195,7 @@ let nextId = 1;
 let nextSessionId = 1;
 let nextAgentRequestId = 1;
 const pendingFromAgent = new Map();
+let afterLoadBurstsActive = 0;
 
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
@@ -202,6 +225,27 @@ function makeSessionId() {
 
 function chunkDelay(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function emitAfterLoadUpdates(sid) {
+  afterLoadBurstsActive++;
+  try {
+    await chunkDelay(afterLoadDelayMs);
+    for (const entry of afterLoadUpdates) {
+      if (entry && typeof entry === "object" && "__delayMs" in entry) {
+        await chunkDelay(entry.__delayMs);
+        continue;
+      }
+      emit({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { sessionId: sid, update: entry },
+      });
+      await chunkDelay(15);
+    }
+  } finally {
+    afterLoadBurstsActive--;
+  }
 }
 
 async function handlePrompt(id, params, sessionId) {
@@ -390,6 +434,9 @@ rl.on("line", async (line) => {
       reply(msg.id, claudeStyleConfig
         ? { sessionId: sid, modes, configOptions }
         : { sessionId: sid, configOptions });
+      if (afterLoadUpdates.length > 0) {
+        void emitAfterLoadUpdates(sid);
+      }
       break;
     }
     case "session/list":
@@ -469,4 +516,7 @@ rl.on("line", async (line) => {
   }
 });
 
-rl.on("close", () => process.exit(0));
+rl.on("close", async () => {
+  while (afterLoadBurstsActive > 0) await chunkDelay(5);
+  process.exit(0);
+});
