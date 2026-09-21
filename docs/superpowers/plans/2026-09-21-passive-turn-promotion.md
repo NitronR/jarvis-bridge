@@ -38,7 +38,7 @@ Commands used throughout (from `AGENTS.md`):
 
 Goal: let the fake agent emit *live* `session/update` notifications a moment after a `session/load` reply, distinct from the replay burst. These are the "backend is busy in a session jarvis didn't start" updates the promotion rule will consume.
 
-- [ ] **Step 1: Add the env-vars + emission to the fixture**
+- [x] **Step 1: Add the env-vars + emission to the fixture**
 
 In `test/fixtures/fake-streaming-agent.cjs`:
 
@@ -105,7 +105,7 @@ async function emitAfterLoadUpdates(sid) {
       break;
 ```
 
-- [ ] **Step 2: Verify emission ordering with a raw stdio probe**
+- [x] **Step 2: Verify emission ordering with a raw stdio probe**
 
 No test-server involved yet — just replay the fixture's stdio on a pipe. Expected: the `id:1` result line for `session/load` prints FIRST, then the `session/update` notification line prints later.
 
@@ -119,7 +119,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"session/load","params":{"sessionId":"p
 
 Expected output: a line `{"jsonrpc":"2.0","id":1,"result":{...}}` followed later by a line `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"probe-sess","update":{"sessionUpdate":"agent_message_chunk",...}}}`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add test/fixtures/fake-streaming-agent.cjs
@@ -137,7 +137,7 @@ git commit -m "test(fixtures): after-load live updates in fake-streaming-agent"
 
 Goal: thread a `passiveProbeMs` option into `loadSession`, add the module-level probe/cleanup helpers the next tasks use, and prove the probe window on a quiet session is a bounded no-op.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to the loadSession test block in `src/agent/acp/index.test.ts` (near the existing "usage_update replayed mid-history" test, ~line 261):
 
@@ -157,12 +157,12 @@ test("loadSession with passiveProbeMs on a quiet session waits the probe then re
 
 `sid` is not pre-seeded in the fixture — the fake agent's `session/load` accepts any id and replies, which is the existing pattern the replay tests already rely on.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="quiet session" src/agent/acp/index.test.ts`
 Expected: FAIL with `TypeError: opts.passiveProbeMs not accepted` — actually a compile error `acpUpdateToPatches`-free path; concretely `loadSession`'s options type has no `passiveProbeMs`, so ts-node surfaces a TS error (`Object literal may only specify known properties`).
 
-- [ ] **Step 3: Implement — types + helpers + probe**
+- [x] **Step 3: Implement — types + helpers + probe**
 
 **`src/agent/types.ts`** — add the option:
 
@@ -258,12 +258,12 @@ function waitForPassiveTurn(ctx: SessionContext, timeoutMs: number): Promise<voi
     }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="quiet session" src/agent/acp/index.test.ts`
 Expected: PASS. Then `npm run typecheck` — must be clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/types.ts src/agent/acp/index.ts src/agent/acp/index.test.ts
@@ -281,7 +281,7 @@ git commit -m "feat(acp): wire passive-turn probe option through loadSession"
 
 Goal: the core rule — a message-part update that is neither replay capture nor part of a tracked turn promotes a passive `activeTurn` that buffers the patch. And correct the spec's parenthetical (which wrongly lists `session/request_permission` as a promotion kind).
 
-- [ ] **Step 1: Correct the spec parenthetical**
+- [x] **Step 1: Correct the spec parenthetical**
 
 `docs/superpowers/specs/2026-09-21-passive-turn-promotion-design.md` lines ~58–60. Replace:
 
@@ -306,7 +306,7 @@ and immediately after the blockquote add:
 > passive turn's `onPatch` router is installed.
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append to the `src/agent/acp/index.test.ts` describe block that holds `loadSession` tests (after the Task 2 test):
 
@@ -358,12 +358,12 @@ test("passive promotion does not fire for replay-captured updates", async () => 
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="passive" src/agent/acp/index.test.ts`
 Expected: the busy test FAILS (`turn` is null — no promotion exists yet); the replay test PASSES today but must stay passing after the change (it is the guard against promoting mid-replay, which the up-next implementation must preserve).
 
-- [ ] **Step 4: Implement — whitelist + promotion + router**
+- [x] **Step 4: Implement — whitelist + promotion + router**
 
 Add module helpers next to `getIdleTurnGraceMs` (~line 946):
 
@@ -430,14 +430,14 @@ In `handleSessionUpdate` (index.ts ~line 280, right after `const ctx = this.sess
     }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="passive" src/agent/acp/index.test.ts`
 Expected: both PASS. Then run the full file `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test src/agent/acp/index.test.ts` — no regressions — and `npm run typecheck`.
 
 Note: `request_permission`-during-passive-turn routing needs no new test: it already flows through `routeApprovalToUI` → `ctx.onPatch`, which the new passive router satisfies; the existing approval tests cover the mechanism.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/acp/index.ts src/agent/acp/index.test.ts docs/superpowers/specs/2026-09-21-passive-turn-promotion-design.md
@@ -454,7 +454,7 @@ git commit -m "feat(acp): promote passive turns for backend-busy sessions (probe
 
 Goal: a passive turn synthesizes `done` and retires after `getIdleTurnGraceMs()` quiet; the idle reaper never cancels a passive turn; `close()` clears passive timers.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to the `src/agent/acp/index.test.ts` getActiveTurn describe block (near the existing reaper tests ~line 584):
 
@@ -537,12 +537,12 @@ test("the idle reaper never cancels a passive turn", async () => {
 
 These must NOT use `t.mock.timers` — `loadSession`'s `waitForReplayIdle` awaits a mocked `setTimeout` and would hang forever; real timers with the grace env knob are required.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="passive" src/agent/acp/index.test.ts`
 Expected: both FAIL — the retire loop never gets two `done` events (no retirement), and `getActiveTurn()` never returns null (no retirement). Note the second test may fail at "passive turn should be promoted" — no wait, it will fail at the `assert.equal(session.getActiveTurn(), null, ...)` because with the Task 3 stub `armPassiveGrace` nothing ever retires.
 
-- [ ] **Step 3: Implement — retirement + detach guard + close cleanup**
+- [x] **Step 3: Implement — retirement + detach guard + close cleanup**
 
 Replace the `armPassiveGrace` stub from Task 3 with the real implementation, and add `retirePassiveTurn`:
 
@@ -564,6 +564,7 @@ function retirePassiveTurn(ctx: SessionContext, turn: NonNullable<SessionContext
   ctx.onPatch = null;
   ctx.activeTurn = null;
   ctx.busy = false;
+  drainTurnQueue();
 }
 ```
 
@@ -589,12 +590,12 @@ In `close()` (~line 1172), replace `this.ctx.onPatch = null;` with a full teardo
 
 (`clearPassiveTurnTimers` — added in Task 2 — also nulls `onPatch`, so the shutdown/delete path now drains pending passive timers too.)
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="passive" src/agent/acp/index.test.ts`
 Expected: both PASS. Then full file + `npm run typecheck` — clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/acp/index.ts src/agent/acp/index.test.ts
