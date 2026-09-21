@@ -779,6 +779,64 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
       fs.rmSync(eventLogFile, { force: true });
     }
   });
+
+  test("deleteSession clears an armed passive grace timer so no stray done is delivered after delete", async () => {
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "100";
+    const backend = await newBackend({
+      X_FAKE_AGENT_SESSION_DELETE: "true",
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("delete-grace-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+      const handle = session.getActiveTurn();
+      assert.ok(handle, "passive turn should be promoted");
+      const received: ChatPatch[] = [];
+      const detach = handle!.attach((p) => received.push(p));
+      await backend.deleteSession("delete-grace-sid");
+      assert.equal(session.getActiveTurn(), null, "deleteSession must clear the promoted turn");
+      await new Promise((r) => setTimeout(r, 300)); // past the grace window
+      detach();
+      assert.ok(
+        !received.some((p) => p.type === "done"),
+        "no synthetic done may be delivered after deleteSession",
+      );
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+    }
+  });
+
+  test("a sendMessage queued behind a live passive turn drains once the passive turn retires", async () => {
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "100";
+    const backend = await newBackend({
+      X_FAKE_AGENT_PROMPT_QUEUEING: "true",
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "busy" } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("queued-drain-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+      assert.ok(session.getActiveTurn(), "passive turn must be live so the send queues");
+      const flushed: ChatPatch[] = [];
+      const queued = (async () => {
+        for await (const p of session.sendMessage("please drain")) {
+          flushed.push(p);
+        }
+      })();
+      const deadline = Date.now() + 1500;
+      while (Date.now() < deadline && !flushed.some((p) => p.type === "done")) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      const doneSeen = flushed.some((p) => p.type === "done");
+      if (doneSeen) await queued;
+      assert.ok(doneSeen, "the queued sendMessage must be drained by the passive turn's retirement");
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+    }
+  });
 });
 
 describe("AcpAgentBackend.deleteSession", () => {

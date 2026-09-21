@@ -289,7 +289,7 @@ export class AcpAgentBackend implements AgentBackend {
     // continuation). Promote a passive activeTurn so this update stream buffers
     // instead of being silently dropped, and a refresh can attach to it.
     if (!ctx.captureReplay && !ctx.activeTurn && isMessagePartUpdate(update)) {
-      promotePassiveTurn(ctx);
+      promotePassiveTurn(ctx, () => this.sessionObjects.get(sid)?.drainTurnQueue());
     }
 
     const patches = acpUpdateToPatches(update, ctx.state);
@@ -596,8 +596,10 @@ export class AcpAgentBackend implements AgentBackend {
       }
       throw err;
     }
+    const ctx = this.sessions.get(sessionId);
     this.sessions.delete(sessionId);
     this.sessionObjects.delete(sessionId);
+    if (ctx) clearPassiveTurnTimers(ctx);
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
@@ -983,7 +985,7 @@ function isMessagePartUpdate(update: AcpUpdate): boolean {
   return MESSAGE_PART_UPDATE_KINDS.has(update.sessionUpdate);
 }
 
-function promotePassiveTurn(ctx: SessionContext): void {
+function promotePassiveTurn(ctx: SessionContext, drainTurnQueue: () => void): void {
   ctx.busy = true;
   resetTurnState(ctx.state);
   const turn = {
@@ -1000,21 +1002,21 @@ function promotePassiveTurn(ctx: SessionContext): void {
       turn.patches.push(patch);
       turn.viewerCallback?.(patch);
     }
-    armPassiveGrace(ctx, turn);
+    armPassiveGrace(ctx, turn, drainTurnQueue);
   };
-  armPassiveGrace(ctx, turn);
+  armPassiveGrace(ctx, turn, drainTurnQueue);
   const waiter = ctx.passiveTurnWaiter;
   ctx.passiveTurnWaiter = null;
   waiter?.();
 }
 
-function armPassiveGrace(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>): void {
+function armPassiveGrace(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>, drainTurnQueue: () => void): void {
   if (turn.origin !== "passive") return;
   if (turn.graceTimer) clearTimeout(turn.graceTimer);
-  turn.graceTimer = setTimeout(() => retirePassiveTurn(ctx, turn), getIdleTurnGraceMs());
+  turn.graceTimer = setTimeout(() => retirePassiveTurn(ctx, turn, drainTurnQueue), getIdleTurnGraceMs());
 }
 
-function retirePassiveTurn(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>): void {
+function retirePassiveTurn(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>, drainTurnQueue: () => void): void {
   if (ctx.activeTurn !== turn) return;
   if (turn.graceTimer) clearTimeout(turn.graceTimer);
   turn.graceTimer = null;
@@ -1025,6 +1027,7 @@ function retirePassiveTurn(ctx: SessionContext, turn: NonNullable<SessionContext
   ctx.onPatch = null;
   ctx.activeTurn = null;
   ctx.busy = false;
+  drainTurnQueue();
 }
 
 function clearPassiveTurnTimers(ctx: SessionContext): void {
@@ -1199,9 +1202,13 @@ export class AcpAgentSession implements AgentSession {
       this.ctx.onPatch = null;
       if (this.ctx.activeTurn?.idleTimer) clearTimeout(this.ctx.activeTurn.idleTimer);
       this.ctx.activeTurn = null;
-      const next = this.turnQueue.shift();
-      if (next) next();
+      this.drainTurnQueue();
     }
+  }
+
+  drainTurnQueue(): void {
+    const next = this.turnQueue.shift();
+    if (next) next();
   }
 
   getActiveTurn(): ActiveTurnHandle | null {
