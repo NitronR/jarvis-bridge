@@ -704,6 +704,81 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
       fs.rmSync(eventLogFile, { force: true });
     }
   });
+
+  test("a passive turn synthesizes done and retires after a quiet window, then a later update promotes fresh", async () => {
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "100";
+    const backend = await newBackend({
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
+        { __delayMs: 400 },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "two " } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("retire-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+
+      const seenTurns: string[] = [];
+      const doneEvents: ChatPatch[] = [];
+      const deadline = Date.now() + 2500;
+      // Poll: attach to whichever passive turn is live now. Attach is
+      // token-guarded, so re-attaching on each tick just swaps the viewer; each
+      // retirement delivers its synthetic done to the current viewer.
+      while (Date.now() < deadline) {
+        const handle = session.getActiveTurn();
+        if (handle) {
+          const text = handle.patches
+            .filter((p): p is ({ type: "text-start"; content: string } | { type: "text-delta"; delta: string }) =>
+              p.type === "text-start" || p.type === "text-delta")
+            .map((p) => (p.type === "text-start" ? p.content : p.delta))
+            .join("");
+          if (text.includes("one") && !seenTurns.includes("one")) seenTurns.push("one");
+          if (text.includes("two") && !seenTurns.includes("two")) seenTurns.push("two");
+          handle.attach((p) => doneEvents.push(p));
+        }
+        if (doneEvents.filter((p) => p.type === "done").length >= 2 && seenTurns.length >= 2) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      assert.deepEqual(seenTurns, ["one", "two"], "both bursts must promote separate passive turns");
+      assert.equal(doneEvents.filter((p) => p.type === "done").length, 2, "each quiet retirement must synthesize done");
+      assert.equal(session.getActiveTurn(), null, "after all quiet, the passive turn must be retired");
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+    }
+  });
+
+  test("the idle reaper never cancels a passive turn", async () => {
+    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "50";
+    const backend = await newBackend({
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } },
+      ]),
+      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+    });
+    try {
+      const session = await backend.loadSession("reaper-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+      const handle = session.getActiveTurn();
+      assert.ok(handle, "passive turn should be promoted");
+      // For a send-origin turn, attach-then-detach arms the cancel reaper. It
+      // must be a no-op for passive turns.
+      const detach = handle!.attach(() => {});
+      detach();
+      await new Promise((r) => setTimeout(r, 300)); // past the grace several times over
+      const log = fs.existsSync(eventLogFile)
+        ? fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+        : [];
+      assert.ok(
+        !log.some((e: { method: string }) => e.method === "session/cancel"),
+        "passive turns must never be auto-cancelled by the idle reaper",
+      );
+      assert.equal(session.getActiveTurn(), null, "the turn should still retire peacefully after quiet");
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+      fs.rmSync(eventLogFile, { force: true });
+    }
+  });
 });
 
 describe("AcpAgentBackend.deleteSession", () => {

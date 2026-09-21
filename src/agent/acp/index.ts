@@ -1009,10 +1009,22 @@ function promotePassiveTurn(ctx: SessionContext): void {
 }
 
 function armPassiveGrace(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>): void {
-  // Retirement (grace timer → synthesized done) is wired in the next task; the
-  // probe path only needs the turn to exist and buffer.
-  void ctx;
-  void turn;
+  if (turn.origin !== "passive") return;
+  if (turn.graceTimer) clearTimeout(turn.graceTimer);
+  turn.graceTimer = setTimeout(() => retirePassiveTurn(ctx, turn), getIdleTurnGraceMs());
+}
+
+function retirePassiveTurn(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>): void {
+  if (ctx.activeTurn !== turn) return;
+  if (turn.graceTimer) clearTimeout(turn.graceTimer);
+  turn.graceTimer = null;
+  // The spec's "quiet ≠ done": completion is only ever approximated here by a
+  // quiet window. Synthesize done to whatever viewer is attached so /chat/stream
+  // closes, then retire.
+  turn.viewerCallback?.({ type: "done" } as unknown as ChatPatch);
+  ctx.onPatch = null;
+  ctx.activeTurn = null;
+  ctx.busy = false;
 }
 
 function clearPassiveTurnTimers(ctx: SessionContext): void {
@@ -1209,6 +1221,7 @@ export class AcpAgentSession implements AgentSession {
           if (at.viewerToken !== token) return;
           at.viewerCallback = null;
           at.viewerToken = null;
+          if (at.origin === "passive") return; // passive turns are never auto-cancelled
           at.idleTimer = setTimeout(() => {
             void this.cancel();
           }, getIdleTurnGraceMs());
@@ -1270,7 +1283,7 @@ export class AcpAgentSession implements AgentSession {
     this.ctx.pendingApprovals.clear();
     for (const [, p] of this.ctx.pendingElicitations) p.resolve({ action: "cancel" });
     this.ctx.pendingElicitations.clear();
-    this.ctx.onPatch = null;
+    clearPassiveTurnTimers(this.ctx);
     const queue = this.turnQueue;
     this.turnQueue = [];
     for (const resolve of queue) {
