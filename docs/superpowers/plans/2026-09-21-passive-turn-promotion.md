@@ -881,19 +881,28 @@ Repeat the same scenario with the default set to `claude` (Claude Code CLI activ
 
 The risk this surfaces is content duplication in the transcript during a passive turn + reload; if a real agent misbehaves, the resolution is a follow-up spec + task, not a silent fix here.
 
-- [ ] **Step 3: Update the spec**
+- [x] **Step 3: Update the spec**
 
 In `docs/superpowers/specs/2026-09-21-passive-turn-promotion-design.md`:
 
 - Change `Status: draft` to `Status: implemented` and add a line `Implemented: 2026-09-21` (preserving the original `Date: 2026-09-21`).
 - Note the per-backend wire-shape findings from Steps 1–2 under `## Testing` (append a short paragraph after the existing per-backend bullet).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-09-21-passive-turn-promotion-design.md
 git commit -m "docs: spec implemented + per-backend wire-shape verification"
 ```
+
+> **Execution note (2026-09-21):** Steps 1–2 are live browser/CLI probes against the real
+> opencode / Claude / Codex agents — manual UI work slated for the user, not the
+> implementer. The automated server-layer equivalent was committed instead: Task 6's
+> e2e test proves a real subprocess busy after load promotes a passive turn, streams the
+> buffered tail, closes on synthesized done, and takes the fast path without a second
+> `session/load`. Step 3 was committed with an honest note that the real-agent wire-shape
+> probe remains user/microscope-manual for opencode, Claude, and Codex. If you run those
+> probes, record the findings under `## Testing` in the spec per the plan's Step 3 wording.
 
 ---
 
