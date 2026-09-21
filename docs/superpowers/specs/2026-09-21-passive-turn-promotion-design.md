@@ -56,10 +56,15 @@ of a history replay. `SessionContext.captureReplay` is true only while `loadSess
 draining the replayed history and settles (via `waitForReplayIdle`) shortly after. So:
 
 > **Promotion rule (in `AcpAgentSession.handleSessionUpdate`):** when a message-part update
-> (`agent_message_chunk`, `user_message_chunk`, `tool_call*`, `agent_thought_chunk`,
-> `session/request_permission`, etc.) arrives for a ctx that (i) is not mid-replay-capture
+> (`agent_message_chunk`, `user_message_chunk`, `tool_call`, `tool_call_update`,
+> `agent_thought_chunk`) arrives for a ctx that (i) is not mid-replay-capture
 > (`captureReplay` false) and (ii) has no `activeTurn`, promote it:
 > create an `activeTurn` with `origin: "passive"` on that ctx and route the patch into it.
+
+> `session/request_permission` is NOT a promotion trigger: it arrives on the
+> `onRequest` channel (src/agent/acp/jsonrpc.ts) and is routed by
+> `routeApprovalToUI`, riding the same viewer path as a gateway turn once a
+> passive turn's `onPatch` router is installed.
 
 This handles all three cases with one rule and no extra wire protocol. It also means a
 busy-but-untracked session starts buffering the moment the agent emits, even if nobody is

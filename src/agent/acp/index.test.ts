@@ -293,6 +293,52 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
       await backend.shutdown();
     }
   });
+
+  test("loadSession promotes a passive activeTurn while the backend is busy and buffers the live tail", async () => {
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = String(60 * 1000);
+    const backend = await newBackend({
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "two " } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "three" } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("busy-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+      // The probe resolves on the FIRST promoting chunk; let the rest of the
+      // burst land before snapshotting the buffer.
+      await new Promise((r) => setTimeout(r, 120));
+      const turn = session.getActiveTurn();
+      assert.ok(turn, "a busy backend should promote a passive activeTurn during the probe");
+      const text = turn!.patches
+        .filter((p): p is { type: "text-start"; content: string } | { type: "text-delta"; delta: string } =>
+          p.type === "text-start" || p.type === "text-delta")
+        .map((p) => (p.type === "text-start" ? p.content : p.delta))
+        .join("");
+      assert.equal(text, "one two three");
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      await backend.shutdown();
+    }
+  });
+
+  test("passive promotion does not fire for replay-captured updates", async () => {
+    const backend = await newBackend({
+      X_FAKE_AGENT_REPLAY_UPDATES: JSON.stringify([
+        { sessionUpdate: "user_message_chunk", content: { type: "text", text: "hi" } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("replay-sid", { cwd: process.cwd(), passiveProbeMs: 300 }) as AcpAgentSession;
+      assert.equal(session.getActiveTurn(), null, "replay updates must not promote a passive turn");
+      const history = session.consumeReplayHistory();
+      assert.ok(history.some((e) => e.kind === "user"), "replay should still reconstruct history");
+      assert.ok(history.some((e) => e.kind === "assistant"), "replay should still reconstruct the assistant entry");
+    } finally {
+      await backend.shutdown();
+    }
+  });
 });
 
 describe("AcpAgentBackend.listSessions — cwd scoping", () => {

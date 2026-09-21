@@ -283,6 +283,15 @@ export class AcpAgentBackend implements AgentBackend {
     const ctx = this.sessions.get(sid);
     if (!ctx) return;
 
+    // Passive turn promotion: a message-part update that is neither replay
+    // capture nor a tracked turn means the backend is busy in a session jarvis
+    // didn't start (external CLI turn, gateway restart mid-turn, post-done
+    // continuation). Promote a passive activeTurn so this update stream buffers
+    // instead of being silently dropped, and a refresh can attach to it.
+    if (!ctx.captureReplay && !ctx.activeTurn && isMessagePartUpdate(update)) {
+      promotePassiveTurn(ctx);
+    }
+
     const patches = acpUpdateToPatches(update, ctx.state);
 
     // Replay capture: reconstruct user/assistant history entries from updates.
@@ -960,6 +969,50 @@ function getIdleTurnGraceMs(): number {
   const raw = process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 5 * 60 * 1000;
+}
+
+const MESSAGE_PART_UPDATE_KINDS = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "user_message_chunk",
+  "tool_call",
+  "tool_call_update",
+]);
+
+function isMessagePartUpdate(update: AcpUpdate): boolean {
+  return MESSAGE_PART_UPDATE_KINDS.has(update.sessionUpdate);
+}
+
+function promotePassiveTurn(ctx: SessionContext): void {
+  ctx.busy = true;
+  resetTurnState(ctx.state);
+  const turn = {
+    patches: [] as ChatPatch[],
+    viewerCallback: null as ((patch: ChatPatch) => void) | null,
+    viewerToken: null as unknown,
+    idleTimer: null as NodeJS.Timeout | null,
+    origin: "passive" as const,
+    graceTimer: null as NodeJS.Timeout | null,
+  };
+  ctx.activeTurn = turn;
+  ctx.onPatch = (patches) => {
+    for (const patch of patches) {
+      turn.patches.push(patch);
+      turn.viewerCallback?.(patch);
+    }
+    armPassiveGrace(ctx, turn);
+  };
+  armPassiveGrace(ctx, turn);
+  const waiter = ctx.passiveTurnWaiter;
+  ctx.passiveTurnWaiter = null;
+  waiter?.();
+}
+
+function armPassiveGrace(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>): void {
+  // Retirement (grace timer → synthesized done) is wired in the next task; the
+  // probe path only needs the turn to exist and buffer.
+  void ctx;
+  void turn;
 }
 
 function clearPassiveTurnTimers(ctx: SessionContext): void {
