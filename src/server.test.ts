@@ -1772,3 +1772,126 @@ test("GET /chat/init?sessionId=X&backend=other resumes a session the other backe
     };
   });
 });
+
+test("GET /chat/init promotes a passive turn for a backend-busy session; /chat/stream replays the buffered tail then done; a fast-path refresh skips reload", async () => {
+  const ws = await mkWorkspace();
+  const probe = process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
+  const grace = process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+  const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+  process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = "2000";
+  process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "500";
+  let server: import("node:http").Server | undefined;
+  let registry: import("./agent/backendRegistry").BackendRegistry | undefined;
+  try {
+    const settings = await createSettingsStore({
+      path: path.join(ws, "settings.json"),
+      envDefault: "opencode",
+      validNames: ["opencode"],
+    });
+    const profiles: BackendProfile[] = [
+      {
+        name: "opencode",
+        kind: "opencode",
+        command: process.execPath,
+        args: [FAKE_AGENT],
+        env: {
+          X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+            { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
+            { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "two " } },
+            { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "three" } },
+          ]),
+          X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
+          // session/new doesn't register the session in the fixture's
+          // session/list, so findSession would miss it and the resident
+          // fast-path (owner must be resolved) would never engage. The id is
+          // deterministic: a fresh subprocess starts its counter at sess-1 and
+          // Phase 1's createSession is the first session/new it serves.
+          X_FAKE_AGENT_SESSION_LIST: JSON.stringify([
+            { sessionId: "sess-1", cwd: ws, title: "t", updatedAt: new Date().toISOString() },
+          ]),
+        },
+      },
+    ];
+    registry = await createBackendRegistry({ profiles, settings, workspace: ws, autoApprove: false });
+    const sessionConfig = await createSessionConfigStore({ path: path.join(ws, "session_metadata.json"), envDefault: false });
+    const tools = createToolRegistry(ws);
+    const app = createServer({ workspace: ws, port: 0, registry, tools, sessionConfig });
+    server = app.listen(0);
+    await new Promise<void>((resolve) => server!.on("listening", () => resolve()));
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no port");
+    const url = `http://127.0.0.1:${addr.port}`;
+
+    // Phase 1 — fresh session (session/new, no load).
+    const created = await fetch(`${url}/chat/init`);
+    assert.equal(created.status, 200);
+    const createdBody = (await created.json()) as { sessionId: string };
+    assert.ok(createdBody.sessionId.length > 0);
+
+    // Phase 2 — "page refresh": the backend is now busy (emits after-load
+    // updates), so the probe promotes a passive turn before init returns.
+    const initRes = await fetch(`${url}/chat/init?sessionId=${createdBody.sessionId}`);
+    assert.equal(initRes.status, 200);
+    const body = (await initRes.json()) as {
+      activeTurn: boolean;
+      resumed: boolean;
+      history: Array<{ kind: string; patches?: Array<{ type: string; delta?: string; content?: string }> }>;
+    };
+    assert.equal(body.resumed, true);
+    assert.equal(body.activeTurn, true, "a busy backend must be reported active after the probe");
+    assert.ok(
+      body.history.some(
+        (e) =>
+          e.kind === "assistant" &&
+          e.patches?.some(
+            (p) =>
+              (p.type === "text-start" && typeof p.content === "string") ||
+              (p.type === "text-delta" && typeof p.delta === "string"),
+          ),
+      ),
+      "the buffered tail should be presented as this turn's history",
+    );
+
+    // Phase 3 — second refresh while the passive turn is still alive: the
+    // resident fast-path must reuse the session WITHOUT another session/load.
+    const again = await fetch(`${url}/chat/init?sessionId=${createdBody.sessionId}`);
+    assert.equal(again.status, 200);
+    assert.equal(((await again.json()) as { activeTurn: boolean }).activeTurn, true);
+    const log = (await fs.readFile(eventLogFile, "utf8").catch(() => ""))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+    assert.equal(
+      log.filter((e: { method: string }) => e.method === "session/load").length,
+      1,
+      "the fast-path refresh must not re-load the session",
+    );
+
+    // Phase 4 — /chat/stream reattaches to the passive turn: buffered tail
+    // replays, then the synthesized done closes the stream.
+    const streamRes = await fetch(`${url}/chat/stream?sessionId=${createdBody.sessionId}`);
+    assert.equal(streamRes.status, 200);
+    assert.match(streamRes.headers.get("content-type") ?? "", /text\/event-stream/);
+    const text = await streamRes.text();
+    const events = text.split("\n\n").filter((s) => s.startsWith("data: ")).map((s) => JSON.parse(s.slice(6)));
+    const deltas = events
+      .filter(
+        (e) =>
+          (e.type === "text-delta" && typeof e.delta === "string") ||
+          (e.type === "text-start" && typeof e.content === "string"),
+      )
+      .map((e) => (e.type === "text-delta" ? e.delta : e.content));
+    assert.equal(deltas.join(""), "one two three", "the buffered tail must replay on /chat/stream");
+    assert.equal(events[events.length - 1].type, "done", "passive turn must close the stream with a synthesized done");
+  } finally {
+    if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
+    if (registry) await registry.shutdown();
+    await fs.rm(ws, { recursive: true, force: true });
+    await fs.rm(eventLogFile, { force: true }).catch(() => {});
+    if (probe === undefined) delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
+    else process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = probe;
+    if (grace === undefined) delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+    else process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = grace;
+  }
+});

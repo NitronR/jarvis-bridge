@@ -727,7 +727,7 @@ git commit -m "feat(server): probe passive turn on /chat/init resume; gate confi
 
 Goal: with a real agent subprocess, a session that goes busy *after* init promotes a passive turn; the refresh-init reports `activeTurn: true`; `/chat/stream` replays the buffered tail then closes on the synthesized `done`; and a second refresh while the turn is still alive takes the resident fast-path (no second `session/load`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `src/server.test.ts`:
 
@@ -839,16 +839,16 @@ Check the file's imports at the top of `src/server.test.ts` already include ever
 
 Timing budget (single host, ms-scale): init#2 load → burst at +200/215/230ms, probe resolves ~+200ms; init#3 fast-path ~+3ms; `/chat/stream` attach ~+6ms; grace "500" retires the turn at ~+730ms (done). The stream fetch always lands well before retirement.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="backend-busy session" src/server.test.ts`
 Expected: FAIL at the first `assert.equal(body.activeTurn, true, ...)` — before the server wiring from Task 5… wait, Task 5 is already committed; to see it fail here, note this test is the one that REQUIRES a real agent subprocess (FakeBackend cannot emit post-load updates), so it cannot pass on the mock-based server alone: with no promotion, `activeTurn` stays `false`.
 
-- [ ] **Step 3: Verify it passes**
+- [x] **Step 3: Verify it passes**
 
 Run the same command again. Expected: PASS (all four phases). Then `npm run typecheck`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/server.test.ts
