@@ -71,6 +71,116 @@ describe("AcpAgentBackend — handshake & session lifecycle", () => {
   });
 });
 
+describe("AcpAgentBackend.renameSession", () => {
+  test("uses an advertised rename command without creating an agent turn", async () => {
+    const logFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "jb-rename-")), "events.jsonl");
+    const backend = await newBackend({
+      X_FAKE_AGENT_AVAILABLE_COMMANDS: JSON.stringify([{ name: "rename", description: "Rename session" }]),
+      X_FAKE_AGENT_EVENT_LOG_FILE: logFile,
+    });
+    try {
+      const session = await backend.createSession({ cwd: process.cwd() });
+      // The command advert comes asynchronously after session/new (real codex
+      // publishes it once its skills process responds), so retry past that
+      // window like a real user would — the point is the prompt, not the race.
+      let lastErr: unknown;
+      for (let i = 0; i < 20; i++) {
+        try {
+          await backend.renameSession(session.id, "Renamed from Jarvis");
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
+      if (lastErr) throw lastErr;
+
+      const prompts = fs
+        .readFileSync(logFile, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const { t: _t, ...rest } = JSON.parse(line) as { method: string; params?: { prompt?: Array<{ text?: string }> }; t?: number };
+          return rest;
+        })
+        .filter((event) => event.method === "session/prompt");
+      assert.deepEqual(prompts, [
+        { method: "session/prompt", params: { sessionId: session.id, prompt: [{ type: "text", text: "/rename Renamed from Jarvis" }] } },
+      ]);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("rejects while the session is busy unless the agent is native-steering (codex-style)", async () => {
+    // Keep the turn in flight long enough to observe the busy state.
+    const env = {
+      X_FAKE_AGENT_DELAY_MS: "600",
+      X_FAKE_AGENT_AVAILABLE_COMMANDS: JSON.stringify([{ name: "rename", description: "Rename session" }]),
+    };
+    const logFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "jb-rename-busy-")), "events.jsonl");
+
+    {
+      // Non-steering agent: busy gate holds — rename rejects, no extra prompt.
+      const backend = await newBackend({ ...env, X_FAKE_AGENT_EVENT_LOG_FILE: logFile });
+      try {
+        const session = await backend.createSession({ cwd: process.cwd() });
+        const turn = session.sendMessage("turn one");
+        const first = turn.next();
+        await new Promise((r) => setTimeout(r, 50));
+        await assert.rejects(
+          () => backend.renameSession(session.id, "Renamed while busy"),
+          /session is busy/,
+        );
+        await first;
+        const prompts = readPrompts(logFile);
+        assert.equal(prompts.length, 1, "no /rename prompt should be sent while busy");
+      } finally {
+        await backend.shutdown();
+      }
+    }
+
+    {
+      // Codex-style native-steering agent: mid-turn rename is allowed.
+      const logFile2 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "jb-rename-steer-")), "events.jsonl");
+      const backend = await newBackend({
+        ...env,
+        X_FAKE_AGENT_STEERING: "true",
+        X_FAKE_AGENT_EVENT_LOG_FILE: logFile2,
+      });
+      try {
+        const session = await backend.createSession({ cwd: process.cwd() });
+        const turn = session.sendMessage("turn one");
+        const first = turn.next();
+        await new Promise((r) => setTimeout(r, 50));
+        await backend.renameSession(session.id, "Renamed while busy");
+        await first;
+        const prompts = readPrompts(logFile2);
+        assert.equal(prompts.length, 2, "the /rename prompt should be sent even while busy");
+        assert.ok(
+          prompts.some((p) => p.params?.prompt?.[0]?.text === "/rename Renamed while busy"),
+          "expected the /rename prompt on the wire",
+        );
+      } finally {
+        await backend.shutdown();
+      }
+    }
+  });
+});
+
+function readPrompts(logFile: string): Array<{ method: string; params?: { prompt?: Array<{ type?: string; text?: string }> } }> {
+  return fs
+    .readFileSync(logFile, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const { t: _t, ...rest } = JSON.parse(line);
+      return rest;
+    })
+    .filter((event) => event.method === "session/prompt");
+}
+
 describe("AcpAgentSession.sendMessage — streaming", () => {
   test("emits text-start, text-delta, tool-call-start + finalized + tool-return, usage", async () => {
     const backend = await newBackend({
@@ -966,6 +1076,38 @@ describe("AcpAgentBackend.queryUsage", () => {
       const rateLimits = await backend.queryUsage();
       assert.equal(rateLimits?.five_hour?.utilization, 0.55);
       assert.equal(rateLimits?.five_hour?.resetsAtText, "Jul 16 at 9am (UTC)");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("Codex usage uses the configured adapter's bundled CLI without codex on PATH", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [path.resolve("test/fixtures/fake-codex-adapter.cjs")],
+      cwd: process.cwd(),
+      kind: "codex-acp",
+      env: { ...process.env, PATH: "", CODEX_PATH: "" },
+    });
+    try {
+      assert.equal(backend.capabilities.usageQuery, true);
+      const limits = await backend.queryUsage();
+      assert.equal(limits?.three_hour?.utilization, 0.44);
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
+  test("Codex usage honors an explicit CODEX_PATH instead of falling back to the adapter", async () => {
+    const backend = await AcpAgentBackend.spawn({
+      command: process.execPath,
+      args: [path.resolve("test/fixtures/fake-codex-adapter.cjs")],
+      cwd: process.cwd(),
+      kind: "codex-acp",
+      env: { ...process.env, CODEX_PATH: "/missing-codex-usage-test/codex" },
+    });
+    try {
+      await assert.rejects(() => backend.queryUsage(), { code: "ENOENT" });
     } finally {
       await backend.shutdown();
     }

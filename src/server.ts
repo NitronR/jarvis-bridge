@@ -540,9 +540,9 @@ export function createServer(opts: CreateServerOptions): Express {
     }
   }));
 
-  // On-demand subscription rate-limit query — shells out to a one-off `claude
-  // --print "/usage"` CLI invocation (see src/agent/acp/claudeUsage.ts). Only
-  // supported when the resolved session's backend advertises usageQuery.
+  // On-demand subscription rate-limit query. Claude uses `claude --print
+  // "/usage"`; Codex uses `codex app-server` (see src/agent/acp/*Usage.ts).
+  // Only supported when the resolved session's backend advertises usageQuery.
   app.get("/chat/usage", smallJson, asyncRoute(async (req, res) => {
     const q = UsageQuerySchema.parse(req.query);
     const entry = await resolveSessionEntry(registry, q.sessionId, opts.sessionConfig);
@@ -650,6 +650,21 @@ export function createServer(opts: CreateServerOptions): Express {
     if (body.pinned !== undefined) patch.pinned = body.pinned;
     if (body.group !== undefined) patch.group = body.group ?? null;
     if (opts.sessionConfig) await opts.sessionConfig.setMetadata(sid, patch);
+    // A custom title is always a gateway-owned display override. Some agents
+    // can also persist it in their own session record; mirror there when the
+    // backend advertises that operation, but never make a backend limitation
+    // erase or reject the local rename.
+    if (typeof body.customTitle === "string" && body.customTitle.trim()) {
+      const entry = await resolveSessionEntry(registry, sid, opts.sessionConfig);
+      if (entry?.backend.renameSession) {
+        try {
+          await entry.backend.renameSession(sid, body.customTitle);
+        } catch {
+          // Local metadata is the authoritative UI value. Backend mirroring is
+          // deliberately best-effort so a transient agent failure is harmless.
+        }
+      }
+    }
     const merged = opts.sessionConfig?.getMetadata(sid) ?? cur;
     res.json({ ok: true, sessionId: sid, metadata: { ...merged, sessionId: sid } });
   }));
@@ -1009,4 +1024,3 @@ const SetDefaultBackendBodySchema = z.object({ name: z.string().min(1) });
 const CreateGroupBodySchema = z.object({ name: z.string().trim().min(1).max(100) });
 
 const StreamQuerySchema = z.object({ sessionId: z.string() });
-

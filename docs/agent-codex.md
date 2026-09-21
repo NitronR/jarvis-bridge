@@ -138,20 +138,38 @@ cancel-and-run-next queueing, which drains only after the current turn ends). Th
 session steered with `POST /chat/steer` returned `{ accepted: true }` and the steered
 prompt appeared as a new user turn with assistant output on the next replay.
 
+**Session rename mirror.** When the user renames a session in the gateway UI, jarvis sends
+`/rename <title>` as a `session/prompt` so the backend's own session list (e.g. `codex
+--continue`, the Codex app) picks up the new title. Gate: only when the agent advertises a
+builtin `rename` command via `available_commands_update` (dropped silently when the agent
+doesn't), and — because codex intercepts `/rename` client-side via `threadSetName` — the
+busy gate in `renameSession` is relaxed for `capabilities.nativeSteering` backends, so a
+mid-turn rename is allowed (queueing backends keep the gate: a mid-turn prompt would
+cancel-and-run-next). Renames consume **zero model quota**. **Confirmed live (2026-09-12)**:
+`/rename <title>` worked on an idle session and mid-turn (no cancel, both turns completed),
+emitting `session_info_update { title }`, with the title persisted in `session/list`.
+
 ---
 
 ## 6. Usage / tokens
 
 `usage_update` notifications flow through `mapping.ts` for free (context/token usage, the
-Composer status line). The on-demand rate-limit **Usage button** (`queryUsage`) stays off:
-it's gated on `kind === "claude-acp"` because it shells out to a separate CLI
-(`claude --print "/usage"`); no Codex equivalent is wired. See Non-goals.
+Composer status line). The on-demand rate-limit **Usage button** (`queryUsage`) is also
+enabled: it launches a short-lived `codex app-server`, performs the app-server initialize
+handshake, then calls `account/rateLimits/read`. The result is normalized into the shared
+usage meters based on the reported window durations (including three-hour, five-hour,
+and seven-day windows), with exact reset timestamps. The query uses `CODEX_PATH` when
+configured; otherwise it reuses the configured adapter command with `cli app-server`
+(for example, `npx -y @agentclientprotocol/codex-acp@latest cli app-server`). The adapter
+resolves its bundled Codex binary, so no standalone `codex` installation or gateway PATH
+entry is required. The usage subprocess inherits the backend environment, including
+`CODEX_HOME`. This passthrough was verified against codex-acp 1.11.0; custom wrappers must
+forward the `cli app-server` arguments, or set `CODEX_PATH` explicitly.
 
 ---
 
 ## Non-goals (see design spec for rationale)
 
-- `queryUsage` (usage button) for codex.
 - Interactive ACP `authenticate`/URL-elicitation login; rely on out-of-band `codex login`.
 - Goal / async-task / review extension surface (`_meta.goal`, AIR extension).
 - Native subagent-session negotiation (falls back to ordinary ACP tool calls).
@@ -173,6 +191,9 @@ existing `~/.codex` API-key login. All confirmed:
 - `DELETE /chat/sessions/:id` → 200, and re-resume 404s (session gone). Delete works.
 - `POST /chat/steer` → `{ accepted: true }`; replay then shows the steered prompt as a new
   user turn with assistant output. Native mid-turn steering works.
+- Session rename mirror → `/rename` sent as `session/prompt`; works idle and mid-turn
+  (busy gate relaxed for `nativeSteering`), `session_info_update { title }` emitted, title
+  persisted in `session/list`; zero model quota (confirmed 2026-09-12).
 - **Gotcha found:** steering `_meta` is top-level, not under `agentCapabilities` — see §3.
 
 Not probed: the unsigned-user "auth required" path (the local login is valid). Expected to

@@ -14,6 +14,7 @@ export interface InfoPanelProps {
 }
 
 const RATE_LIMIT_LABELS: Record<string, string> = {
+  three_hour: "Session (3h)",
   five_hour: "Session (5h)",
   seven_day: "Week",
   seven_day_opus: "Week (Opus)",

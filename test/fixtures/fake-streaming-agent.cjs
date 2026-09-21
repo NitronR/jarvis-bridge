@@ -146,6 +146,14 @@ try {
   replayUpdates = [];
 }
 
+let availableCommands = [];
+try {
+  const raw = process.env.X_FAKE_AGENT_AVAILABLE_COMMANDS;
+  if (raw) availableCommands = JSON.parse(raw);
+} catch {
+  availableCommands = [];
+}
+
 let elicitationRequest = null;
 try {
   const raw = process.env.X_FAKE_AGENT_ELICITATION_REQUEST;
@@ -345,11 +353,27 @@ rl.on("line", async (line) => {
         agentInfo: { name: "fake-agent", version: "0.0.1" },
       });
       break;
-    case "session/new":
+    case "session/new": {
+      const sessionId = makeSessionId();
       reply(msg.id, claudeStyleConfig
-        ? { sessionId: makeSessionId(), modes, configOptions }
-        : { sessionId: makeSessionId(), configOptions });
+        ? { sessionId, modes, configOptions }
+        : { sessionId, configOptions });
+      // Real codex replies to session/new first and publishes the command list
+      // afterwards, once its skills process has responded — the client can only
+      // match the notification to a session that already exists. Emit after the
+      // reply so the fixture mirrors that ordering.
+      if (availableCommands.length > 0) {
+        emit({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId,
+            update: { sessionUpdate: "available_commands_update", availableCommands },
+          },
+        });
+      }
       break;
+    }
     case "session/load": {
       const sid = msg.params?.sessionId ?? makeSessionId();
       if (sessionLoadError) {

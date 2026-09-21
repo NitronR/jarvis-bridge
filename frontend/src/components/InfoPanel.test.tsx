@@ -95,6 +95,19 @@ describe("<InfoPanel>", () => {
     expect(screen.getByText("$0.42")).toBeInTheDocument();
   });
 
+  it("labels Codex's three-hour window consistently with Claude's session window", () => {
+    renderPanel(
+      <InfoPanel
+        {...baseProps}
+        usage={{
+          requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+          rate_limits: { three_hour: { status: "allowed", utilization: 0.12 } },
+        }}
+      />,
+    );
+    expect(screen.getByText("Session (3h)")).toBeInTheDocument();
+  });
+
   it("falls back to status text when a rate-limit window has no utilization", () => {
     renderPanel(
       <InfoPanel

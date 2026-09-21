@@ -14,8 +14,8 @@ export interface AgentCapabilities {
   sessionDelete: boolean;
   promptQueueing: boolean;
   // On-demand subscription rate-limit query (see AgentBackend.queryUsage) —
-  // true only for backends that can shell out to a CLI that supports it
-  // (currently just Claude).
+  // true only for backends that can query account usage from their CLI
+  // (currently Claude and Codex).
   usageQuery: boolean;
 }
 
@@ -120,6 +120,9 @@ export interface AgentBackend {
   setSessionModel?(sessionId: string, modelId: string): Promise<void>;
   getSessionConfigOptions?(sessionId: string): SessionConfigOption[] | null;
   setSessionConfigOption?(sessionId: string, configId: string, value: string): Promise<void>;
+  // Optional backend-native title update. The gateway keeps customTitle as its
+  // own persisted display override even when a backend cannot mirror it.
+  renameSession?(sessionId: string, title: string): Promise<void>;
   getSlashCommands?(): Array<{ name: string; description?: string }>;
   deleteSession?(sessionId: string): Promise<void>;
 

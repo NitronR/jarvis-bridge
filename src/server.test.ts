@@ -640,6 +640,30 @@ test("PATCH /chat/sessions/:id stores customTitle metadata", async () => {
   }));
 });
 
+test("PATCH /chat/sessions/:id forwards a non-empty customTitle to a supporting backend", async () => {
+  await withServer(async (ws) => {
+    const backend = new FakeBackend();
+    const renames: Array<{ sessionId: string; title: string }> = [];
+    backend.renameSession = async (sessionId: string, title: string) => {
+      renames.push({ sessionId, title });
+    };
+    return {
+      backend,
+      fn: async (url) => {
+        const initRes = await fetch(`${url}/chat/init`);
+        const { sessionId } = (await initRes.json()) as { sessionId: string };
+        const res = await fetch(`${url}/chat/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ customTitle: "Codex-backed title" }),
+        });
+        assert.equal(res.status, 200);
+        assert.deepEqual(renames, [{ sessionId, title: "Codex-backed title" }]);
+      },
+    };
+  });
+});
+
 test("GET /chat/init returns the stored customTitle after a rename (within same instance)", async () => {
   await withServer(async (ws) => ({
     backend: new FakeBackend(),

@@ -121,6 +121,7 @@ export class FakeBackend implements AgentBackend {
   public currentModelBySession = new Map<string, string>();
   public configValuesBySession = new Map<string, Map<string, string>>();
   public setSessionConfigOption?: (sessionId: string, configId: string, value: string) => Promise<void>;
+  public renameSession?: (sessionId: string, title: string) => Promise<void>;
   public autoApproveDefault = false;
   public autoApproveOverrides = new Map<string, boolean>();
   public queryUsage?: () => Promise<UsageTotals["rate_limits"] | null>;

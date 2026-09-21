@@ -12,6 +12,7 @@ import {
 } from "./jsonrpc";
 import { buildAcpPrompt } from "./prompt-content";
 import { queryClaudeUsageViaCli } from "./claudeUsage";
+import { queryCodexUsageViaAppServer } from "./codexUsage";
 import {
   acpUpdateToPatches,
   elicitationSchemaToFields,
@@ -132,12 +133,9 @@ export class AcpAgentBackend implements AgentBackend {
       images: false,
       sessionDelete: false,
       promptQueueing: false,
-      // Not part of the ACP handshake (nothing to negotiate — it's a fact
-      // about shelling out to a second, independent CLI process, not this
-      // connection's protocol capabilities), so this is the one capability
-      // decided from the static `kind` config rather than connect()'s
-      // negotiated response. See claudeUsage.ts for why.
-      usageQuery: this.kind === "claude-acp",
+      // Not part of the ACP handshake: Claude and Codex expose account usage
+      // from a separate CLI process, independent of this ACP connection.
+      usageQuery: this.kind === "claude-acp" || this.kind === "codex-acp",
     };
   }
 
@@ -577,6 +575,28 @@ export class AcpAgentBackend implements AgentBackend {
     this.sessionObjects.delete(sessionId);
   }
 
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx) throw new Error("unknown session");
+    // Native-steering agents (Codex) intercept `/rename` client-side via
+    // `threadSetName` — sending it mid-turn is safe and does not disturb the
+    // running turn (confirmed live against codex-acp 1.11.0). Queueing agents
+    // (Claude/opencode) treat any mid-turn prompt as cancel-and-run-next, so
+    // the busy gate stays for them.
+    if (ctx.busy && !this.capabilities.nativeSteering) throw new Error("session is busy");
+    // Codex ACP advertises `/rename` through available_commands_update and
+    // intercepts its normal ACP session/prompt request. Use that advertised
+    // command instead of assuming a non-standard `session/set_title` RPC.
+    const canRename = ctx.state.slashCommands.some((command) =>
+      command.name.replace(/^\//, "").toLowerCase() === "rename",
+    );
+    if (!canRename) throw new Error("session rename not supported by this agent");
+    await this.conn.sendRequest("session/prompt", {
+      sessionId,
+      prompt: [{ type: "text", text: `/rename ${title}` }],
+    });
+  }
+
   getSession(sessionId: string): AgentSession | null {
     return this.sessionObjects.get(sessionId) ?? null;
   }
@@ -673,8 +693,20 @@ export class AcpAgentBackend implements AgentBackend {
 
   async queryUsage(): Promise<UsageTotals["rate_limits"] | null> {
     if (!this.capabilities.usageQuery) return null;
-    const executable = this.cfg.env?.CLAUDE_CODE_EXECUTABLE || "claude";
-    return queryClaudeUsageViaCli({ executable, cwd: this.cfg.cwd, env: this.cfg.env });
+    if (this.kind === "claude-acp") {
+      const executable = this.cfg.env?.CLAUDE_CODE_EXECUTABLE || "claude";
+      return queryClaudeUsageViaCli({ executable, cwd: this.cfg.cwd, env: this.cfg.env });
+    }
+    const codexPath = (this.cfg.env ?? process.env).CODEX_PATH;
+    // codex-acp bundles Codex and exposes it through `cli`. Reuse the
+    // configured launcher (including npx/package version) when no override
+    // exists: the gateway's own PATH need not contain a standalone codex.
+    return queryCodexUsageViaAppServer({
+      executable: codexPath || this.cfg.command,
+      args: codexPath ? [] : [...this.cfg.args, "cli"],
+      cwd: this.cfg.cwd,
+      env: this.cfg.env,
+    });
   }
 
   // ── Healthcheck ──────────────────────────────────────────────────────
