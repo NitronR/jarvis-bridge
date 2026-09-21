@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -12,6 +12,13 @@ import { createSettingsStore } from "./agent/settingsStore";
 import type { BackendProfile } from "./agent/backendConfig";
 
 const FAKE_AGENT = path.resolve(process.cwd(), "test/fixtures/fake-streaming-agent.cjs");
+
+beforeEach(() => {
+  process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = "0";
+});
+afterEach(() => {
+  delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
+});
 
 async function mkWorkspace(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-server-"));
@@ -1416,6 +1423,27 @@ test("GET /chat/init returns activeTurn:true and skips loadSession while a turn 
       },
     };
   });
+});
+
+test("GET /chat/init resumes quietly when no live update arrives during the probe window", async () => {
+  const probe = process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
+  process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = "150";
+  const sessionId = "sess-quiet-probe";
+  try {
+    await withServer(async (ws) => ({
+      backend: new FakeBackend({ initialSessionId: sessionId, loadableSessions: { [sessionId]: ws } }),
+      fn: async (url) => {
+        const res = await fetch(`${url}/chat/init?sessionId=${sessionId}`);
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as { activeTurn: boolean; resumed: boolean };
+        assert.equal(body.resumed, true);
+        assert.equal(body.activeTurn, false, "a quiet backend must not be reported active");
+      },
+    }));
+  } finally {
+    if (probe === undefined) delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
+    else process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = probe;
+  }
 });
 
 test("POST /chat/pick-folder returns cancelled=true when the user cancels the dialog", async () => {

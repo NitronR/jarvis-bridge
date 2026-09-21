@@ -612,7 +612,7 @@ git commit -m "feat(acp): retire passive turns on quiet grace, exempt from idle 
 
 Goal: `/chat/init` resume passes `passiveProbeMs` into `loadSession`; the probe defaults to ~1s and is disableable via env; model/config re-apply is skipped for a session that came back busy with a live passive turn; the server test suite defaults the probe OFF so the existing tests stay fast.
 
-- [ ] **Step 1: Write the failing test (quiet backend, bounded probe)**
+- [x] **Step 1: Write the failing test (quiet backend, bounded probe)**
 
 Add to `src/server.test.ts` (after the existing resume tests ~line 984):
 
@@ -641,7 +641,7 @@ test("GET /chat/init resumes quietly when no live update arrives during the prob
 
 (If the env is not yet wired, `backend.loadSession(sessionId, { cwd })` receives no probe and the test would pass spuriously — so add the gate assertion below and, in Step 2, first run it against a server.ts that has NOT yet been changed to confirm it still passes and mark this task accordingly; the REAL regression guard is the +1s timeout, which we don't wait for here. To make the test meaningfully fail pre-implementation, we rely on Step 3's assertion that the probe actually happened: after the fix, this test passes; before the fix it also passes fast. Therefore the discriminating new test is the default-1s one — see the note in Step 3 — plus the fast-suite guard below.)
 
-- [ ] **Step 2: Add the probe-disabled default for the existing suite**
+- [x] **Step 2: Add the probe-disabled default for the existing suite**
 
 In `src/server.test.ts`, add file-level `beforeEach`/`afterEach` so every existing `withServer` test skips the probe (otherwise each `/chat/init` slowly waits the ~1s default):
 
@@ -656,7 +656,7 @@ afterEach(() => {
 
 Place these at the top of the file with the other imports/setup. Run the full server suite: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test src/server.test.ts` — it must stay green and not gain ~1s per init test.
 
-- [ ] **Step 3: Implement `getPassiveTurnProbeMs` + init wiring + config gate**
+- [x] **Step 3: Implement `getPassiveTurnProbeMs` + init wiring + config gate**
 
 **`src/server.ts`** — add at module scope (near `InitQuerySchema`/other top-level helpers):
 
@@ -707,11 +707,11 @@ Then wrap the storedModel / storedConfig re-apply (currently lines ~141–160) s
 
 **Discriminating check:** temporarily run `GET /chat/init?sessionId=S` (the Task 6-style real-subprocess setup is in the next task) with the probe env unset on a quiet resume and confirm it takes ~1s; with the env now honored, the Task 6 busy test asserts `activeTurn: true` — the probe being wired is what makes promotion visible to the server, and the quiet test in Step 1 pins the bounded-no-op behavior.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register --test --test-name-pattern="probe" src/server.test.ts` (the Step 1 test) — PASS. Run the full server suite and `npm run typecheck` — clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server.ts src/server.test.ts

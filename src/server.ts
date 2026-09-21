@@ -121,7 +121,7 @@ export function createServer(opts: CreateServerOptions): Express {
       } else if (backend.loadSession) {
         console.log(`[INIT] loadSession sessionId=${q.sessionId} cwd=${effectiveCwd}`);
         try {
-          session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd });
+          session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd, passiveProbeMs: getPassiveTurnProbeMs() });
         } catch (err) {
           // The agent doesn't have this session (deleted, or belongs to a cwd
           // we couldn't resolve). Answer inside the JSON contract so the
@@ -139,23 +139,29 @@ export function createServer(opts: CreateServerOptions): Express {
           await opts.sessionConfig?.setSessionCwd(q.sessionId, effectiveCwd);
         }
         const storedModel = opts.sessionConfig?.getModelOverride(q.sessionId);
-        console.log(`[INIT]   storedModel=${storedModel ?? "(none)"}`);
-        if (storedModel) {
-          try {
-            await backend.setSessionModel?.(q.sessionId, storedModel);
-            console.log(`[INIT]   re-applied model ${storedModel}`);
-          } catch (e) {
-            console.log(`[INIT]   re-apply failed: ${e instanceof Error ? e.message : e}`);
-          }
-        }
-        // Best-effort by design: a stale override for an option the agent no
-        // longer reports must not fail the resume.
         const storedConfig = opts.sessionConfig?.getConfigOverrides(q.sessionId) ?? {};
-        for (const [configId, value] of Object.entries(storedConfig)) {
-          try {
-            await backend.setSessionConfigOption?.(q.sessionId, configId, value);
-          } catch (e) {
-            console.log(`[INIT]   re-apply ${configId}=${value} failed: ${e instanceof Error ? e.message : e}`);
+        if (!session.getActiveTurn?.()) {
+          // A passive turn was promoted during the probe — the agent is busy in
+          // this session. Re-applying model/config into a streaming passive turn
+          // is the same hazard loadSession used to have (see docs/acp-notes.md),
+          // so leave the running turn alone.
+          console.log(`[INIT]   storedModel=${storedModel ?? "(none)"}`);
+          if (storedModel) {
+            try {
+              await backend.setSessionModel?.(q.sessionId, storedModel);
+              console.log(`[INIT]   re-applied model ${storedModel}`);
+            } catch (e) {
+              console.log(`[INIT]   re-apply failed: ${e instanceof Error ? e.message : e}`);
+            }
+          }
+          // Best-effort by design: a stale override for an option the agent no
+          // longer reports must not fail the resume.
+          for (const [configId, value] of Object.entries(storedConfig)) {
+            try {
+              await backend.setSessionConfigOption?.(q.sessionId, configId, value);
+            } catch (e) {
+              console.log(`[INIT]   re-apply ${configId}=${value} failed: ${e instanceof Error ? e.message : e}`);
+            }
           }
         }
         resumed = true;
@@ -933,6 +939,12 @@ function asyncRoute(handler: AsyncRoute) {
 }
 
 // ── Zod schemas ───────────────────────────────────────────────────────
+
+function getPassiveTurnProbeMs(): number {
+  const raw = process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 1000;
+}
 
 const InitQuerySchema = z.object({
   sessionId: z.string().optional(),
