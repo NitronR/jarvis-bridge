@@ -1,7 +1,8 @@
 # Detecting and streaming a backend-active session that jarvis didn't start (passive turn promotion)
 
-Status: draft
+Status: implemented
 Date: 2026-09-21
+Implemented: 2026-09-21
 
 ## Problem
 
@@ -163,3 +164,16 @@ agent emits session/update ─► handleSessionUpdate
   Codex that a busy session keeps emitting post-replay notifications inside the probe
   window, and whether loadSession replays a partially-streamed in-flight message (drives
   the double-up heuristic above).
+
+Verification record (2026-09-21): the promotion chain is now proven end-to-end at the
+server layer (`src/server.test.ts`'s `GET /chat/init promotes a passive turn for a
+backend-busy session...` test, Task 6): a real subprocess that goes busy after load keeps
+emitting post-replay notifications mid-probe, init reports `activeTurn: true` with the
+buffered tail, `/chat/stream` replays "one two three" then closes on the synthesized
+`done`, and a second refresh takes the resident fast-path with no second `session/load`.
+That test uses `X_FAKE_AGENT_SESSION_LIST` so `findSession` can locate the session and
+Phase 3's fast path actually engages (the fixture's `session/new` doesn't register into
+`session/list`). Still manual/pending: the live per-backend wire-shape probe for the real
+opencode / Claude / Codex CLIs (refresh a browser tab while an outside CLI turn is
+running; confirm whether each agent replays a partially-streamed in-flight message, which
+drives the `useChat.ts:126-145` double-up heuristic).
