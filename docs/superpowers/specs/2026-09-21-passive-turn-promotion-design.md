@@ -174,6 +174,16 @@ buffered tail, `/chat/stream` replays "one two three" then closes on the synthes
 That test uses `X_FAKE_AGENT_SESSION_LIST` so `findSession` can locate the session and
 Phase 3's fast path actually engages (the fixture's `session/new` doesn't register into
 `session/list`). Still manual/pending: the live per-backend wire-shape probe for the real
-opencode / Claude / Codex CLIs (refresh a browser tab while an outside CLI turn is
-running; confirm whether each agent replays a partially-streamed in-flight message, which
-drives the `useChat.ts:126-145` double-up heuristic).
+opencode / Codex CLIs (refresh a browser tab while an outside CLI turn is running; confirm
+whether each agent replays a partially-streamed in-flight message, which drives the
+`useChat.ts:126-145` double-up heuristic).
+
+**Claude wire-shape gap confirmed live (2026-09-23), and fixed:** a refresh of a fully
+completed conversation could come back "active" with nothing ever streaming, for up to the
+full `JARVIS_BRIDGE_IDLE_TURN_GRACE_MS` window (5 minutes by default) — a lone post-load
+update (stray replay artifact) is structurally indistinguishable from case (c)'s real
+post-done continuation signal, since ACP has no status RPC. Mitigated, not eliminated: a
+passive turn now only earns the full grace once a second update corroborates it; an unproven
+single update retires on a short leash instead. See `docs/acp-notes.md`'s "Passive turn
+promotion: a lone update can't be told apart from real post-done work" for the full trace and
+`src/agent/acp/index.ts`'s `armPassiveGrace`/`getPassiveTurnInitialGraceMs`.

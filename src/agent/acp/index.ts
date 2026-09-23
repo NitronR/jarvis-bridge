@@ -95,6 +95,10 @@ interface SessionContext {
     idleTimer: NodeJS.Timeout | null;
     origin: "send" | "passive";
     graceTimer: NodeJS.Timeout | null;
+    // Passive-only: number of distinct onPatch deliveries. A lone update is
+    // structurally indistinguishable from a real post-done continuation, so it
+    // only earns the full idle-turn-grace once a second update corroborates it.
+    updateCount?: number;
   } | null;
   passiveTurnWaiter: (() => void) | null;
 }
@@ -973,6 +977,12 @@ function getIdleTurnGraceMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 5 * 60 * 1000;
 }
 
+function getPassiveTurnInitialGraceMs(): number {
+  const raw = process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS;
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 3000;
+}
+
 const MESSAGE_PART_UPDATE_KINDS = new Set([
   "agent_message_chunk",
   "agent_thought_chunk",
@@ -995,9 +1005,11 @@ function promotePassiveTurn(ctx: SessionContext, drainTurnQueue: () => void): vo
     idleTimer: null as NodeJS.Timeout | null,
     origin: "passive" as const,
     graceTimer: null as NodeJS.Timeout | null,
+    updateCount: 0,
   };
   ctx.activeTurn = turn;
   ctx.onPatch = (patches) => {
+    turn.updateCount = (turn.updateCount ?? 0) + 1;
     for (const patch of patches) {
       turn.patches.push(patch);
       turn.viewerCallback?.(patch);
@@ -1013,7 +1025,15 @@ function promotePassiveTurn(ctx: SessionContext, drainTurnQueue: () => void): vo
 function armPassiveGrace(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>, drainTurnQueue: () => void): void {
   if (turn.origin !== "passive") return;
   if (turn.graceTimer) clearTimeout(turn.graceTimer);
-  turn.graceTimer = setTimeout(() => retirePassiveTurn(ctx, turn, drainTurnQueue), getIdleTurnGraceMs());
+  // ACP has no status RPC, so a single promoted update can't be told apart
+  // from a genuine post-done continuation (see docs/acp-notes.md). Only grant
+  // the full idle-turn-grace once a second update corroborates real ongoing
+  // work; an unproven single update gets a short leash so a false positive
+  // self-corrects in seconds instead of sitting "active" for the full window.
+  const fullGraceMs = getIdleTurnGraceMs();
+  const graceMs =
+    (turn.updateCount ?? 0) > 1 ? fullGraceMs : Math.min(getPassiveTurnInitialGraceMs(), fullGraceMs);
+  turn.graceTimer = setTimeout(() => retirePassiveTurn(ctx, turn, drainTurnQueue), graceMs);
 }
 
 function retirePassiveTurn(ctx: SessionContext, turn: NonNullable<SessionContext["activeTurn"]>, drainTurnQueue: () => void): void {

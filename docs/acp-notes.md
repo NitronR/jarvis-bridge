@@ -564,6 +564,40 @@ the bug only shows up once patches keep streaming in after the one-shot patch, n
 quick manual test. Regression tests: `Timeline.test.tsx` → "does not re-emit
 elicitation-request/approval-request when later patches stream in after resolution".
 
+## Passive turn promotion: a lone update can't be told apart from real post-done work
+
+Confirmed live against Claude (2026-09-23): a refresh of a fully completed conversation
+occasionally came back "active" again with nothing ever streaming, staying that way for
+minutes. Root cause is inherent to the passive-turn-promotion design (see
+`docs/superpowers/specs/2026-09-21-passive-turn-promotion-design.md`): `handleSessionUpdate`
+promotes *any* message-part update that arrives once `ctx.captureReplay` is false and there's
+no `activeTurn` into a live passive turn — the same rule that correctly detects case (c),
+"agent keeps working after jarvis said done" (e.g. a Claude `Task` subagent finishing after
+the visible answer already streamed — see `docs/oss-exploration/claude-agent-acp-exploration.md`'s
+`Turn.deferredSettle` note). ACP has no status RPC, so a single stray/duplicate notification
+left over from `session/load`'s own replay is **structurally identical** to that signal —
+there is no wire-level way to tell "one leftover echo" from "genuine ongoing work" from a
+single update alone. Traced in detail: `waitForReplayIdle`'s timing thresholds can't fix this
+either — session/load's response only arrives once the agent has finished streaming replay
+notifications, so the race is a lone *post-reply* update, not a truncated in-flight replay;
+widening the quiet-gap would just delay the same ambiguity, not resolve it (and the existing
+"busy-sid" test in `index.test.ts` already encodes a same-shaped single/multi-update-after-load
+burst as the *correct* promotion case, so a purely timing-based fix cannot special-case one
+without breaking the other).
+
+Given the signal can't be disambiguated, the fix (`src/agent/acp/index.ts`) shrinks the blast
+radius of a wrong guess instead: a promoted passive turn only earns the full
+`getIdleTurnGraceMs()` window (`JARVIS_BRIDGE_IDLE_TURN_GRACE_MS`, default 5 minutes) once a
+**second** distinct update (`turn.updateCount > 1`) corroborates it as real sustained work.
+A still-unproven single-update turn instead gets `getPassiveTurnInitialGraceMs()`
+(`JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS`, default 3s, capped at the full grace so
+existing tests that override the full grace to something smaller are unaffected), so a false
+positive self-corrects in seconds instead of sitting "active" with no new content for minutes.
+Real multi-update background work (subagents, multi-step tool use) is unaffected — it
+graduates to the full grace exactly as before. Regression tests: `index.test.ts` → "a single
+stray passive update retires quickly even when the idle-turn-grace is large" and "a second
+update graduates a passive turn to the full idle-turn-grace".
+
 ## Verifying replay end-to-end
 
 The fastest way to check this mechanism still works after touching `loadSession`,

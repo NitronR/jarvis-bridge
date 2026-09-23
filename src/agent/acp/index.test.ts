@@ -322,6 +322,66 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
     }
   });
 
+  // Regression: a lone message-part update arriving just after `session/load`'s
+  // reply (a stray/duplicate replay artifact, or a genuine one-off) is
+  // structurally indistinguishable from a real post-done continuation — ACP has
+  // no status RPC to tell them apart. Before this fix, ANY promotion armed the
+  // full JARVIS_BRIDGE_IDLE_TURN_GRACE_MS window (production default: 5 minutes),
+  // so a false positive left the UI showing "active" for minutes with nothing
+  // ever streaming. Now a still-unproven single update gets a short leash
+  // (JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS) so it self-corrects quickly.
+  test("a single stray passive update retires quickly even when the idle-turn-grace is large", async () => {
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "5000";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS = "150";
+    const backend = await newBackend({
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "stray" } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("lone-stray-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+      assert.ok(session.getActiveTurn(), "the lone update should still promote a passive turn");
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline && session.getActiveTurn()) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      assert.equal(
+        session.getActiveTurn(),
+        null,
+        "an unproven single-update passive turn must retire on the short initial grace, not the full 5s idle-turn-grace",
+      );
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS;
+      await backend.shutdown();
+    }
+  });
+
+  test("a second update graduates a passive turn to the full idle-turn-grace", async () => {
+    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "5000";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS = "150";
+    const backend = await newBackend({
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "two " } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("graduate-sid", { cwd: process.cwd(), passiveProbeMs: 5000 }) as AcpAgentSession;
+      // Past the short initial grace, but the second update should have
+      // graduated the turn to the full (5s) grace, so it must still be live.
+      await new Promise((r) => setTimeout(r, 400));
+      assert.ok(
+        session.getActiveTurn(),
+        "a corroborated (2nd update) passive turn must survive past the short initial grace",
+      );
+    } finally {
+      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS;
+      await backend.shutdown();
+    }
+  });
+
   test("passive promotion does not fire for replay-captured updates", async () => {
     const backend = await newBackend({
       X_FAKE_AGENT_REPLAY_UPDATES: JSON.stringify([
