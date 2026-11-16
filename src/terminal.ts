@@ -91,6 +91,10 @@ export function attachTerminalServer(opts: AttachOpts): AttachHandle {
         try { term.kill(); } catch { /* ignore */ }
       }
       tracked.clear();
+      // wss.close() waits for connected clients. Do not depend on a PTY exit
+      // notification to close them: the process may ignore the signal or its
+      // exit callback may never arrive.
+      for (const client of wss.clients) client.terminate();
       await new Promise<void>((r) => wss.close(() => r()));
     },
   };
