@@ -1,8 +1,10 @@
 # Detecting and streaming a backend-active session that jarvis didn't start (passive turn promotion)
 
-Status: implemented
+Status: implemented, disabled by default
 Date: 2026-09-21
 Implemented: 2026-09-21
+Feature flag: `JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED` (default off — see
+`docs/acp-notes.md` "Passive turn promotion" section)
 
 ## Problem
 

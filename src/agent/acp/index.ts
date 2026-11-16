@@ -292,7 +292,7 @@ export class AcpAgentBackend implements AgentBackend {
     // didn't start (external CLI turn, gateway restart mid-turn, post-done
     // continuation). Promote a passive activeTurn so this update stream buffers
     // instead of being silently dropped, and a refresh can attach to it.
-    if (!ctx.captureReplay && !ctx.activeTurn && isMessagePartUpdate(update)) {
+    if (isPassiveTurnPromotionEnabled() && !ctx.captureReplay && !ctx.activeTurn && isMessagePartUpdate(update)) {
       promotePassiveTurn(ctx, () => this.sessionObjects.get(sid)?.drainTurnQueue());
     }
 
@@ -981,6 +981,12 @@ function getPassiveTurnInitialGraceMs(): number {
   const raw = process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS;
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 3000;
+}
+
+// Passive turn promotion is opt-in: default off pending more live-backend
+// probes (see docs/acp-notes.md and the 2026-09-21 design doc).
+function isPassiveTurnPromotionEnabled(): boolean {
+  return process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED === "true";
 }
 
 const MESSAGE_PART_UPDATE_KINDS = new Set([

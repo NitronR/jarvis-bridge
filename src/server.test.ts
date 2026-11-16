@@ -1777,9 +1777,11 @@ test("GET /chat/init promotes a passive turn for a backend-busy session; /chat/s
   const ws = await mkWorkspace();
   const probe = process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
   const grace = process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+  const enabled = process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
   const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
   process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = "2000";
   process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "500";
+  process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
   let server: import("node:http").Server | undefined;
   let registry: import("./agent/backendRegistry").BackendRegistry | undefined;
   try {
@@ -1893,5 +1895,7 @@ test("GET /chat/init promotes a passive turn for a backend-busy session; /chat/s
     else process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS = probe;
     if (grace === undefined) delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
     else process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = grace;
+    if (enabled === undefined) delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
+    else process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = enabled;
   }
 });

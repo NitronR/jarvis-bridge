@@ -294,8 +294,26 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
     }
   });
 
+  test("loadSession never promotes a passive activeTurn while JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED is unset (default off)", async () => {
+    delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
+    const backend = await newBackend({
+      X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "two " } },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "three" } },
+      ]),
+    });
+    try {
+      const session = await backend.loadSession("flag-off-sid", { cwd: process.cwd(), passiveProbeMs: 300 }) as AcpAgentSession;
+      assert.equal(session.getActiveTurn(), null, "a busy backend must not promote a passive turn while the feature flag is off");
+    } finally {
+      await backend.shutdown();
+    }
+  });
+
   test("loadSession promotes a passive activeTurn while the backend is busy and buffers the live tail", async () => {
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = String(60 * 1000);
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
         { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
@@ -318,6 +336,7 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
       assert.equal(text, "one two three");
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
     }
   });
@@ -333,6 +352,7 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
   test("a single stray passive update retires quickly even when the idle-turn-grace is large", async () => {
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "5000";
     process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS = "150";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
         { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "stray" } },
@@ -353,6 +373,7 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
       delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
     }
   });
@@ -360,6 +381,7 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
   test("a second update graduates a passive turn to the full idle-turn-grace", async () => {
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "5000";
     process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS = "150";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
         { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
@@ -378,6 +400,7 @@ describe("AcpAgentBackend.loadSession — replay capture", () => {
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
       delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_INITIAL_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
     }
   });
@@ -767,6 +790,7 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
 
   test("a passive turn synthesizes done and retires after a quiet window, then a later update promotes fresh", async () => {
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "100";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
         { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "one " } },
@@ -803,6 +827,7 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
       assert.equal(session.getActiveTurn(), null, "after all quiet, the passive turn must be retired");
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
     }
   });
@@ -810,6 +835,7 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
   test("the idle reaper never cancels a passive turn", async () => {
     const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "50";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
         { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } },
@@ -835,6 +861,7 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
       assert.equal(session.getActiveTurn(), null, "the turn should still retire peacefully after quiet");
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
       fs.rmSync(eventLogFile, { force: true });
     }
@@ -842,6 +869,7 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
 
   test("deleteSession clears an armed passive grace timer so no stray done is delivered after delete", async () => {
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "100";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_SESSION_DELETE: "true",
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
@@ -864,12 +892,14 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
       );
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
     }
   });
 
   test("a sendMessage queued behind a live passive turn drains once the passive turn retires", async () => {
     process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "100";
+    process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED = "true";
     const backend = await newBackend({
       X_FAKE_AGENT_PROMPT_QUEUEING: "true",
       X_FAKE_AGENT_AFTER_LOAD_UPDATES: JSON.stringify([
@@ -894,6 +924,7 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
       assert.ok(doneSeen, "the queued sendMessage must be drained by the passive turn's retirement");
     } finally {
       delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
+      delete process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED;
       await backend.shutdown();
     }
   });

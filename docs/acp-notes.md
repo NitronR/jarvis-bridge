@@ -598,6 +598,16 @@ graduates to the full grace exactly as before. Regression tests: `index.test.ts`
 stray passive update retires quickly even when the idle-turn-grace is large" and "a second
 update graduates a passive turn to the full idle-turn-grace".
 
+Given that live-agent false-positive above, passive turn promotion is now gated behind
+`JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED` (opt-in: only the literal string `"true"`
+enables it; unset/anything else — the shipped default — leaves it off). Two call sites gate
+on it independently and must be kept in sync: `promotePassiveTurn`'s call in
+`handleSessionUpdate` (`src/agent/acp/index.ts`) skips promotion entirely when disabled, and
+`GET /chat/init` (`src/server.ts`) passes `passiveProbeMs: 0` instead of
+`getPassiveTurnProbeMs()` so a disabled flag doesn't still pay the ~1s probe wait on every
+refresh. Regression test: `index.test.ts` → "loadSession never promotes a passive activeTurn
+while JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED is unset (default off)".
+
 ## Verifying replay end-to-end
 
 The fastest way to check this mechanism still works after touching `loadSession`,

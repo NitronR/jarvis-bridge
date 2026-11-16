@@ -121,7 +121,10 @@ export function createServer(opts: CreateServerOptions): Express {
       } else if (backend.loadSession) {
         console.log(`[INIT] loadSession sessionId=${q.sessionId} cwd=${effectiveCwd}`);
         try {
-          session = await backend.loadSession(q.sessionId, { cwd: effectiveCwd, passiveProbeMs: getPassiveTurnProbeMs() });
+          session = await backend.loadSession(q.sessionId, {
+            cwd: effectiveCwd,
+            passiveProbeMs: isPassiveTurnPromotionEnabled() ? getPassiveTurnProbeMs() : 0,
+          });
         } catch (err) {
           // The agent doesn't have this session (deleted, or belongs to a cwd
           // we couldn't resolve). Answer inside the JSON contract so the
@@ -944,6 +947,13 @@ function getPassiveTurnProbeMs(): number {
   const raw = process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROBE_MS;
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n >= 0 ? n : 1000;
+}
+
+// Mirrors src/agent/acp/index.ts's isPassiveTurnPromotionEnabled() — default
+// off. Gating the probe too (not just the promotion itself) avoids paying the
+// ~1s /chat/init wait for a promotion that can never happen while disabled.
+function isPassiveTurnPromotionEnabled(): boolean {
+  return process.env.JARVIS_BRIDGE_PASSIVE_TURN_PROMOTION_ENABLED === "true";
 }
 
 const InitQuerySchema = z.object({
