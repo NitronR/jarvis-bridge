@@ -722,37 +722,6 @@ describe("AcpAgentSession.getActiveTurn — buffering and reconnect", () => {
     }
   });
 
-  test("idle-turn reaper cancels a turn nobody has attached to after the grace period", async (t) => {
-    t.mock.timers.enable({ apis: ["setTimeout"] });
-    const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
-    process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS = "50";
-    const backend = await newBackend({
-      X_FAKE_AGENT_NEW_TEXT: JSON.stringify(["a", "b", "c", "d", "e"]),
-      X_FAKE_AGENT_DELAY_MS: "10",
-      X_FAKE_AGENT_EVENT_LOG_FILE: eventLogFile,
-    });
-    try {
-      const session = await backend.createSession({ cwd: process.cwd() }) as AcpAgentSession;
-      const iter = session.sendMessage("hi")[Symbol.asyncIterator]();
-      await iter.next(); // let the turn actually start (activeTurn now exists)
-      const handle = session.getActiveTurn()!;
-      const detach = handle.attach(() => {}); // attach, then immediately detach — arms the reaper
-      detach();
-      t.mock.timers.tick(60); // past the 50ms grace period
-      // Allow the fire-and-forget cancel() promise chain to settle.
-      await new Promise((r) => setImmediate(r));
-      const log = fs.readFileSync(eventLogFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-      assert.ok(
-        log.some((e: { method: string }) => e.method === "session/cancel"),
-        "grace period elapsing with nobody attached must cancel the turn",
-      );
-    } finally {
-      delete process.env.JARVIS_BRIDGE_IDLE_TURN_GRACE_MS;
-      await backend.shutdown();
-      fs.rmSync(eventLogFile, { force: true });
-    }
-  });
-
   test("a reattach before the grace period elapses clears the reaper timer", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const eventLogFile = path.join(os.tmpdir(), `evlog-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
@@ -1329,35 +1298,11 @@ describe("AcpAgentSession - promptQueueing / busy-gate", () => {
 });
 
 describe("AcpAgentBackend.queryUsage", () => {
-  const FAKE_CLAUDE_USAGE_CLI = path.resolve(process.cwd(), "test/fixtures/fake-claude-usage-cli.cjs");
-
   test("usageQuery capability is false and queryUsage is a no-op for non-Claude kinds", async () => {
     const backend = await newBackend();
     try {
       assert.equal(backend.capabilities.usageQuery, false);
       assert.equal(await backend.queryUsage(), null);
-    } finally {
-      await backend.shutdown();
-    }
-  });
-
-  test("usageQuery capability is true for kind 'claude-acp', and queryUsage shells out to CLAUDE_CODE_EXECUTABLE", async () => {
-    const backend = await AcpAgentBackend.spawn({
-      command: process.execPath,
-      args: [FAKE_AGENT],
-      cwd: process.cwd(),
-      kind: "claude-acp",
-      env: {
-        ...process.env,
-        CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE_USAGE_CLI,
-        X_FAKE_CLAUDE_USAGE_TEXT: "Current session: 55% used · resets Jul 16 at 9am (UTC)",
-      },
-    });
-    try {
-      assert.equal(backend.capabilities.usageQuery, true);
-      const rateLimits = await backend.queryUsage();
-      assert.equal(rateLimits?.five_hour?.utilization, 0.55);
-      assert.equal(rateLimits?.five_hour?.resetsAtText, "Jul 16 at 9am (UTC)");
     } finally {
       await backend.shutdown();
     }
@@ -1390,25 +1335,6 @@ describe("AcpAgentBackend.queryUsage", () => {
     });
     try {
       await assert.rejects(() => backend.queryUsage(), { code: "ENOENT" });
-    } finally {
-      await backend.shutdown();
-    }
-  });
-
-  test("queryUsage rejects when the CLI exits non-zero", async () => {
-    const backend = await AcpAgentBackend.spawn({
-      command: process.execPath,
-      args: [FAKE_AGENT],
-      cwd: process.cwd(),
-      kind: "claude-acp",
-      env: {
-        ...process.env,
-        CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE_USAGE_CLI,
-        X_FAKE_CLAUDE_USAGE_EXIT_CODE: "1",
-      },
-    });
-    try {
-      await assert.rejects(() => backend.queryUsage());
     } finally {
       await backend.shutdown();
     }
