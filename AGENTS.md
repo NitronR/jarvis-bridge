@@ -9,6 +9,7 @@ to a React (Vite) frontend in `frontend/`.
 Backend (repo root):
 ```
 npm run dev          # ts-node src/index.ts
+npm run dev:demo     # same, in demo mode: scripted mock agent, no real backend (see below)
 npm run build         # tsc -> dist/
 npm run typecheck     # tsc --noEmit
 npm test              # node --test over src/**/*.test.ts + scripts/**/*.test.js (TS_NODE_TRANSPILE_ONLY=true)
@@ -126,6 +127,30 @@ button picks the transport via `capabilities.nativeSteering`. See
   `JARVIS_BRIDGE_API_LOGS_DIR` are read nowhere in `src/`, and `logsDir` isn't threaded
   through `backendPool.ts`'s `getOrCreate`. Don't assume traffic logs exist until this is
   actually hooked into `AcpConnection` in `src/agent/acp/jsonrpc.ts`.
+
+## Demo mode
+
+`npm run dev:demo` (`--demo` flag, or `JARVIS_BRIDGE_DEMO=true`) replaces `agents.json` with a
+single `demo` profile (kind `demo-acp`) that spawns `src/demo/mockAcpAgent.ts`. That is a real
+ACP subprocess scripted by `demo/demo-config.json` (override with `JARVIS_BRIDGE_DEMO_CONFIG`),
+so everything from `AcpAgentBackend` upward runs production code. A scenario is picked by the
+chat's first message (`firstMessage`, case/whitespace-insensitive), then `responses[n]` plays
+for the n-th message, whatever it says. Past the last response, one message gets a "no more
+scripted responses" text note; every prompt after that fails with a "start a new chat" error
+(`ended` in the mock agent). Only the first message can pick a scenario. An unmatched
+first message fails `session/prompt` with a JSON-RPC error listing the triggers, which the UI shows
+as a normal error. Every later prompt in that session then fails with a "start a new chat" error
+(`matchFailed` in the mock agent). Failed turns are not recorded in the session's replay history,
+so a reload shows the chat empty; `session/load` clears `matchFailed` to match, letting the next
+message pick a scenario. Parts are `text` or display-only `tool_call`. Ask-user
+tool names (`AskUserQuestion`, `request_user_input`) send a form `elicitation/create` built from
+`input.questions`, i.e. the real question dialog, and playback resumes once it is answered or
+skipped. The config is validated at startup and re-read whenever a new chat picks its scenario.
+Demo state (settings, session metadata, logs) lives in `<systemDir>/demo/`, and sessions are
+in-memory in the mock agent. Authoring guide: `demo/README.md`. Under ts-node the mock agent is
+spawned with `-r ts-node/register/transpile-only` plus `TS_NODE_PROJECT` (absolute paths, since
+it runs in the chat's cwd); the compiled build runs `dist/demo/mockAcpAgent.js` directly.
+Prefer adding a scenario here over a real backend when you need to reproduce a UI flow.
 
 ## Code style
 

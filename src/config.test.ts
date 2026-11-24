@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "./config";
+import { DEFAULT_DEMO_CONFIG_PATH } from "./demo/config";
 
 function env(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
   return { ...overrides };
@@ -87,4 +88,33 @@ test("loadConfig: explicit JARVIS_BRIDGE_AGENTS_CONFIG still overrides the syste
     env({ JARVIS_BRIDGE_SYSTEM_DIR: "~/my-sys", JARVIS_BRIDGE_AGENTS_CONFIG: "./custom-agents.json" }),
   );
   assert.equal(cfg.agentsConfigPath, "./custom-agents.json");
+});
+
+test("loadConfig: demo mode is off by default", () => {
+  assert.equal(loadConfig(env({})).demo, undefined);
+  assert.equal(loadConfig(env({ JARVIS_BRIDGE_DEMO: "1" })).demo, undefined);
+});
+
+test("loadConfig: --demo / JARVIS_BRIDGE_DEMO=true enable demo mode with the bundled scenario file", () => {
+  for (const cfg of [loadConfig(env({}), ["--demo"]), loadConfig(env({ JARVIS_BRIDGE_DEMO: "true" }))]) {
+    assert.deepEqual(cfg.demo, { configPath: DEFAULT_DEMO_CONFIG_PATH });
+  }
+});
+
+test("loadConfig: demo mode keeps its state in a demo/ subdir of the system dir", () => {
+  const cfg = loadConfig(env({ JARVIS_BRIDGE_SYSTEM_DIR: "~/my-sys" }), ["--demo"]);
+  const demoDir = path.join(os.homedir(), "my-sys", "demo");
+  assert.equal(cfg.systemDir, demoDir);
+  assert.equal(cfg.logFile, path.join(demoDir, "logs", "gateway.log"));
+  // The workspace is untouched — the mock agent never writes to it.
+  assert.equal(cfg.workspace, path.join(os.homedir(), ".jarvis-bridge"));
+});
+
+test("loadConfig: JARVIS_BRIDGE_DEMO_CONFIG points demo mode at another scenario file", () => {
+  assert.deepEqual(loadConfig(env({ JARVIS_BRIDGE_DEMO_CONFIG: "~/demo.json" }), ["--demo"]).demo, {
+    configPath: path.join(os.homedir(), "demo.json"),
+  });
+  assert.deepEqual(loadConfig(env({ JARVIS_BRIDGE_DEMO_CONFIG: "rel/demo.json" }), ["--demo"]).demo, {
+    configPath: path.resolve("rel/demo.json"),
+  });
 });

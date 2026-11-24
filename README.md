@@ -65,8 +65,40 @@ The gateway listens on `http://localhost:3001` by default.
 `start.sh` runs both the backend and frontend dev servers together:
 
 ```bash
-./start.sh
+./start.sh          # or ./start.sh --demo for demo mode
 ```
+
+### Demo mode
+
+```bash
+npm run dev:demo
+```
+
+Runs the gateway against a scripted mock ACP agent instead of a real backend. There's no agent
+CLI, login or token cost, and replies are deterministic, which makes it good for demos and for
+testing UI flows like the question dialog. Scenarios live in `demo/demo-config.json`: each one
+is picked by the chat's first message and plays a fixed sequence of responses made of text and
+display-only tool calls. `AskUserQuestion` tool calls open the real question dialog. See
+[`demo/README.md`](demo/README.md) for the file format.
+
+**Available scenarios.** Start a new chat and send the trigger message as your first message
+(case and extra spaces don't matter). Each later message plays the scenario's next step,
+whatever you type. When the scenario runs out of steps, your next message gets a "no more
+scripted responses" note, and any message after that gets an error telling you to start a new
+chat for another scenario.
+
+| Scenario | Trigger message | What it shows |
+|---|---|---|
+| Hello | `hello` | Plain text replies. The first reply introduces the demo agent; your next message gets a markdown showcase (heading, list, link, table, code block). |
+| Question dialog | `ask me a question` | The `AskUserQuestion` dialog with a single-choice question (database). Submit or Skip and the reply continues. Your next message opens a dialog with several questions: multiple choice, a free-text field and "Other" boxes. |
+| Free-text user input | `need input` | Codex-style `request_user_input` with one free-text question (a commit message), followed by a `git commit` tool call. |
+| Tool calls | `fix the failing test` | A bug-fix run with read, search, edit and execute tool calls, including one that fails (`npm test`) and shows its error before the fix. |
+| Plan a feature | `plan a feature` | Multi-turn flow: a file search, a rollout question dialog, then a numbered plan. Your next message "implements" it with two edit tool calls. |
+
+Only the first message can start a scenario. If it doesn't match a trigger, the chat shows an
+error (red border, like other agent errors) listing the trigger messages, and every later message
+in that chat gets an error telling you to start a new chat. Failed messages aren't kept, so
+reloading that chat shows it empty, and its next message counts as the first message again.
 
 ### Production
 
@@ -120,6 +152,8 @@ All environment variables are documented in `.env.example`. Key ones:
 | `JARVIS_BRIDGE_SHELL` | Set `false` to disable the WebSocket terminal drawer |
 | `SLACK_BOT_TOKEN` | Enables `POST /slack/message` |
 | `JARVIS_BRIDGE_GATEWAY_URL` | Gateway URL used by the optional stdio MCP server |
+| `JARVIS_BRIDGE_DEMO` | `true` = demo mode, same as `--demo` (see [Demo mode](#demo-mode)) |
+| `JARVIS_BRIDGE_DEMO_CONFIG` | Demo scenario file (default `demo/demo-config.json`) |
 
 ## API reference
 
@@ -165,13 +199,14 @@ All environment variables are documented in `.env.example`. Key ones:
 | Script | Description |
 |---|---|
 | `npm run dev` | Run the gateway with `ts-node` |
+| `npm run dev:demo` | Run the gateway in demo mode with a scripted mock agent (`demo/demo-config.json`) |
 | `npm run setup` | Re-run backend auto-detect + config scaffolding (also runs automatically on `npm install`) |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Run the compiled gateway |
 | `npm run typecheck` | Type-check without emitting |
 | `npm test` | Run backend tests (`node --test`) |
 | `npm run dev:web` / `build:web` / `preview:web` / `test:web` | Frontend equivalents |
-| `./start.sh` | Run both backend and frontend dev servers together |
+| `./start.sh` | Run both backend and frontend dev servers together (`--demo` for demo mode) |
 
 ## Project layout
 
@@ -179,6 +214,7 @@ All environment variables are documented in `.env.example`. Key ones:
 src/
   agent/             ACP agent backend, backend pool, registry, session config
     acp/             ACP transport implementation + JSON-RPC wiring
+  demo/              Demo mode: scenario config loader + scripted mock ACP agent
   tools/             Sandboxed file tools exposed to the agent (read/write, path guard)
   config.ts          Env loading/validation
   index.ts           Entry point (startup sequence — see above)
@@ -190,6 +226,7 @@ frontend/            React SPA (Vite) — an npm workspace
   src/components/    UI components (ChatPanel, Composer, InfoPanel, TerminalDrawer, etc.)
   src/state/         ChatContext, ToastContext, useChat, useSSE
   src/styles/        Design tokens and global styles
+demo/                Demo mode scenario file (demo-config.json) + authoring guide
 docs/                Design specs, implementation plans, guidelines
   archives/          Historical session summaries and completed-phase notes
 scripts/             Setup automation (auto-detect backends, scaffold config)

@@ -5,6 +5,7 @@
 //   2. Ensure the workspace dir is ready (create if missing).
 //   3. Load backend profiles + the runtime default-backend setting, and the
 //      persisted session config (auto-approve default, session metadata).
+//      In demo mode (`--demo`) the only profile is the scripted mock agent.
 //   4. Initialize Backend Registry (spawns default backend).
 //   5. Healthcheck the default backend; on failure print an actionable hint and exit.
 //   6. Start the HTTP gateway.
@@ -15,16 +16,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config";
 import { initLogger, installConsoleOverride } from "./logger";
-import { loadBackendProfiles } from "./agent/backendConfig";
+import { loadBackendProfiles, type BackendProfile } from "./agent/backendConfig";
 import { createSettingsStore } from "./agent/settingsStore";
 import { createSessionConfigStore } from "./agent/sessionConfigStore";
 import { createBackendRegistry } from "./agent/backendRegistry";
 import { createServer } from "./server";
 import { createToolRegistry } from "./tools";
 import { attachTerminalServer } from "./terminal";
+import { loadDemoConfig } from "./demo/config";
+import { createDemoBackendProfile, DEMO_BACKEND_KIND } from "./demo";
 
 async function main(): Promise<void> {
-  const cfg = loadConfig();
+  const cfg = loadConfig(process.env, process.argv.slice(2));
 
   initLogger({ logFile: cfg.logFile });
   installConsoleOverride();
@@ -37,8 +40,21 @@ async function main(): Promise<void> {
   await fs.mkdir(path.join(cfg.systemDir, "config"), { recursive: true });
   console.log(`[jarvis-bridge] workspace ${cfg.workspace}`);
 
-  // 2. Load backend profiles + the runtime default-backend setting.
-  const profiles = await loadBackendProfiles(cfg.agentsConfigPath);
+  // 2. Load backend profiles + the runtime default-backend setting. Demo mode
+  // ignores agents.json entirely, so it works with no agent CLI installed.
+  let profiles: BackendProfile[];
+  if (cfg.demo) {
+    // Validate up front so a broken scenario file fails here with a readable
+    // message rather than as an opaque agent-spawn failure.
+    const demoConfig = await loadDemoConfig(cfg.demo.configPath);
+    console.log(
+      `[jarvis-bridge] DEMO MODE: scripted mock agent, ${demoConfig.scenarios.length} scenario(s) from ${cfg.demo.configPath}`,
+    );
+    console.log(`[jarvis-bridge] demo state dir ${cfg.systemDir}`);
+    profiles = [createDemoBackendProfile({ configPath: cfg.demo.configPath })];
+  } else {
+    profiles = await loadBackendProfiles(cfg.agentsConfigPath);
+  }
   const settings = await createSettingsStore({
     path: path.join(cfg.systemDir, "settings.json"),
     envDefault: cfg.defaultBackendEnv ?? profiles[0].name,
@@ -71,7 +87,12 @@ async function main(): Promise<void> {
       "[jarvis-bridge] agent healthcheck failed:",
       err instanceof Error ? err.message : String(err),
     );
-    if (defaultBackend.kind === "claude-acp") {
+    if (defaultBackend.kind === DEMO_BACKEND_KIND) {
+      console.error(
+        "[jarvis-bridge] hint: the demo mock agent did not respond — check the demo config file " +
+          `(${cfg.demo?.configPath}).`,
+      );
+    } else if (defaultBackend.kind === "claude-acp") {
       console.error(
         "[jarvis-bridge] hint: the Claude backend needs a pre-authenticated `claude` CLI login on this machine. " +
           "Run `npx @anthropic-ai/claude-code login` once in your terminal to authenticate, then retry. " +
